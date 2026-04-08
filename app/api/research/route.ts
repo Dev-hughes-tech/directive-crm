@@ -23,29 +23,33 @@ export async function POST(request: NextRequest) {
     const { address } = await request.json()
     if (!address) return NextResponse.json({ error: 'Address is required', data: null }, { status: 400 })
 
-    // ── PASS 1: Free research — let Claude search exactly like it does independently ──
-    const researchPrompt = `You are researching a real property address. Search thoroughly and report everything you find.
+    // ── PASS 1: Free research — let Claude think and search on its own ──
+    const researchPrompt = `You are a property research assistant. You have been given a real residential address. Your job is to find as much factual information about this property and its current owner as possible.
 
 Address: ${address}
 
-Run multiple web searches to find:
-1. Owner name — search county tax assessor, deed records, ingprobate.com land records (grantee on most recent deed = current owner), qpublic.net
-2. Owner phone — search fastpeoplesearch.com, truepeoplesearch.com, whitepages.com using the owner name + city/state once you have it
-3. Year built, market value, assessed value, parcel ID — county assessor or qpublic.net
-4. Last sale date and price — Zillow, Redfin, county records
-5. Any roof permits or roof replacement records
-6. Any notable flags (foreclosure, storm damage, liens, recent sale)
+USE YOUR OWN JUDGMENT to determine the best search strategy. Think about:
+- What state and county is this address in?
+- What public records systems exist for that county and state?
+- County tax assessor websites, property appraiser portals, deed/probate records
+- People search sites for phone numbers once you have an owner name
 
-Run at least 6 different searches. For Alabama addresses specifically:
-- qpublic.net has county assessor data including owner name
-- ingprobate.com is the Alabama probate/land records portal — searching the address there shows the deed grantee (= current owner)
-- Try: "[address] qpublic" and "[address] ingprobate" as specific queries
+Search strategy:
+1. Start by searching for the property address + "owner" or "property records" or "tax assessor"
+2. Search for "[county name] [state] property records" or "[county name] [state] tax assessor" to find the right government portal
+3. Search the address on those portals
+4. Once you have an owner name, search "[owner name] [city] [state] phone" on people search sites
+5. Search the address on real estate sites for market data
 
-Report ALL findings in plain text — what you found, where you found it, exact values.`
+You must run at least 6 separate web searches. Be resourceful — if one search doesn't work, try a different angle. Think like an investigator.
+
+For EACH piece of information you find, note exactly where you found it (the website/source).
+
+Report ALL findings in plain text — what you found, where you found it, exact values. Do not make up any data. If you can't find something, say so.`
 
     const researchResponse = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 10000,
+      max_tokens: 16000,
       tools: [{ type: 'web_search_20250305' as const, name: 'web_search' }],
       messages: [{ role: 'user', content: researchPrompt }],
     })
@@ -71,9 +75,9 @@ Extract the data into this exact JSON. Use ONLY values that appear explicitly in
 If a value was not found or is uncertain, use null — never guess or infer.
 
 CRITICAL RULES:
-- ownerName: must appear in research as the actual owner of this specific address. null if not found.
-- ownerPhone: must be a real phone number from the research. Format as XXX-XXX-XXXX. null if not found.
-- roofAgeYears: only from a roof permit or explicit "roof replaced [year]" statement. NEVER calculate from yearBuilt. null if not found.
+- ownerName: must appear in research as the actual current owner of this specific address. null if not found.
+- ownerPhone: must be a real phone number found in the research. Format as XXX-XXX-XXXX. null if not found.
+- roofAgeYears: only from a roof permit or explicit "roof replaced in [year]" statement. NEVER calculate from yearBuilt. null if not found.
 - marketValue / assessedValue / lastSalePrice: numbers only, no $ or commas. null if not found.
 - yearBuilt: integer between 1800 and 2026. null if not found.
 - sources: for each non-null field, record the website where that data was found.

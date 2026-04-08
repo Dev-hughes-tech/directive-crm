@@ -186,7 +186,7 @@ export default function Dashboard() {
   const [properties, setProperties] = useState<Property[]>([])
   const [mapCenter, setMapCenter] = useState({ lat: HQ_LAT, lng: HQ_LNG })
   const [mapZoom, setMapZoom] = useState(14)
-  const [mapMode, setMapMode] = useState<'dark' | 'satellite' | '3d'>('dark')
+  const [mapMode, setMapMode] = useState<'dark' | 'satellite' | '3d'>('satellite')
   const [loading, setLoading] = useState(true)
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
   const [chatInput, setChatInput] = useState('')
@@ -234,6 +234,10 @@ export default function Dashboard() {
   const [snappedPath, setSnappedPath] = useState<Array<{ lat: number; lng: number }>>([])
   const [pathTrackingActive, setPathTrackingActive] = useState(false)
 
+  // Dashboard search state
+  const [dashboardSearchMode, setDashboardSearchMode] = useState<'zip' | 'address'>('zip')
+  const [dashboardSearchQuery, setDashboardSearchQuery] = useState('')
+
   // StormScope state
   const [stormAddress, setStormAddress] = useState('')
   const [stormLoading, setStormLoading] = useState(false)
@@ -261,6 +265,7 @@ export default function Dashboard() {
   const [currentUserRole, setCurrentUserRole] = useState<'rep' | 'manager'>('rep')
   const [teamChatInput, setTeamChatInput] = useState('')
   const [unreadCount, setUnreadCount] = useState(0)
+  const [activeChannel, setActiveChannel] = useState<'general' | 'management'>('general')
 
   // Load properties on mount
   useEffect(() => {
@@ -335,6 +340,31 @@ export default function Dashboard() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
+
+  // GPS Path Tracking
+  useEffect(() => {
+    if (!pathTrackingActive) return
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setSweepPath(prev => [
+          ...prev,
+          {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          }
+        ])
+      },
+      (error) => {
+        console.error('Geolocation error:', error)
+      },
+      { enableHighAccuracy: true }
+    )
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId)
+    }
+  }, [pathTrackingActive])
 
   // Get accurate location from Google Geolocation API or browser GPS
   const getAccurateLocation = async (): Promise<{ lat: number; lng: number; accuracy?: number } | null> => {
@@ -709,15 +739,6 @@ export default function Dashboard() {
               geoJsonData={activeScreen === 'territory' ? mapGeoJson : null}
             />
 
-            {/* Map Mode Toggle Button - Page Level Z-index */}
-            {(activeScreen === 'territory' || activeScreen === 'stormscope') && (
-              <button
-                onClick={() => setMapMode(prev => prev === 'dark' ? 'satellite' : 'dark')}
-                className="absolute top-24 right-4 z-50 glass-sm px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-cyan transition-colors cursor-pointer rounded"
-              >
-                {mapMode === 'dark' ? '🛰 Satellite' : '🌙 Night'}
-              </button>
-            )}
           </>
         )}
       </div>
@@ -963,10 +984,24 @@ export default function Dashboard() {
           <div className="absolute right-4 top-56 bottom-16 w-72 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
             {/* Search Toggle */}
             <div className="flex gap-2 mb-4">
-              <button className="flex-1 text-xs font-semibold uppercase px-3 py-2 rounded-lg bg-cyan text-dark">
+              <button
+                onClick={() => setDashboardSearchMode('zip')}
+                className={`flex-1 text-xs font-semibold uppercase px-3 py-2 rounded-lg transition-all ${
+                  dashboardSearchMode === 'zip'
+                    ? 'bg-cyan text-dark'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
                 By ZIP Code
               </button>
-              <button className="flex-1 text-xs font-semibold uppercase px-3 py-2 rounded-lg text-gray-400 hover:text-white">
+              <button
+                onClick={() => setDashboardSearchMode('address')}
+                className={`flex-1 text-xs font-semibold uppercase px-3 py-2 rounded-lg transition-all ${
+                  dashboardSearchMode === 'address'
+                    ? 'bg-cyan text-dark'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
                 By Address
               </button>
             </div>
@@ -974,7 +1009,20 @@ export default function Dashboard() {
             {/* Search Input */}
             <input
               type="text"
-              placeholder="Search ZIP code or area..."
+              placeholder={dashboardSearchMode === 'zip' ? 'Enter ZIP code...' : 'Enter address...'}
+              value={dashboardSearchQuery}
+              onChange={(e) => setDashboardSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && dashboardSearchQuery.trim()) {
+                  if (dashboardSearchMode === 'zip') {
+                    setActiveScreen('territory')
+                    setTerritoryFilter('all')
+                  } else {
+                    setSweepAddress(dashboardSearchQuery)
+                    setActiveScreen('sweep')
+                  }
+                }
+              }}
               className="w-full bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 mb-3"
             />
 
@@ -1285,7 +1333,13 @@ export default function Dashboard() {
           {/* Selected Property Detail */}
           {selectedProperty && (
             <div className="absolute inset-4 top-20 z-30 flex items-center justify-center">
-              <div className="max-w-2xl w-full">
+              <div className="max-w-2xl w-full relative">
+                <button
+                  onClick={() => setSelectedProperty(null)}
+                  className="absolute top-4 right-4 z-40 p-2 hover:bg-dark-700 rounded-lg text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
                 <PropertyCard property={selectedProperty} />
               </div>
             </div>
@@ -1772,7 +1826,47 @@ export default function Dashboard() {
         <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
           {/* Left Panel: Client List */}
           <div className="w-1/3 glass rounded-lg p-6 flex flex-col">
-            <h2 className="text-lg font-semibold text-white mb-4">CRM Pipeline</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">CRM Pipeline</h2>
+              <div className="relative group">
+                <button className="p-1.5 rounded hover:bg-dark-700 text-cyan">
+                  <Plus className="w-5 h-5" />
+                </button>
+                <div className="absolute right-0 mt-1 w-48 bg-dark-800 border border-white/10 rounded-lg shadow-lg p-2 hidden group-hover:block z-50">
+                  <p className="text-xs text-gray-400 px-2 py-1 font-semibold">New Client from Property:</p>
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {properties
+                      .filter(p => !clients.some(c => c.property_id === p.id))
+                      .slice(0, 10)
+                      .map(prop => (
+                        <button
+                          key={prop.id}
+                          onClick={async () => {
+                            const newClient: Client = {
+                              id: crypto.randomUUID(),
+                              property_id: prop.id,
+                              status: 'new_lead',
+                              notes: '',
+                              last_contact: null,
+                              assigned_to: null,
+                              created_at: new Date().toISOString()
+                            }
+                            const updated = [...clients, newClient]
+                            setClients(updated)
+                            await saveClient(newClient)
+                          }}
+                          className="w-full text-left px-2 py-2 text-xs text-white hover:bg-dark-700 rounded transition-all"
+                        >
+                          {prop.address}
+                        </button>
+                      ))}
+                    {properties.filter(p => !clients.some(c => c.property_id === p.id)).length === 0 && (
+                      <p className="text-xs text-gray-500 px-2 py-2">All properties have clients</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
 
             {/* Status Filter */}
             <div className="flex gap-2 mb-4 flex-wrap">
@@ -2099,14 +2193,70 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody className="space-y-1">
-                        {['Tear-off & Disposal', 'Architectural Shingles (30yr)', 'Synthetic Underlayment', 'Ridge Cap', 'Drip Edge', 'Ice & Water Shield', 'Labor'].map((desc, idx) => {
-                          const lineItem = selectedProposal.line_items[idx] || { id: idx.toString(), description: desc, quantity: 0, unit: 'ea', unit_price: 0, total: 0 }
+                        {selectedProposal.line_items.map((lineItem) => {
                           return (
-                            <tr key={idx}>
-                              <td className="py-2 text-gray-300">{desc}</td>
-                              <td className="text-right"><input type="number" min="0" className="w-14 bg-dark-700 border border-white/10 rounded px-2 py-1" placeholder="0" /></td>
-                              <td className="text-right"><input type="number" min="0" className="w-20 bg-dark-700 border border-white/10 rounded px-2 py-1" placeholder="0" /></td>
-                              <td className="text-right text-cyan">$0</td>
+                            <tr key={lineItem.id}>
+                              <td className="py-2 text-gray-300">{lineItem.description}</td>
+                              <td className="text-right">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={lineItem.quantity}
+                                  onChange={(e) => {
+                                    const newQty = parseInt(e.target.value) || 0
+                                    const newTotal = newQty * lineItem.unit_price
+                                    const updated = {
+                                      ...selectedProposal,
+                                      line_items: selectedProposal.line_items.map(li =>
+                                        li.id === lineItem.id
+                                          ? { ...li, quantity: newQty, total: newTotal }
+                                          : li
+                                      ),
+                                      total: selectedProposal.line_items.reduce((sum, li) =>
+                                        sum + (li.id === lineItem.id ? newTotal : li.total), 0
+                                      )
+                                    }
+                                    setSelectedProposal(updated)
+                                    const idx = proposals.findIndex(p => p.id === selectedProposal.id)
+                                    const newProposals = [...proposals]
+                                    newProposals[idx] = updated
+                                    setProposals(newProposals)
+                                  }}
+                                  className="w-14 bg-dark-700 border border-white/10 rounded px-2 py-1 text-white"
+                                  placeholder="0"
+                                />
+                              </td>
+                              <td className="text-right">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={lineItem.unit_price}
+                                  onChange={(e) => {
+                                    const newPrice = parseFloat(e.target.value) || 0
+                                    const newTotal = lineItem.quantity * newPrice
+                                    const updated = {
+                                      ...selectedProposal,
+                                      line_items: selectedProposal.line_items.map(li =>
+                                        li.id === lineItem.id
+                                          ? { ...li, unit_price: newPrice, total: newTotal }
+                                          : li
+                                      ),
+                                      total: selectedProposal.line_items.reduce((sum, li) =>
+                                        sum + (li.id === lineItem.id ? newTotal : li.total), 0
+                                      )
+                                    }
+                                    setSelectedProposal(updated)
+                                    const idx = proposals.findIndex(p => p.id === selectedProposal.id)
+                                    const newProposals = [...proposals]
+                                    newProposals[idx] = updated
+                                    setProposals(newProposals)
+                                  }}
+                                  className="w-20 bg-dark-700 border border-white/10 rounded px-2 py-1 text-white"
+                                  placeholder="0"
+                                />
+                              </td>
+                              <td className="text-right text-cyan font-semibold">${lineItem.total.toFixed(2)}</td>
                             </tr>
                           )
                         })}
@@ -2174,7 +2324,10 @@ export default function Dashboard() {
                   >
                     Mark Sent
                   </button>
-                  <button disabled className="flex-1 bg-gray-700 text-gray-400 py-2 rounded-lg font-medium opacity-50">
+                  <button
+                    onClick={() => window.print()}
+                    className="flex-1 bg-amber/20 text-amber py-2 rounded-lg font-medium hover:bg-amber/30 transition-all"
+                  >
                     Export PDF
                   </button>
                 </div>
@@ -2240,6 +2393,100 @@ export default function Dashboard() {
               </button>
             </div>
 
+            {/* Add Material Form */}
+            {addingMaterial && (
+              <div className="mb-4 p-4 bg-dark-700/50 rounded-lg border border-white/10 space-y-3">
+                <h4 className="text-sm font-semibold text-white mb-3">New Material</h4>
+                <input
+                  id="mat-name"
+                  type="text"
+                  placeholder="Material name..."
+                  className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    id="mat-category"
+                    className="bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                  >
+                    <option value="">Category</option>
+                    <option value="shingles">Shingles</option>
+                    <option value="underlayment">Underlayment</option>
+                    <option value="flashing">Flashing</option>
+                    <option value="ventilation">Ventilation</option>
+                    <option value="fasteners">Fasteners</option>
+                    <option value="sealant">Sealant</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <select
+                    id="mat-unit"
+                    className="bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                  >
+                    <option value="">Unit</option>
+                    <option value="ea">Each</option>
+                    <option value="sq">Square</option>
+                    <option value="bundle">Bundle</option>
+                    <option value="roll">Roll</option>
+                    <option value="box">Box</option>
+                    <option value="lb">Pound</option>
+                  </select>
+                </div>
+                <input
+                  id="mat-cost"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Unit cost..."
+                  className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                />
+                <input
+                  id="mat-supplier"
+                  type="text"
+                  placeholder="Supplier..."
+                  className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      const name = (document.getElementById('mat-name') as HTMLInputElement).value
+                      const category = (document.getElementById('mat-category') as HTMLSelectElement).value
+                      const unit = (document.getElementById('mat-unit') as HTMLSelectElement).value
+                      const cost = parseFloat((document.getElementById('mat-cost') as HTMLInputElement).value) || 0
+                      const supplier = (document.getElementById('mat-supplier') as HTMLInputElement).value
+
+                      if (name && category && unit) {
+                        const newMaterial: Material = {
+                          id: crypto.randomUUID(),
+                          name,
+                          category: category as Material['category'],
+                          unit,
+                          unit_cost: cost,
+                          supplier,
+                          supplier_phone: null,
+                          notes: ''
+                        }
+                        const updated = [...materials, newMaterial]
+                        setMaterials(updated)
+                        await saveMaterial(newMaterial)
+                        setAddingMaterial(false)
+                        ;(document.getElementById('mat-name') as HTMLInputElement).value = ''
+                        ;(document.getElementById('mat-cost') as HTMLInputElement).value = ''
+                        ;(document.getElementById('mat-supplier') as HTMLInputElement).value = ''
+                      }
+                    }}
+                    className="flex-1 bg-cyan text-dark py-2 rounded font-medium hover:bg-cyan/90 text-sm"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setAddingMaterial(false)}
+                    className="flex-1 bg-dark-700/50 text-gray-400 py-2 rounded font-medium hover:text-white text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             {materials.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <p className="text-gray-400">No materials added yet. Add your first material to build your catalog.</p>
@@ -2293,7 +2540,12 @@ export default function Dashboard() {
               {['general', 'management'].map(channel => (
                 <button
                   key={channel}
-                  className="w-full text-left px-3 py-2 rounded-lg bg-dark-700/50 hover:bg-dark-700 text-white text-sm font-medium transition-all"
+                  onClick={() => setActiveChannel(channel as 'general' | 'management')}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                    activeChannel === channel
+                      ? 'bg-cyan text-dark'
+                      : 'bg-dark-700/50 hover:bg-dark-700 text-white'
+                  }`}
                 >
                   # {channel}
                 </button>
@@ -2307,29 +2559,31 @@ export default function Dashboard() {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto mb-4 space-y-3 pr-2">
-              {teamMessages.length === 0 ? (
+              {teamMessages.filter(msg => msg.channel === activeChannel).length === 0 ? (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-gray-400">No messages yet. Start the conversation!</p>
                 </div>
               ) : (
-                teamMessages.map(msg => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.sender_role === 'manager' ? 'justify-end' : 'justify-start'}`}
-                  >
+                teamMessages
+                  .filter(msg => msg.channel === activeChannel)
+                  .map(msg => (
                     <div
-                      className={`max-w-xs px-4 py-2 rounded-lg ${
-                        msg.sender_role === 'manager'
-                          ? 'bg-gold/20 text-gold'
-                          : 'bg-cyan/20 text-cyan'
-                      }`}
+                      key={msg.id}
+                      className={`flex ${msg.sender_role === 'manager' ? 'justify-end' : 'justify-start'}`}
                     >
-                      <p className="text-xs font-semibold mb-1">{msg.sender_name}</p>
-                      <p className="text-sm">{msg.message}</p>
-                      <p className="text-xs mt-1 opacity-60">{new Date(msg.timestamp).toLocaleTimeString()}</p>
+                      <div
+                        className={`max-w-xs px-4 py-2 rounded-lg ${
+                          msg.sender_role === 'manager'
+                            ? 'bg-gold/20 text-gold'
+                            : 'bg-cyan/20 text-cyan'
+                        }`}
+                      >
+                        <p className="text-xs font-semibold mb-1">{msg.sender_name}</p>
+                        <p className="text-sm">{msg.message}</p>
+                        <p className="text-xs mt-1 opacity-60">{new Date(msg.timestamp).toLocaleTimeString()}</p>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  ))
               )}
             </div>
 
