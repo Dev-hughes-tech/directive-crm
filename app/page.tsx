@@ -39,6 +39,7 @@ import { getClients, saveClients, getProposals, saveProposals, getMaterials, sav
 import PropertyGraph from '@/components/dashboard/PropertyGraph'
 
 const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false })
+import StreetView from '@/components/StreetView'
 
 // Huntsville AL coordinates (Directive CRM HQ)
 const HQ_LAT = 34.7304
@@ -214,6 +215,7 @@ export default function Dashboard() {
   // Territory state
   const [territoryFilter, setTerritoryFilter] = useState<'all' | 'hot' | 'researched'>('all')
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null)
+  const [showSatelliteSnapshot, setShowSatelliteSnapshot] = useState(false)
 
   // StormScope state
   const [stormAddress, setStormAddress] = useState('')
@@ -863,6 +865,15 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Satellite Snapshot Button */}
+              <button
+                onClick={() => setShowSatelliteSnapshot(true)}
+                className="w-full mb-4 bg-dark-700 hover:bg-dark-700/80 text-cyan text-sm px-3 py-2 rounded-lg transition-all flex items-center justify-center gap-2"
+              >
+                <span>📡</span>
+                Satellite Snapshot
+              </button>
+
               {/* ZIP Breakdown */}
               {properties.length > 0 && (
                 <div className="space-y-2">
@@ -934,6 +945,43 @@ export default function Dashboard() {
             <div className="absolute inset-4 top-20 z-30 flex items-center justify-center">
               <div className="max-w-2xl w-full">
                 <PropertyCard property={selectedProperty} />
+              </div>
+            </div>
+          )}
+
+          {/* Satellite Snapshot Modal */}
+          {showSatelliteSnapshot && (
+            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+              <div className="bg-dark-800 rounded-xl shadow-2xl max-w-3xl w-full mx-4 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-semibold text-white flex items-center gap-2">
+                    <span>📡</span>
+                    Satellite View
+                  </h3>
+                  <button
+                    onClick={() => setShowSatelliteSnapshot(false)}
+                    className="p-1 hover:bg-dark-700 rounded text-gray-400 hover:text-white transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {properties.length > 0 ? (
+                  <div className="space-y-4">
+                    <div className="text-sm text-gray-400 mb-2">
+                      Satellite view centered at {mapCenter.lat.toFixed(3)}°, {mapCenter.lng.toFixed(3)}°
+                    </div>
+                    <img
+                      src={`https://maps.googleapis.com/maps/api/staticmap?center=${mapCenter.lat},${mapCenter.lng}&zoom=16&size=800x600&maptype=satellite&key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}`}
+                      alt="Satellite view"
+                      className="w-full rounded-lg border border-white/10"
+                    />
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-400">
+                    <p>No properties in territory yet</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1353,6 +1401,15 @@ export default function Dashboard() {
                         <h2 className="text-xl font-semibold text-white">{prop?.address || '—'}</h2>
                         <p className="text-sm text-gray-400 mt-1">Owner: {prop?.owner_name || '—'}</p>
                       </div>
+
+                      {prop && (
+                        <StreetView
+                          lat={prop.lat}
+                          lng={prop.lng}
+                          address={prop.address}
+                          className="w-full h-48 mb-4 rounded-lg"
+                        />
+                      )}
 
                       <div className="grid grid-cols-2 gap-6 mb-6">
                         <div className="space-y-3">

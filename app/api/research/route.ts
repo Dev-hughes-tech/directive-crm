@@ -3,6 +3,24 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  const apiKey = process.env.MAPS_API_KEY
+  if (!apiKey) return null
+
+  try {
+    const encoded = encodeURIComponent(address)
+    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encoded}&key=${apiKey}`)
+    const data = await res.json()
+    if (data.status === 'OK' && data.results[0]) {
+      const { lat, lng } = data.results[0].geometry.location
+      return { lat, lng }
+    }
+  } catch {
+    // Geocoding failed, continue with original coordinates
+  }
+  return null
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { address } = await request.json()
@@ -69,7 +87,14 @@ Rules:
     if (data.assessedValue && typeof data.assessedValue !== 'number') data.assessedValue = null
     if (data.lastSalePrice && typeof data.lastSalePrice !== 'number') data.lastSalePrice = null
 
-    return NextResponse.json({ data, error: null })
+    // Geocode the address for precise coordinates
+    const geocoded = await geocodeAddress(address)
+    const responseData = {
+      ...data,
+      ...(geocoded ? { geocoded_lat: geocoded.lat, geocoded_lng: geocoded.lng } : {})
+    }
+
+    return NextResponse.json({ data: responseData, error: null })
   } catch (error) {
     console.error('/api/research error:', error)
     return NextResponse.json({ error: 'Research failed', data: null }, { status: 500 })
