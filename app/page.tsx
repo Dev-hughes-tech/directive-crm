@@ -39,6 +39,7 @@ import { getClients, saveClient, getProposals, saveProposal, getMaterials, saveM
 import PropertyGraph from '@/components/dashboard/PropertyGraph'
 
 const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false })
+const WeatherWidget = dynamic(() => import('@/components/WeatherWidget'), { ssr: false })
 import StreetView from '@/components/StreetView'
 import AerialView from '@/components/AerialView'
 
@@ -219,6 +220,14 @@ export default function Dashboard() {
     totalDurationMinutes: number
     googleMapsUrl: string
   } | null>(null)
+  const [mapGeoJson, setMapGeoJson] = useState<object | null>(null)
+  const [geoJsonMode, setGeoJsonMode] = useState<'off' | 'heatzone' | 'territory'>('off')
+  const [clientTimezone, setClientTimezone] = useState<{
+    localTime: string; timeZoneName: string; goodTimeToCall: boolean; callAdvice: string
+  } | null>(null)
+  const [sweepPath, setSweepPath] = useState<Array<{ lat: number; lng: number }>>([])
+  const [snappedPath, setSnappedPath] = useState<Array<{ lat: number; lng: number }>>([])
+  const [pathTrackingActive, setPathTrackingActive] = useState(false)
 
   // StormScope state
   const [stormAddress, setStormAddress] = useState('')
@@ -512,6 +521,51 @@ export default function Dashboard() {
     setSweepAddress('')
   }
 
+  // Handle GeoJSON overlay toggle
+  const handleGeoJsonToggle = async (type: 'territory' | 'heatzone') => {
+    if (geoJsonMode === type) { setGeoJsonMode('off'); setMapGeoJson(null); return }
+    const res = await fetch('/api/datasets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        properties: properties.map(p => ({
+          id: p.id,
+          lat: p.lat,
+          lng: p.lng,
+          score: calculateLeadScore(p),
+          roof_age_years: p.roof_age_years,
+          address: p.address
+        })),
+        type
+      })
+    })
+    const data = await res.json()
+    if (data.geojson) { setMapGeoJson(data.geojson); setGeoJsonMode(type) }
+  }
+
+  // Fetch client timezone when selected
+  useEffect(() => {
+    if (!selectedClient) { setClientTimezone(null); return }
+    const clientProp = properties.find(p => p.id === selectedClient.property_id)
+    if (!clientProp?.lat || !clientProp?.lng) return
+    fetch(`/api/timezone?lat=${clientProp.lat}&lng=${clientProp.lng}`)
+      .then(r => r.json())
+      .then(data => { if (!data.error) setClientTimezone(data) })
+      .catch(() => {})
+  }, [selectedClient, properties])
+
+  // Handle snap to roads
+  const handleSnapToRoads = async () => {
+    if (sweepPath.length < 2) return
+    const res = await fetch('/api/roads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: sweepPath, mode: 'snapToRoads' })
+    })
+    const data = await res.json()
+    if (data.snappedPoints) setSnappedPath(data.snappedPoints)
+  }
+
   // Handle Michael chat
   const handleSendChat = async () => {
     if (!chatInput.trim() || chatLoading) return
@@ -646,6 +700,7 @@ export default function Dashboard() {
               mode={mapMode}
               markers={activeScreen === 'territory' ? territoryMarkers : []}
               onModeChange={setMapMode}
+              geoJsonData={activeScreen === 'territory' ? mapGeoJson : null}
             />
 
             {/* Map Mode Toggle Button - Page Level Z-index */}
@@ -917,6 +972,11 @@ export default function Dashboard() {
               className="w-full bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 mb-3"
             />
 
+            {/* Weather Widget */}
+            <div className="border-t border-white/5 pt-3">
+              <WeatherWidget lat={HQ_LAT} lng={HQ_LNG} compact={false} />
+            </div>
+
             {/* Territory List */}
             <div className="space-y-2">
               {properties.length === 0 ? (
@@ -1051,6 +1111,32 @@ export default function Dashboard() {
                   <span>📍</span>
                   Sort by Distance
                 </button>
+              )}
+
+              {/* GeoJSON Toggle Buttons */}
+              {properties.length > 0 && (
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => handleGeoJsonToggle('territory')}
+                    className={`flex-1 text-xs px-3 py-1.5 rounded border transition-colors ${
+                      geoJsonMode === 'territory'
+                        ? 'bg-cyan-500/30 text-cyan-400 border-cyan-500/40'
+                        : 'bg-white/10 text-white/60 border-white/20 hover:bg-white/20'
+                    }`}
+                  >
+                    Territory Zone
+                  </button>
+                  <button
+                    onClick={() => handleGeoJsonToggle('heatzone')}
+                    className={`flex-1 text-xs px-3 py-1.5 rounded border transition-colors ${
+                      geoJsonMode === 'heatzone'
+                        ? 'bg-amber-500/30 text-amber-400 border-amber-500/40'
+                        : 'bg-white/10 text-white/60 border-white/20 hover:bg-white/20'
+                    }`}
+                  >
+                    Score Heatmap
+                  </button>
+                </div>
               )}
 
               {/* Plan Route Button */}
@@ -1258,6 +1344,35 @@ export default function Dashboard() {
                     Location accuracy: ±{Math.round(sweepLocationAccuracy)}m
                   </p>
                 )}
+
+                {/* Path Tracking */}
+                <div className="pt-3 border-t border-white/10">
+                  <button
+                    onClick={() => setPathTrackingActive(!pathTrackingActive)}
+                    className={`w-full text-sm px-3 py-2 rounded-lg transition-all flex items-center justify-center gap-2 ${
+                      pathTrackingActive
+                        ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-400'
+                        : 'bg-white/10 hover:bg-white/20 border border-white/20 text-white'
+                    }`}
+                  >
+                    <Navigation className="w-4 h-4" />
+                    {pathTrackingActive ? 'Stop Tracking' : 'Track My Path'}
+                  </button>
+                  {sweepPath.length >= 2 && (
+                    <button
+                      onClick={handleSnapToRoads}
+                      className="w-full mt-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-400 text-sm px-3 py-2 rounded-lg transition-all flex items-center justify-center gap-2"
+                    >
+                      <span>🗺</span>
+                      Snap to Roads ({sweepPath.length})
+                    </button>
+                  )}
+                  {snappedPath.length > 0 && (
+                    <p className="mt-2 text-xs text-green-400 text-center">
+                      ✓ Path snapped to {snappedPath.length} road points
+                    </p>
+                  )}
+                </div>
 
                 {sweepLoading && (
                   <div className="space-y-2 text-sm">
@@ -1720,6 +1835,25 @@ export default function Dashboard() {
                           address={prop.address}
                           className="w-full h-40 mb-4 rounded-lg"
                         />
+                      )}
+
+                      {/* Timezone & Weather Info */}
+                      {prop && clientTimezone && (
+                        <div className="mb-4 p-3 rounded-lg bg-dark-700/50">
+                          <div className={`text-xs px-2 py-1 rounded flex items-center gap-2 ${
+                            clientTimezone.goodTimeToCall ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
+                          }`}>
+                            <span>{clientTimezone.localTime} local</span>
+                            <span>•</span>
+                            <span>{clientTimezone.callAdvice}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {prop && (
+                        <div className="mb-4">
+                          <WeatherWidget lat={prop.lat} lng={prop.lng} compact={true} />
+                        </div>
                       )}
 
                       <div className="grid grid-cols-2 gap-6 mb-6">

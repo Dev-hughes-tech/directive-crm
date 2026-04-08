@@ -22,6 +22,7 @@ interface MapViewProps {
   mode?: 'dark' | 'satellite' | '3d'
   markers?: MapMarker[]
   onModeChange?: (mode: 'dark' | 'satellite' | '3d') => void
+  geoJsonData?: object | null
 }
 
 const containerStyle = {
@@ -37,7 +38,8 @@ export default function MapView({
   onMapClick,
   mode = 'satellite',
   markers = [],
-  onModeChange
+  onModeChange,
+  geoJsonData
 }: MapViewProps) {
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: process.env.NEXT_PUBLIC_MAPS_API_KEY || '',
@@ -76,6 +78,57 @@ export default function MapView({
       onModeChange?.('dark')
     }
   }, [mode, mapType, onModeChange])
+
+  // Handle GeoJSON data layer
+  useEffect(() => {
+    if (!mapRef.current || !geoJsonData) {
+      // Clear existing data layer
+      if (mapRef.current?.data) {
+        mapRef.current.data.forEach((feature: google.maps.Data.Feature) => {
+          mapRef.current?.data.remove(feature)
+        })
+      }
+      return
+    }
+
+    // Add GeoJSON to map
+    mapRef.current.data.addGeoJson(geoJsonData)
+
+    // Style the data layer
+    mapRef.current.data.setStyle((feature: google.maps.Data.Feature) => {
+      const color = feature.getProperty('color') as string || '#06b6d4'
+      const type = feature.getProperty('type') as string
+
+      if (type === 'territory') {
+        return {
+          fillColor: '#06b6d4',
+          fillOpacity: 0.08,
+          strokeColor: '#06b6d4',
+          strokeWeight: 2,
+          strokeOpacity: 0.6
+        } as google.maps.Data.StyleOptions
+      }
+
+      return {
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 12,
+          fillColor: color,
+          fillOpacity: 0.7,
+          strokeColor: '#fff',
+          strokeWeight: 1.5
+        }
+      } as google.maps.Data.StyleOptions
+    })
+
+    return () => {
+      if (mapRef.current?.data) {
+        mapRef.current.data.forEach((feature: google.maps.Data.Feature) => {
+          mapRef.current?.data.remove(feature)
+        })
+      }
+    }
+  }, [geoJsonData])
 
   if (loadError) {
     return (
