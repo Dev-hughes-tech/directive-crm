@@ -34,7 +34,7 @@ import {
   X,
 } from 'lucide-react'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage } from '@/lib/types'
-import type { Marker } from '@/components/map/MapView'
+import type { MapMarker } from '@/components/map/MapView'
 import { getClients, saveClient, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, markMessagesRead } from '@/lib/storage'
 import PropertyGraph from '@/components/dashboard/PropertyGraph'
 
@@ -447,7 +447,7 @@ export default function Dashboard() {
   }
 
   // Territory markers
-  const territoryMarkers: Marker[] = properties.map((p) => {
+  const territoryMarkers: MapMarker[] = properties.map((p) => {
     const score = calculateLeadScore(p)
     return {
       id: p.id,
@@ -468,25 +468,31 @@ export default function Dashboard() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-dark">
-      {/* Background Map */}
+      {/* Background */}
       <div className="absolute inset-0 z-0" style={{ isolation: 'isolate' }}>
-        <MapView
-          lat={mapCenter.lat}
-          lng={mapCenter.lng}
-          zoom={mapZoom}
-          mode={mapMode}
-          markers={activeScreen === 'territory' ? territoryMarkers : []}
-          onModeChange={setMapMode}
-        />
+        {activeScreen === 'dashboard' ? (
+          <div className="absolute inset-0 bg-[#0d1117]" style={{backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(6,182,212,0.06) 0%, transparent 60%)'}} />
+        ) : (
+          <>
+            <MapView
+              lat={mapCenter.lat}
+              lng={mapCenter.lng}
+              zoom={mapZoom}
+              mode={mapMode}
+              markers={activeScreen === 'territory' ? territoryMarkers : []}
+              onModeChange={setMapMode}
+            />
 
-        {/* Map Mode Toggle Button - Page Level Z-index */}
-        {(activeScreen === 'territory' || activeScreen === 'stormscope') && (
-          <button
-            onClick={() => setMapMode(prev => prev === 'dark' ? 'satellite' : 'dark')}
-            className="absolute top-24 right-4 z-50 glass-sm px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-cyan transition-colors cursor-pointer rounded"
-          >
-            {mapMode === 'dark' ? '🛰 Satellite' : '🌙 Night'}
-          </button>
+            {/* Map Mode Toggle Button - Page Level Z-index */}
+            {(activeScreen === 'territory' || activeScreen === 'stormscope') && (
+              <button
+                onClick={() => setMapMode(prev => prev === 'dark' ? 'satellite' : 'dark')}
+                className="absolute top-24 right-4 z-50 glass-sm px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-cyan transition-colors cursor-pointer rounded"
+              >
+                {mapMode === 'dark' ? '🛰 Satellite' : '🌙 Night'}
+              </button>
+            )}
+          </>
         )}
       </div>
 
