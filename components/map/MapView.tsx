@@ -41,16 +41,34 @@ export default function MapView({
   onModeChange,
   geoJsonData
 }: MapViewProps) {
-  const apiKey = process.env.NEXT_PUBLIC_MAPS_API_KEY || ''
+  // Fetch API key at runtime — avoids build-time baking issues
+  const [apiKey, setApiKey] = useState<string | null>(null)
 
-  // v2 — cache-busted 2026-04-08
+  useEffect(() => {
+    // Try env var first (works if build-time baking succeeded)
+    const envKey = process.env.NEXT_PUBLIC_MAPS_API_KEY
+    if (envKey) {
+      setApiKey(envKey)
+      return
+    }
+    // Fallback: fetch from server at runtime
+    fetch('/api/maps-key')
+      .then(r => r.json())
+      .then(d => { if (d.key) setApiKey(d.key) })
+      .catch(() => {})
+  }, [])
+
   const { isLoaded, loadError } = useJsApiLoader({
-    id: 'directive-crm-map',
-    googleMapsApiKey: apiKey,
+    id: 'directive-crm-map-v3',
+    googleMapsApiKey: apiKey ?? '',
+    // Don't attempt to load until we have the key
+    ...(apiKey === null ? { googleMapsApiKey: '__PENDING__' } : {}),
   })
 
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null)
-  const [mapType, setMapType] = useState<'roadmap' | 'satellite' | 'hybrid'>(mode === 'satellite' ? 'satellite' : 'roadmap')
+  const [mapType, setMapType] = useState<'roadmap' | 'satellite' | 'hybrid'>(
+    mode === 'satellite' ? 'satellite' : 'roadmap'
+  )
   const [tilt, setTilt] = useState(0)
   const [photoTileSession, setPhotoTileSession] = useState<string | null>(null)
   const [loadingPhotoTiles, setLoadingPhotoTiles] = useState(false)
@@ -81,28 +99,21 @@ export default function MapView({
       setMapType('roadmap')
       onModeChange?.('dark')
     }
-  }, [mode, mapType, onModeChange])
+  }, [mode])
 
   // Handle GeoJSON data layer
   useEffect(() => {
-    if (!mapRef.current || !geoJsonData) {
-      // Clear existing data layer
-      if (mapRef.current?.data) {
-        mapRef.current.data.forEach((feature: google.maps.Data.Feature) => {
-          mapRef.current?.data.remove(feature)
-        })
-      }
+    if (!mapRef.current) return
+    if (!geoJsonData) {
+      mapRef.current.data.forEach((feature: google.maps.Data.Feature) => {
+        mapRef.current?.data.remove(feature)
+      })
       return
     }
-
-    // Add GeoJSON to map
     mapRef.current.data.addGeoJson(geoJsonData)
-
-    // Style the data layer
     mapRef.current.data.setStyle((feature: google.maps.Data.Feature) => {
       const color = feature.getProperty('color') as string || '#06b6d4'
       const type = feature.getProperty('type') as string
-
       if (type === 'territory') {
         return {
           fillColor: '#06b6d4',
@@ -112,7 +123,6 @@ export default function MapView({
           strokeOpacity: 0.6
         } as google.maps.Data.StyleOptions
       }
-
       return {
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
@@ -124,7 +134,6 @@ export default function MapView({
         }
       } as google.maps.Data.StyleOptions
     })
-
     return () => {
       if (mapRef.current?.data) {
         mapRef.current.data.forEach((feature: google.maps.Data.Feature) => {
@@ -134,10 +143,19 @@ export default function MapView({
     }
   }, [geoJsonData])
 
+  // Still loading key
+  if (apiKey === null) {
+    return (
+      <div className={`flex items-center justify-center bg-[#0d1117] text-white/40 text-sm ${className}`}>
+        <div className="animate-pulse text-cyan-400">Connecting to maps...</div>
+      </div>
+    )
+  }
+
   if (loadError) {
     return (
       <div className={`flex items-center justify-center bg-[#0d1117] text-white/40 text-sm ${className}`}>
-        Map failed to load
+        Map failed to load — check API key
       </div>
     )
   }
@@ -159,7 +177,6 @@ export default function MapView({
 
   const handlePhotoMode = async () => {
     if (photoTileSession) {
-      // Already loaded, toggle off
       setPhotoTileSession(null)
       return
     }
@@ -174,11 +191,10 @@ export default function MapView({
 
   const handleMapLoad = (map: google.maps.Map) => {
     mapRef.current = map
-    // Wire up photo tiles overlay if session is active
-    if (photoTileSession && mapRef.current) {
+    if (photoTileSession && mapRef.current && apiKey) {
       const imageMapType = new google.maps.ImageMapType({
         getTileUrl: (coord, zoom) =>
-          `https://tile.googleapis.com/v1/2dtiles/${zoom}/${coord.x}/${coord.y}?session=${photoTileSession}&key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}`,
+          `https://tile.googleapis.com/v1/2dtiles/${zoom}/${coord.x}/${coord.y}?session=${photoTileSession}&key=${apiKey}`,
         tileSize: new google.maps.Size(256, 256),
         maxZoom: 22,
         minZoom: 0,
@@ -190,6 +206,7 @@ export default function MapView({
 
   return (
     <div className={`relative ${className}`}>
+      {/* Map controls — bottom right, clear of nav */}
       <div className="absolute bottom-6 right-4 z-10 flex gap-2">
         <button
           onClick={() => {
@@ -197,7 +214,7 @@ export default function MapView({
             setMapType(newMode)
             onModeChange?.(newMode === 'satellite' ? 'satellite' : 'dark')
           }}
-          className="bg-white/10 hover:bg-white/20 text-white text-xs px-3 py-1.5 rounded border border-white/20 transition-colors"
+          className="bg-black/60 hover:bg-black/80 text-white text-xs px-3 py-1.5 rounded border border-white/20 transition-colors backdrop-blur-sm"
         >
           {mapType === 'satellite' ? 'Map' : 'Satellite'}
         </button>
@@ -205,20 +222,20 @@ export default function MapView({
           <>
             <button
               onClick={handle3DToggle}
-              className="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs px-3 py-1.5 rounded border border-cyan-500/40 transition-colors"
+              className="bg-cyan-500/30 hover:bg-cyan-500/50 text-cyan-400 text-xs px-3 py-1.5 rounded border border-cyan-500/40 transition-colors backdrop-blur-sm"
             >
               {tilt === 45 ? '2D' : '3D'}
             </button>
             <button
               onClick={handlePhotoMode}
               disabled={loadingPhotoTiles}
-              className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+              className={`text-xs px-3 py-1.5 rounded border transition-colors backdrop-blur-sm ${
                 photoTileSession
-                  ? 'bg-cyan-500/30 hover:bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
-                  : 'bg-white/10 hover:bg-white/20 text-white border-white/20 disabled:opacity-50'
+                  ? 'bg-cyan-500/30 text-cyan-400 border-cyan-500/40'
+                  : 'bg-black/60 text-white border-white/20 disabled:opacity-50'
               }`}
             >
-              {loadingPhotoTiles ? 'Loading...' : 'Photo'}
+              {loadingPhotoTiles ? '...' : 'Photo'}
             </button>
           </>
         )}
