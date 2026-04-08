@@ -46,6 +46,8 @@ export default function MapView({
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null)
   const [mapType, setMapType] = useState<'roadmap' | 'satellite' | 'hybrid'>(mode === 'satellite' ? 'satellite' : 'roadmap')
   const [tilt, setTilt] = useState(0)
+  const [photoTileSession, setPhotoTileSession] = useState<string | null>(null)
+  const [loadingPhotoTiles, setLoadingPhotoTiles] = useState(false)
   const mapRef = useRef<google.maps.Map | null>(null)
 
   const center = { lat, lng }
@@ -98,8 +100,35 @@ export default function MapView({
     mapRef.current.setTilt(newTilt)
   }
 
+  const handlePhotoMode = async () => {
+    if (photoTileSession) {
+      // Already loaded, toggle off
+      setPhotoTileSession(null)
+      return
+    }
+    setLoadingPhotoTiles(true)
+    try {
+      const res = await fetch('/api/map-tiles-session', { method: 'POST' })
+      const data = await res.json()
+      if (data.session) setPhotoTileSession(data.session)
+    } catch { /* silent */ }
+    finally { setLoadingPhotoTiles(false) }
+  }
+
   const handleMapLoad = (map: google.maps.Map) => {
     mapRef.current = map
+    // Wire up photo tiles overlay if session is active
+    if (photoTileSession && mapRef.current) {
+      const imageMapType = new google.maps.ImageMapType({
+        getTileUrl: (coord, zoom) =>
+          `https://tile.googleapis.com/v1/2dtiles/${zoom}/${coord.x}/${coord.y}?session=${photoTileSession}&key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}`,
+        tileSize: new google.maps.Size(256, 256),
+        maxZoom: 22,
+        minZoom: 0,
+        name: 'Photo'
+      })
+      mapRef.current.overlayMapTypes.insertAt(0, imageMapType)
+    }
   }
 
   return (
@@ -116,12 +145,25 @@ export default function MapView({
           {mapType === 'satellite' ? 'Map' : 'Satellite'}
         </button>
         {mapType === 'satellite' && (
-          <button
-            onClick={handle3DToggle}
-            className="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs px-3 py-1.5 rounded border border-cyan-500/40 transition-colors"
-          >
-            {tilt === 45 ? '2D' : '3D'}
-          </button>
+          <>
+            <button
+              onClick={handle3DToggle}
+              className="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs px-3 py-1.5 rounded border border-cyan-500/40 transition-colors"
+            >
+              {tilt === 45 ? '2D' : '3D'}
+            </button>
+            <button
+              onClick={handlePhotoMode}
+              disabled={loadingPhotoTiles}
+              className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                photoTileSession
+                  ? 'bg-cyan-500/30 hover:bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
+                  : 'bg-white/10 hover:bg-white/20 text-white border-white/20 disabled:opacity-50'
+              }`}
+            >
+              {loadingPhotoTiles ? 'Loading...' : 'Photo'}
+            </button>
+          </>
         )}
       </div>
 

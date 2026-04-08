@@ -196,9 +196,20 @@ export default function Dashboard() {
   const [sweepLoading, setSweepLoading] = useState(false)
   const [sweepPhase, setSweepPhase] = useState<'idle' | 'geocoding' | 'researching' | 'scoring'>('idle')
   const [sweepResult, setSweepResult] = useState<Property | null>(null)
+  const [commercialResults, setCommercialResults] = useState<Array<{
+    id: string; name: string | null; address: string | null;
+    lat: number | null; lng: number | null; types: string[]; phone: string | null
+  }>>([])
+  const [commercialLoading, setCommercialLoading] = useState(false)
+  const [commercialRadius, setCommercialRadius] = useState(1000)
+  const [sweepUserLocation, setSweepUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [sweepLocationAccuracy, setSweepLocationAccuracy] = useState<number | null>(null)
 
   // Territory state
   const [territoryFilter, setTerritoryFilter] = useState<'all' | 'hot' | 'researched'>('all')
+  const [distanceResults, setDistanceResults] = useState<Map<string, { distanceMeters: number; distanceMiles: string; durationMinutes: number }>>(new Map())
+  const [sortByDistance, setSortByDistance] = useState(false)
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null)
   const [showSatelliteSnapshot, setShowSatelliteSnapshot] = useState(false)
   const [routeLoading, setRouteLoading] = useState(false)
@@ -309,6 +320,117 @@ export default function Dashboard() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
+
+  // Get accurate location from Google Geolocation API or browser GPS
+  const getAccurateLocation = async (): Promise<{ lat: number; lng: number; accuracy?: number } | null> => {
+    try {
+      // Try Google Geolocation API first (more accurate, works indoors)
+      const res = await fetch('/api/geolocate', { method: 'POST' })
+      const data = await res.json()
+      if (data.lat && data.lng) return data
+    } catch { /* fall through */ }
+
+    // Fallback: browser GPS
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 10000 }
+      )
+    })
+  }
+
+  // Handle commercial building search
+  const handleSearchCommercial = async () => {
+    if (!sweepUserLocation) {
+      // Get current location first
+      const loc = await getAccurateLocation()
+      if (!loc) {
+        console.error('Could not determine location')
+        return
+      }
+      setSweepUserLocation(loc)
+      setSweepLocationAccuracy(loc.accuracy || null)
+    }
+
+    const loc = sweepUserLocation || await getAccurateLocation()
+    if (!loc) return
+
+    setCommercialLoading(true)
+    try {
+      const res = await fetch('/api/places-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius: commercialRadius, type: 'commercial' })
+      })
+      const data = await res.json()
+      setCommercialResults(data.places || [])
+    } catch (error) {
+      console.error('Commercial search error:', error)
+      setCommercialResults([])
+    } finally {
+      setCommercialLoading(false)
+    }
+  }
+
+  // Add commercial place as lead
+  const handleAddCommercialLead = async (place: { id: string; name: string | null; address: string | null; lat: number | null; lng: number | null; phone: string | null }) => {
+    if (!place.lat || !place.lng) return
+
+    const newProperty: Property = {
+      id: `prop_${Date.now()}`,
+      address: place.address || '',
+      lat: place.lat,
+      lng: place.lng,
+      owner_name: null,
+      owner_phone: place.phone || null,
+      owner_email: null,
+      year_built: null,
+      roof_age_years: null,
+      market_value: null,
+      assessed_value: null,
+      last_sale_date: null,
+      last_sale_price: null,
+      county: null,
+      parcel_id: null,
+      permit_count: 0,
+      flags: ['commercial'],
+      sources: { 'Google Places': place.name || 'Commercial Property' },
+      score: 50,
+      created_at: new Date().toISOString()
+    }
+
+    const updated = [...properties, newProperty]
+    setProperties(updated)
+    await saveProperty(newProperty)
+    setCommercialResults(commercialResults.filter(p => p.id !== place.id))
+  }
+
+  // Handle sort by distance
+  const handleSortByDistance = async () => {
+    const loc = await getAccurateLocation()
+    if (!loc) return
+
+    setUserLocation(loc)
+    setSweepLocationAccuracy(loc.accuracy || null)
+
+    const res = await fetch('/api/distance-matrix', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        origin: { lat: loc.lat, lng: loc.lng },
+        destinations: properties.map(p => ({ id: p.id, lat: p.lat, lng: p.lng }))
+      })
+    })
+
+    const data = await res.json()
+    const resultsMap = new Map<string, { distanceMeters: number; distanceMiles: string; durationMinutes: number }>()
+    data.results?.forEach((r: { id: string; distanceMeters: number; distanceMiles: string; durationMinutes: number }) => {
+      resultsMap.set(r.id, { distanceMeters: r.distanceMeters, distanceMiles: r.distanceMiles, durationMinutes: r.durationMinutes })
+    })
+    setDistanceResults(resultsMap)
+    setSortByDistance(true)
+  }
 
   // Handle GPS Sweep research
   const handleSweepResearch = async () => {
@@ -916,6 +1038,21 @@ export default function Dashboard() {
                 Satellite Snapshot
               </button>
 
+              {/* Sort by Distance Button */}
+              {properties.length > 0 && (
+                <button
+                  onClick={handleSortByDistance}
+                  className={`w-full mb-4 text-sm px-3 py-2 rounded-lg transition-all flex items-center justify-center gap-2 ${
+                    sortByDistance
+                      ? 'bg-cyan-500/30 hover:bg-cyan-500/20 border border-cyan-500/40 text-cyan-400'
+                      : 'bg-white/10 hover:bg-white/20 border border-white/20 text-white'
+                  }`}
+                >
+                  <span>📍</span>
+                  Sort by Distance
+                </button>
+              )}
+
               {/* Plan Route Button */}
               {properties.length >= 2 && (
                 <button
@@ -996,29 +1133,44 @@ export default function Dashboard() {
               </div>
 
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                {filteredProperties.map((prop) => {
-                  const score = calculateLeadScore(prop)
-                  return (
-                    <div
-                      key={prop.id}
-                      onClick={() => setSelectedProperty(prop)}
-                      className="bg-dark-700/50 rounded-lg p-3 cursor-pointer hover:bg-dark-700 transition-all"
-                    >
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-white truncate">{prop.address}</p>
-                          <p className="text-xs text-gray-400">{prop.roof_age_years || '—'}y</p>
-                        </div>
-                        <div className="flex items-center gap-2 ml-2">
-                          <span className={`text-xs font-bold px-2 py-1 rounded ${getScoreBadgeColor(score)}`}>
-                            {score}
-                          </span>
-                          <ChevronRight className="w-4 h-4 text-gray-500" />
+                {filteredProperties
+                  .sort((a, b) => {
+                    if (!sortByDistance) return 0
+                    const aDistance = distanceResults.get(a.id)?.distanceMeters || Infinity
+                    const bDistance = distanceResults.get(b.id)?.distanceMeters || Infinity
+                    return aDistance - bDistance
+                  })
+                  .map((prop) => {
+                    const score = calculateLeadScore(prop)
+                    const distance = distanceResults.get(prop.id)
+                    return (
+                      <div
+                        key={prop.id}
+                        onClick={() => setSelectedProperty(prop)}
+                        className="bg-dark-700/50 rounded-lg p-3 cursor-pointer hover:bg-dark-700 transition-all"
+                      >
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white truncate">{prop.address}</p>
+                            <p className="text-xs text-gray-400">
+                              {prop.roof_age_years || '—'}y
+                              {distance && (
+                                <span className="ml-2 text-cyan">
+                                  • {distance.distanceMiles} mi • {distance.durationMinutes} min
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 ml-2">
+                            <span className={`text-xs font-bold px-2 py-1 rounded ${getScoreBadgeColor(score)}`}>
+                              {score}
+                            </span>
+                            <ChevronRight className="w-4 h-4 text-gray-500" />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
               </div>
             </div>
           </div>
@@ -1101,6 +1253,12 @@ export default function Dashboard() {
                   {sweepLoading ? 'Researching...' : 'Research Property'}
                 </button>
 
+                {sweepLocationAccuracy && (
+                  <p className="text-xs text-gray-400 text-center">
+                    Location accuracy: ±{Math.round(sweepLocationAccuracy)}m
+                  </p>
+                )}
+
                 {sweepLoading && (
                   <div className="space-y-2 text-sm">
                     <div className={`flex items-center gap-2 ${sweepPhase === 'geocoding' ? 'text-cyan' : 'text-gray-500'}`}>
@@ -1140,6 +1298,69 @@ export default function Dashboard() {
                       Save to Pipeline
                     </button>
                   </>
+                )}
+              </div>
+            </div>
+
+            {/* Commercial Search */}
+            <div className="glass p-6 rounded-xl">
+              <div className="flex items-center gap-2 mb-4">
+                <Search className="w-5 h-5 text-green" />
+                <h2 className="text-lg font-heading font-semibold">Commercial Search</h2>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-gray-400 block mb-2">Radius</label>
+                  <div className="flex gap-2">
+                    {[
+                      { label: '0.25mi', value: 402 },
+                      { label: '0.5mi', value: 804 },
+                      { label: '1mi', value: 1609 },
+                      { label: '2mi', value: 3218 }
+                    ].map(r => (
+                      <button
+                        key={r.value}
+                        onClick={() => setCommercialRadius(r.value)}
+                        className={`flex-1 text-xs px-2 py-1.5 rounded transition-all ${
+                          commercialRadius === r.value
+                            ? 'bg-green text-dark font-medium'
+                            : 'bg-dark-700 text-gray-300 hover:text-white'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSearchCommercial}
+                  disabled={commercialLoading}
+                  className="w-full bg-green text-dark font-medium py-2 rounded-lg hover:bg-green/90 transition-all disabled:opacity-50"
+                >
+                  {commercialLoading ? 'Searching...' : 'Find Commercial Leads'}
+                </button>
+
+                {commercialResults.length > 0 && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    <p className="text-xs text-gray-400 font-semibold">Results: {commercialResults.length}</p>
+                    {commercialResults.map(place => (
+                      <div key={place.id} className="bg-dark-700/50 rounded-lg p-3 text-sm space-y-2">
+                        <p className="text-white font-medium truncate">{place.name || 'Unknown'}</p>
+                        <p className="text-xs text-gray-400 truncate">{place.address || '—'}</p>
+                        {place.phone && (
+                          <p className="text-xs text-cyan">{place.phone}</p>
+                        )}
+                        <button
+                          onClick={() => handleAddCommercialLead(place)}
+                          className="w-full bg-green/20 hover:bg-green/30 text-green border border-green/30 text-xs px-2 py-1.5 rounded transition-all"
+                        >
+                          Add as Lead
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
