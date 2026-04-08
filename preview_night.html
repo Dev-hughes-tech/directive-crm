@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Directive CRM — Night Mode Preview</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #fff; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; width: 100vw; height: 100vh; }
+  h1,h2,h3 { font-family: 'Space Grotesk', sans-serif; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  #map { position: fixed; inset: 0; z-index: 0; }
+
+  .glass {
+    background: rgba(13, 17, 23, 0.75);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(6, 182, 212, 0.12);
+    border-radius: 16px;
+  }
+  .glass-sm {
+    background: rgba(22, 27, 34, 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(6, 182, 212, 0.08);
+    border-radius: 12px;
+  }
+
+  .nav { position: fixed; top: 16px; left: 16px; right: 16px; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 8px 24px; }
+  .nav-logo { height: 200px; }
+  .nav-tabs { display: flex; gap: 6px; }
+  .nav-tab { padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 500; color: #9ca3af; border: none; background: transparent; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+  .nav-tab:hover { color: #fff; background: rgba(28,35,53,0.8); }
+  .nav-tab.active { background: #06b6d4; color: #0d1117; }
+
+  .left-panels { position: fixed; left: 16px; top: 240px; width: 380px; z-index: 50; display: flex; flex-direction: column; gap: 16px; }
+  .right-panels { position: fixed; right: 16px; top: 240px; width: 340px; z-index: 50; display: flex; flex-direction: column; gap: 16px; }
+  .bottom-bar { position: fixed; bottom: 16px; left: 16px; right: 16px; z-index: 50; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; }
+
+  .panel { padding: 20px; animation: slideUp 0.4s ease-out forwards; opacity: 0; }
+  .panel:nth-child(1) { animation-delay: 0s; }
+  .panel:nth-child(2) { animation-delay: 0.1s; }
+  .panel:nth-child(3) { animation-delay: 0.2s; }
+
+  @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  .panel-title { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 16px; font-weight: 600; }
+  .panel-title svg { width: 20px; height: 20px; color: #06b6d4; }
+
+  .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .stat-row:last-child { border: none; }
+  .stat-label { color: #9ca3af; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .stat-value { color: #fff; font-size: 14px; }
+  .stat-label svg { width: 16px; height: 16px; }
+
+  .cyan { color: #06b6d4; }
+  .amber { color: #f59e0b; }
+  .green { color: #22c55e; }
+  .red { color: #ef4444; }
+  .gold { color: #C9A84C; }
+
+  .search-input { width: 100%; padding: 10px 14px; background: rgba(13,17,23,0.6); border: 1px solid rgba(6,182,212,0.15); border-radius: 10px; color: #fff; font-size: 14px; outline: none; }
+  .search-input:focus { border-color: rgba(6,182,212,0.4); box-shadow: 0 0 12px rgba(6,182,212,0.1); }
+  .search-input::placeholder { color: #4b5563; }
+  .search-btn { margin-top: 10px; width: 100%; padding: 10px; background: #06b6d4; color: #0d1117; border: none; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.2s; }
+  .search-btn:hover { background: #22d3ee; }
+
+  .alert-badge { display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+  .alert-minor { background: rgba(34,197,94,0.15); color: #22c55e; }
+  .alert-moderate { background: rgba(245,158,11,0.15); color: #f59e0b; }
+  .alert-severe { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot-green { background: #22c55e; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+  .mode-label {
+    position: fixed; top: 88px; left: 50%; transform: translateX(-50%); z-index: 200;
+    padding: 8px 20px; font-size: 13px; font-weight: 600; letter-spacing: 0.5px;
+  }
+
+  .leaflet-control-attribution { display: none !important; }
+  .leaflet-control-zoom { border: 1px solid rgba(6,182,212,0.2) !important; background: rgba(13,17,23,0.8) !important; }
+  .leaflet-control-zoom a { background: transparent !important; color: #06b6d4 !important; border-color: rgba(6,182,212,0.1) !important; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(6,182,212,0.3); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="mode-label glass-sm">
+  <span class="cyan">&#9789;</span>&nbsp; NIGHT MODE — CartoDB Dark Matter
+</div>
+
+<!-- NAV BAR -->
+<nav class="nav glass">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <img src="public/directive-wordmark.png" alt="Directive CRM" class="nav-logo" onerror="this.outerHTML='<span style=\'font-size:48px;font-weight:700;font-family:Space Grotesk,sans-serif;letter-spacing:2px\'><span class=cyan>&#9670;</span> DIRECTIVE CRM</span>'">
+  </div>
+  <div class="nav-tabs">
+    <button class="nav-tab active">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </button>
+    <button class="nav-tab">Territory</button>
+    <button class="nav-tab">GPS Sweep</button>
+    <button class="nav-tab">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+      StormScope
+    </button>
+    <button class="nav-tab">Michael AI</button>
+  </div>
+</nav>
+
+<!-- LEFT PANELS -->
+<div class="left-panels">
+  <!-- Lead Pipeline -->
+  <div class="panel glass">
+    <div class="panel-title">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      <h2>Lead Pipeline</h2>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Hot Leads</span>
+      <span class="stat-value mono cyan">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Warm Leads</span>
+      <span class="stat-value mono amber">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Total Pipeline</span>
+      <span class="stat-value mono">—</span>
+    </div>
+    <div style="text-align:center;padding:8px 0;color:#4b5563;font-size:12px;">Connect Supabase to begin</div>
+  </div>
+
+  <!-- Weather Intelligence -->
+  <div class="panel glass">
+    <div class="panel-title">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+      <h2>Weather Intelligence</h2>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg>
+        Temperature
+      </span>
+      <span class="stat-value mono">72°F</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/></svg>
+        Wind Speed
+      </span>
+      <span class="stat-value mono">8 mph NW</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg>
+        Humidity
+      </span>
+      <span class="stat-value mono">54%</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Conditions</span>
+      <span class="stat-value">Partly Cloudy</span>
+    </div>
+    <div style="color:#4b5563;font-size:11px;margin-top:4px;">Source: NWS Huntsville — KHSV</div>
+  </div>
+
+  <!-- Active Alerts -->
+  <div class="panel glass">
+    <div class="panel-title">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <h2>Active Alerts</h2>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;">
+      <span class="dot dot-green"></span>
+      <span style="color:#22c55e;font-size:14px;font-weight:500;">No active alerts</span>
+    </div>
+    <div style="color:#4b5563;font-size:11px;margin-top:4px;">Source: NWS Alert API</div>
+  </div>
+</div>
+
+<!-- RIGHT PANELS -->
+<div class="right-panels">
+  <!-- Search -->
+  <div class="panel glass">
+    <div class="panel-title">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <h2>Search Properties</h2>
+    </div>
+    <input type="text" class="search-input" placeholder="Enter address or ZIP code...">
+    <button class="search-btn">Run Research</button>
+  </div>
+
+  <!-- Territory Quick Stats -->
+  <div class="panel glass">
+    <div class="panel-title">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+      <h2>Territory</h2>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Active Territory</span>
+      <span class="stat-value mono cyan">Huntsville, AL</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Properties Scanned</span>
+      <span class="stat-value mono">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Avg Roof Age</span>
+      <span class="stat-value mono">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Storm Events (90d)</span>
+      <span class="stat-value mono">—</span>
+    </div>
+  </div>
+
+  <!-- Revenue Tracker -->
+  <div class="panel glass">
+    <div class="panel-title">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C9A84C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      <h2 class="gold">Revenue</h2>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Pipeline Value</span>
+      <span class="stat-value mono gold">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Closed This Month</span>
+      <span class="stat-value mono green">—</span>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM BAR -->
+<div class="bottom-bar glass">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="dot dot-green"></span>
+    <span style="font-size:13px;color:#9ca3af;">System Online</span>
+    <span style="font-size:13px;color:#4b5563;">|</span>
+    <span style="font-size:13px;color:#9ca3af;">Huntsville, AL 35810</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="mono" style="font-size:13px;color:#06b6d4;" id="datetime"></span>
+  </div>
+</div>
+
+<script>
+  // Night mode map
+  const map = L.map('map', { attributionControl: false, zoomControl: true }).setView([34.7304, -86.5861], 14);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+
+  // Live clock
+  function updateTime() {
+    const now = new Date();
+    document.getElementById('datetime').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) + '  ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  }
+  updateTime();
+  setInterval(updateTime, 1000);
+</script>
+</body>
+</html>

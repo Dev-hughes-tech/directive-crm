@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Directive CRM — Full UI Preview</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #fff; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; width: 100vw; height: 100vh; }
+  h1,h2,h3 { font-family: 'Space Grotesk', sans-serif; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  #map { position: fixed; inset: 0; z-index: 0; }
+
+  .glass {
+    background: rgba(13, 17, 23, 0.78);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(6, 182, 212, 0.12);
+    border-radius: 16px;
+  }
+  .glass-sm {
+    background: rgba(22, 27, 34, 0.65);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(6, 182, 212, 0.08);
+    border-radius: 12px;
+  }
+
+  /* NAV */
+  .nav { position: fixed; top: 12px; left: 12px; right: 12px; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; }
+  .nav-logo { height: 200px; width: auto; }
+  .nav-tabs { display: flex; gap: 4px; }
+  .nav-tab { padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 500; color: #9ca3af; border: none; background: transparent; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .nav-tab:hover { color: #fff; background: rgba(28,35,53,0.8); }
+  .nav-tab.active { background: #06b6d4; color: #0d1117; }
+  .nav-tab svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+  /* LAYOUT */
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  .left-panels { position: fixed; left: 12px; top: 80px; width: 360px; z-index: 50; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 150px); overflow-y: auto; padding-bottom: 60px; }
+  .right-panels { position: fixed; right: 12px; top: 80px; width: 340px; z-index: 50; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 150px); overflow-y: auto; padding-bottom: 60px; }
+  .center-panel { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 50; width: 90%; max-width: 900px; max-height: 85vh; overflow-y: auto; }
+  .bottom-bar { position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 50; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; }
+
+  .panel { padding: 16px; animation: slideUp 0.4s ease-out forwards; opacity: 0; }
+  .panel:nth-child(1) { animation-delay: 0s; }
+  .panel:nth-child(2) { animation-delay: 0.08s; }
+  .panel:nth-child(3) { animation-delay: 0.16s; }
+  .panel:nth-child(4) { animation-delay: 0.24s; }
+
+  @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+  @keyframes sweep { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+  .panel-title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 15px; font-weight: 600; }
+  .panel-title svg { width: 18px; height: 18px; color: #06b6d4; flex-shrink: 0; }
+
+  .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .stat-row:last-child { border: none; }
+  .stat-label { color: #9ca3af; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .stat-value { color: #fff; font-size: 14px; }
+  .stat-label svg { width: 14px; height: 14px; }
+
+  .cyan { color: #06b6d4; }
+  .amber { color: #f59e0b; }
+  .green { color: #22c55e; }
+  .red { color: #ef4444; }
+  .gold { color: #C9A84C; }
+
+  .search-input { width: 100%; padding: 10px 14px; background: rgba(13,17,23,0.6); border: 1px solid rgba(6,182,212,0.15); border-radius: 10px; color: #fff; font-size: 14px; outline: none; font-family: inherit; }
+  .search-input:focus { border-color: rgba(6,182,212,0.4); box-shadow: 0 0 12px rgba(6,182,212,0.1); }
+  .search-input::placeholder { color: #4b5563; }
+  .btn-cyan { padding: 10px 20px; background: #06b6d4; color: #0d1117; border: none; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.2s; font-family: inherit; }
+  .btn-cyan:hover { background: #22d3ee; }
+
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot-green { background: #22c55e; animation: pulse 2s infinite; }
+  .dot-cyan { background: #06b6d4; animation: pulse 2s infinite; }
+
+  /* CHART CONTAINERS */
+  .chart-container { position: relative; width: 100%; }
+  .chart-container canvas { width: 100% !important; }
+
+  /* STAT CARDS */
+  .stat-card { background: rgba(13,17,23,0.5); border: 1px solid rgba(6,182,212,0.08); border-radius: 12px; padding: 14px; text-align: center; }
+  .stat-card-value { font-size: 28px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1.2; }
+  .stat-card-label { font-size: 11px; color: #9ca3af; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* GRID */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
+
+  /* PROGRESS BAR */
+  .progress-bar { height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; transition: width 1s ease-out; }
+
+  /* HAIL TABLE */
+  .hail-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .hail-table th { text-align: left; padding: 8px 6px; color: #9ca3af; border-bottom: 1px solid rgba(6,182,212,0.1); font-weight: 500; }
+  .hail-table td { padding: 8px 6px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+
+  /* CHAT */
+  .chat-messages { flex: 1; overflow-y: auto; padding: 10px 0; display: flex; flex-direction: column; gap: 10px; }
+  .chat-bubble { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
+  .chat-user { background: #06b6d4; color: #0d1117; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .chat-ai { background: rgba(22,27,34,0.8); color: #e5e7eb; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid rgba(6,182,212,0.1); }
+  .chat-input-row { display: flex; gap: 8px; margin-top: 12px; }
+  .chat-input-row input { flex: 1; }
+
+  /* TERRITORY MAP OVERLAY */
+  .territory-legend { display: flex; gap: 16px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #9ca3af; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  /* GPS SWEEP */
+  .sweep-ring { width: 180px; height: 180px; border-radius: 50%; border: 2px solid rgba(6,182,212,0.3); position: relative; margin: 0 auto; }
+  .sweep-ring::after { content: ''; position: absolute; top: 50%; left: 50%; width: 50%; height: 2px; background: linear-gradient(90deg, #06b6d4, transparent); transform-origin: left center; animation: sweep 3s linear infinite; }
+  .sweep-ring .center-dot { position: absolute; top: 50%; left: 50%; width: 8px; height: 8px; background: #06b6d4; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 12px rgba(6,182,212,0.6); }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(6,182,212,0.3); border-radius: 2px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* LEAFLET OVERRIDES */
+  .leaflet-control-attribution { display: none !important; }
+  .leaflet-control-zoom { border: 1px solid rgba(6,182,212,0.2) !important; background: rgba(13,17,23,0.8) !important; }
+  .leaflet-control-zoom a { background: transparent !important; color: #06b6d4 !important; border-color: rgba(6,182,212,0.1) !important; }
+
+  /* CONNECTOR LINES */
+  .connector-section { padding: 12px 0; }
+  .connector-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(13,17,23,0.4); border-radius: 10px; margin-bottom: 6px; border-left: 3px solid; }
+  .connector-row .status-icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+  .connector-row .conn-info { flex: 1; }
+  .connector-row .conn-name { font-size: 13px; font-weight: 500; }
+  .connector-row .conn-detail { font-size: 11px; color: #6b7280; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- ======================== NAV BAR ======================== -->
+<nav class="nav glass">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <img src="public/directive-wordmark.png" alt="Directive CRM" class="nav-logo" onerror="this.outerHTML='<span style=\'font-size:42px;font-weight:700;font-family:Space Grotesk,sans-serif;letter-spacing:2px\'><span style=color:#06b6d4>&#9670;</span> DIRECTIVE CRM</span>'">
+  </div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="switchScreen('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </button>
+    <button class="nav-tab" onclick="switchScreen('territory')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+      Territory
+    </button>
+    <button class="nav-tab" onclick="switchScreen('sweep')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+      GPS Sweep
+    </button>
+    <button class="nav-tab" onclick="switchScreen('stormscope')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+      StormScope
+    </button>
+    <button class="nav-tab" onclick="switchScreen('michael')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 0 0-8 8c0 3.4 2.1 6.3 5 7.5V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2.5c2.9-1.2 5-4.1 5-7.5a8 8 0 0 0-8-8z"/><path d="M9 22h6"/></svg>
+      Michael AI
+    </button>
+  </div>
+</nav>
+
+<!-- ======================== DASHBOARD SCREEN ======================== -->
+<div id="screen-dashboard" class="screen active">
+  <!-- LEFT PANELS -->
+  <div class="left-panels">
+    <!-- Lead Pipeline -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <h2>Lead Pipeline</h2>
+      </div>
+      <div class="grid-3" style="margin-bottom:14px;">
+        <div class="stat-card"><div class="stat-card-value cyan">14</div><div class="stat-card-label">Hot</div></div>
+        <div class="stat-card"><div class="stat-card-value amber">38</div><div class="stat-card-label">Warm</div></div>
+        <div class="stat-card"><div class="stat-card-value" style="color:#6b7280">91</div><div class="stat-card-label">Cold</div></div>
+      </div>
+      <div class="chart-container" style="height:100px;"><canvas id="pipelineChart"></canvas></div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px;">
+        <span style="font-size:11px;color:#6b7280;">Last 7 days</span>
+        <span style="font-size:11px;color:#22c55e;">+12% &#9650;</span>
+      </div>
+    </div>
+
+    <!-- Weather Intelligence -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+        <h2>Weather Intelligence</h2>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg> Temperature</span>
+        <span class="stat-value mono">78°F</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/></svg> Wind</span>
+        <span class="stat-value mono">8 mph NW</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg> Humidity</span>
+        <span class="stat-value mono">54%</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Conditions</span>
+        <span class="stat-value">Partly Cloudy</span>
+      </div>
+      <div class="chart-container" style="height:70px;margin-top:8px;"><canvas id="tempChart"></canvas></div>
+      <div style="color:#4b5563;font-size:10px;margin-top:6px;">Source: NWS Huntsville — KHSV</div>
+    </div>
+
+    <!-- Active Alerts -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <h2>Active Alerts</h2>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;">
+        <span class="dot dot-green"></span>
+        <span style="color:#22c55e;font-size:14px;font-weight:500;">All Clear — No active alerts</span>
+      </div>
+      <div style="color:#4b5563;font-size:10px;margin-top:4px;">Source: NWS Alert API • Updated every 5 min</div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANELS -->
+  <div class="right-panels">
+    <!-- Search Properties -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <h2>Search Properties</h2>
+      </div>
+      <input type="text" class="search-input" placeholder="Enter address or ZIP code...">
+      <button class="btn-cyan" style="width:100%;margin-top:10px;">Run Research</button>
+    </div>
+
+    <!-- Territory Quick Stats -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+        <h2>Territory</h2>
+      </div>
+      <div class="grid-2" style="margin-bottom:10px;">
+        <div class="stat-card"><div class="stat-card-value cyan">2,847</div><div class="stat-card-label">Properties</div></div>
+        <div class="stat-card"><div class="stat-card-value amber">16.3 yr</div><div class="stat-card-label">Avg Roof Age</div></div>
+        <div class="stat-card"><div class="stat-card-value red">23</div><div class="stat-card-label">Storm Events (90d)</div></div>
+        <div class="stat-card"><div class="stat-card-value gold">$1.2M</div><div class="stat-card-label">Pipeline Value</div></div>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Active Territory</span>
+        <span class="stat-value mono cyan">Huntsville, AL</span>
+      </div>
+    </div>
+
+    <!-- Revenue Tracker -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#C9A84C" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <h2 class="gold">Revenue</h2>
+      </div>
+      <div class="grid-2" style="margin-bottom:10px;">
+        <div class="stat-card"><div class="stat-card-value gold">$347K</div><div class="stat-card-label">This Month</div></div>
+        <div class="stat-card"><div class="stat-card-value green">$1.2M</div><div class="stat-card-label">YTD</div></div>
+      </div>
+      <div class="chart-container" style="height:80px;"><canvas id="revenueChart"></canvas></div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;">
+        <span style="font-size:11px;color:#6b7280;">Monthly Revenue</span>
+        <span style="font-size:11px;color:#22c55e;">+18% &#9650; vs last month</span>
+      </div>
+    </div>
+
+    <!-- Connectors -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <h2>Connectors</h2>
+      </div>
+      <div class="connector-section">
+        <div class="connector-row" style="border-color:#22c55e;">
+          <div class="status-icon" style="background:rgba(34,197,94,0.15);color:#22c55e;">&#10003;</div>
+          <div class="conn-info"><div class="conn-name">NWS Weather API</div><div class="conn-detail">Live • api.weather.gov</div></div>
+        </div>
+        <div class="connector-row" style="border-color:#22c55e;">
+          <div class="status-icon" style="background:rgba(34,197,94,0.15);color:#22c55e;">&#10003;</div>
+          <div class="conn-info"><div class="conn-name">NOAA Storm Data</div><div class="conn-detail">Live • SWDI Hail/Wind</div></div>
+        </div>
+        <div class="connector-row" style="border-color:#22c55e;">
+          <div class="status-icon" style="background:rgba(34,197,94,0.15);color:#22c55e;">&#10003;</div>
+          <div class="conn-info"><div class="conn-name">Supabase</div><div class="conn-detail">Connected • PostgreSQL</div></div>
+        </div>
+        <div class="connector-row" style="border-color:#06b6d4;">
+          <div class="status-icon" style="background:rgba(6,182,212,0.15);color:#06b6d4;">&#9889;</div>
+          <div class="conn-info"><div class="conn-name">Michael AI (Claude)</div><div class="conn-detail">Ready • Anthropic API</div></div>
+        </div>
+        <div class="connector-row" style="border-color:#f59e0b;">
+          <div class="status-icon" style="background:rgba(245,158,11,0.15);color:#f59e0b;">&#9679;</div>
+          <div class="conn-info"><div class="conn-name">Nominatim Geocoder</div><div class="conn-detail">Ready • OpenStreetMap</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================== TERRITORY SCREEN ======================== -->
+<div id="screen-territory" class="screen">
+  <div class="left-panels">
+    <!-- Territory Overview -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+        <h2>Territory Overview</h2>
+      </div>
+      <div class="grid-2" style="margin-bottom:12px;">
+        <div class="stat-card"><div class="stat-card-value cyan">5</div><div class="stat-card-label">Active Zones</div></div>
+        <div class="stat-card"><div class="stat-card-value green">2,847</div><div class="stat-card-label">Total Properties</div></div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span style="color:#9ca3af;">Zone Coverage</span><span class="cyan mono">72%</span></div>
+        <div class="progress-bar"><div class="progress-fill" style="width:72%;background:linear-gradient(90deg,#06b6d4,#22d3ee);"></div></div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span style="color:#9ca3af;">Roofs Aged 15+ yrs</span><span class="amber mono">43%</span></div>
+        <div class="progress-bar"><div class="progress-fill" style="width:43%;background:linear-gradient(90deg,#f59e0b,#fbbf24);"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span style="color:#9ca3af;">Storm Damage Score</span><span class="red mono">High</span></div>
+        <div class="progress-bar"><div class="progress-fill" style="width:78%;background:linear-gradient(90deg,#ef4444,#f87171);"></div></div>
+      </div>
+    </div>
+
+    <!-- Zone List -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        <h2>Active Zones</h2>
+      </div>
+      <div class="connector-row" style="border-color:#06b6d4;cursor:pointer;">
+        <div class="status-icon" style="background:rgba(6,182,212,0.15);color:#06b6d4;font-size:10px;">01</div>
+        <div class="conn-info"><div class="conn-name">South Huntsville</div><div class="conn-detail">843 properties • 18.2 avg roof age</div></div>
+      </div>
+      <div class="connector-row" style="border-color:#22c55e;cursor:pointer;">
+        <div class="status-icon" style="background:rgba(34,197,94,0.15);color:#22c55e;font-size:10px;">02</div>
+        <div class="conn-info"><div class="conn-name">Madison County</div><div class="conn-detail">612 properties • 14.7 avg roof age</div></div>
+      </div>
+      <div class="connector-row" style="border-color:#f59e0b;cursor:pointer;">
+        <div class="status-icon" style="background:rgba(245,158,11,0.15);color:#f59e0b;font-size:10px;">03</div>
+        <div class="conn-info"><div class="conn-name">Hampton Cove</div><div class="conn-detail">524 properties • 21.4 avg roof age</div></div>
+      </div>
+      <div class="connector-row" style="border-color:#C9A84C;cursor:pointer;">
+        <div class="status-icon" style="background:rgba(201,168,76,0.15);color:#C9A84C;font-size:10px;">04</div>
+        <div class="conn-info"><div class="conn-name">Jones Valley</div><div class="conn-detail">489 properties • 15.1 avg roof age</div></div>
+      </div>
+      <div class="connector-row" style="border-color:#ef4444;cursor:pointer;">
+        <div class="status-icon" style="background:rgba(239,68,68,0.15);color:#ef4444;font-size:10px;">05</div>
+        <div class="conn-info"><div class="conn-name">Harvest Area</div><div class="conn-detail">379 properties • 12.8 avg roof age</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right-panels">
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+        <h2>Roof Age Distribution</h2>
+      </div>
+      <div class="chart-container" style="height:160px;"><canvas id="roofAgeChart"></canvas></div>
+      <div class="territory-legend" style="margin-top:10px;">
+        <div class="legend-item"><div class="legend-dot" style="background:#22c55e;"></div>0-10 yrs</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div>10-20 yrs</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#ef4444;"></div>20+ yrs</div>
+      </div>
+    </div>
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg>
+        <h2>Property Score Breakdown</h2>
+      </div>
+      <div class="chart-container" style="height:140px;"><canvas id="scoreChart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================== GPS SWEEP SCREEN ======================== -->
+<div id="screen-sweep" class="screen">
+  <div class="center-panel glass" style="padding:32px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+      <h2 style="font-size:24px;">GPS Sweep Engine</h2>
+      <span style="background:rgba(6,182,212,0.15);color:#06b6d4;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:600;margin-left:auto;">BETA</span>
+    </div>
+
+    <div style="display:flex;gap:24px;">
+      <!-- Left: Radar -->
+      <div style="flex:0 0 auto;text-align:center;">
+        <div class="sweep-ring">
+          <div class="center-dot"></div>
+          <!-- Scatter dots -->
+          <div style="position:absolute;top:25%;left:60%;width:6px;height:6px;background:#22c55e;border-radius:50%;box-shadow:0 0 6px #22c55e;"></div>
+          <div style="position:absolute;top:40%;left:30%;width:5px;height:5px;background:#f59e0b;border-radius:50%;box-shadow:0 0 6px #f59e0b;"></div>
+          <div style="position:absolute;top:65%;left:70%;width:6px;height:6px;background:#ef4444;border-radius:50%;box-shadow:0 0 6px #ef4444;"></div>
+          <div style="position:absolute;top:70%;left:25%;width:5px;height:5px;background:#22c55e;border-radius:50%;box-shadow:0 0 6px #22c55e;"></div>
+          <div style="position:absolute;top:20%;left:35%;width:4px;height:4px;background:#06b6d4;border-radius:50%;box-shadow:0 0 6px #06b6d4;"></div>
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:#6b7280;">Scanning Radius: <span class="cyan mono">2.5 mi</span></div>
+      </div>
+
+      <!-- Right: Controls & Stats -->
+      <div style="flex:1;">
+        <div class="grid-3" style="margin-bottom:16px;">
+          <div class="stat-card"><div class="stat-card-value cyan">847</div><div class="stat-card-label">Scanned</div></div>
+          <div class="stat-card"><div class="stat-card-value green">124</div><div class="stat-card-label">Matches</div></div>
+          <div class="stat-card"><div class="stat-card-value amber">14.6%</div><div class="stat-card-label">Hit Rate</div></div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span style="color:#9ca3af;">Sweep Progress</span><span class="cyan mono">67%</span></div>
+          <div class="progress-bar"><div class="progress-fill" style="width:67%;background:linear-gradient(90deg,#06b6d4,#22d3ee);"></div></div>
+        </div>
+
+        <div style="font-size:12px;color:#9ca3af;margin-bottom:16px;">
+          <div class="stat-row"><span class="stat-label">Center Point</span><span class="stat-value mono" style="font-size:12px;">34.7304, -86.5861</span></div>
+          <div class="stat-row"><span class="stat-label">Filter</span><span class="stat-value" style="font-size:12px;">Roof Age &gt; 15 yrs</span></div>
+          <div class="stat-row"><span class="stat-label">Status</span><span class="stat-value green" style="font-size:12px;display:flex;align-items:center;gap:6px;"><span class="dot dot-green"></span> Active Sweep</span></div>
+        </div>
+
+        <div style="display:flex;gap:8px;">
+          <button class="btn-cyan" style="flex:1;">
+            <svg style="display:inline;vertical-align:middle;margin-right:4px;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Start Sweep
+          </button>
+          <button style="flex:1;padding:10px 20px;background:transparent;border:1px solid rgba(6,182,212,0.3);color:#06b6d4;border-radius:10px;font-weight:500;font-size:14px;cursor:pointer;font-family:inherit;">Configure</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent Sweep Results -->
+    <div style="margin-top:20px;border-top:1px solid rgba(6,182,212,0.08);padding-top:16px;">
+      <h3 style="font-size:14px;margin-bottom:10px;color:#9ca3af;">Recent Sweep Results</h3>
+      <div class="connector-row" style="border-color:#ef4444;">
+        <div class="status-icon" style="background:rgba(239,68,68,0.15);color:#ef4444;font-size:10px;">&#9733;</div>
+        <div class="conn-info"><div class="conn-name">412 Oak Ridge Dr — <span class="red">Score: 94</span></div><div class="conn-detail">Roof: 22 yrs • Hail damage (2024) • Owner occupied</div></div>
+      </div>
+      <div class="connector-row" style="border-color:#f59e0b;">
+        <div class="status-icon" style="background:rgba(245,158,11,0.15);color:#f59e0b;font-size:10px;">&#9733;</div>
+        <div class="conn-info"><div class="conn-name">1887 Valley View Rd — <span class="amber">Score: 81</span></div><div class="conn-detail">Roof: 18 yrs • Wind damage suspected • 3,200 sqft</div></div>
+      </div>
+      <div class="connector-row" style="border-color:#22c55e;">
+        <div class="status-icon" style="background:rgba(34,197,94,0.15);color:#22c55e;font-size:10px;">&#9733;</div>
+        <div class="conn-info"><div class="conn-name">2205 Winchester Rd — <span class="green">Score: 72</span></div><div class="conn-detail">Roof: 15 yrs • No damage record • 2,800 sqft</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================== STORMSCOPE SCREEN ======================== -->
+<div id="screen-stormscope" class="screen">
+  <div class="left-panels">
+    <!-- Forecast -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+        <h2>StormScope Radar</h2>
+      </div>
+      <div class="grid-4" style="margin-bottom:14px;">
+        <div class="stat-card"><div class="stat-card-value" style="font-size:20px;color:#22c55e;">0</div><div class="stat-card-label">Active</div></div>
+        <div class="stat-card"><div class="stat-card-value" style="font-size:20px;color:#f59e0b;">23</div><div class="stat-card-label">90 Day</div></div>
+        <div class="stat-card"><div class="stat-card-value" style="font-size:20px;color:#ef4444;">7</div><div class="stat-card-label">Severe</div></div>
+        <div class="stat-card"><div class="stat-card-value" style="font-size:20px;color:#06b6d4;">1.75"</div><div class="stat-card-label">Max Hail</div></div>
+      </div>
+      <div class="chart-container" style="height:120px;"><canvas id="stormChart"></canvas></div>
+      <div style="font-size:10px;color:#4b5563;margin-top:6px;">Source: NOAA SWDI • Hail + Wind Events</div>
+    </div>
+
+    <!-- 5-Day Forecast -->
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+        <h2>5-Day Forecast</h2>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <div class="connector-row" style="border-color:#22c55e;margin:0;">
+          <div style="flex:1;"><div class="conn-name">Today</div><div class="conn-detail">Partly Cloudy</div></div>
+          <div class="mono" style="color:#f59e0b;">78°</div>
+        </div>
+        <div class="connector-row" style="border-color:#22c55e;margin:0;">
+          <div style="flex:1;"><div class="conn-name">Tomorrow</div><div class="conn-detail">Mostly Sunny</div></div>
+          <div class="mono" style="color:#f59e0b;">82°</div>
+        </div>
+        <div class="connector-row" style="border-color:#f59e0b;margin:0;">
+          <div style="flex:1;"><div class="conn-name">Wednesday</div><div class="conn-detail">Scattered Storms</div></div>
+          <div class="mono" style="color:#ef4444;">74°</div>
+        </div>
+        <div class="connector-row" style="border-color:#22c55e;margin:0;">
+          <div style="flex:1;"><div class="conn-name">Thursday</div><div class="conn-detail">Clear Skies</div></div>
+          <div class="mono" style="color:#f59e0b;">80°</div>
+        </div>
+        <div class="connector-row" style="border-color:#22c55e;margin:0;">
+          <div style="flex:1;"><div class="conn-name">Friday</div><div class="conn-detail">Sunny</div></div>
+          <div class="mono" style="color:#f59e0b;">85°</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right-panels">
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <h2>Recent Hail Events</h2>
+      </div>
+      <table class="hail-table">
+        <thead><tr><th>Date</th><th>Size</th><th>Location</th><th>Sev.</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">03/28</td><td class="mono cyan">1.75"</td><td>S. Huntsville</td><td><span class="red">Severe</span></td></tr>
+          <tr><td class="mono">03/21</td><td class="mono cyan">1.25"</td><td>Madison Co.</td><td><span class="amber">Moderate</span></td></tr>
+          <tr><td class="mono">03/14</td><td class="mono cyan">1.00"</td><td>Hampton Cove</td><td><span class="amber">Moderate</span></td></tr>
+          <tr><td class="mono">03/08</td><td class="mono cyan">0.75"</td><td>Jones Valley</td><td><span class="green">Minor</span></td></tr>
+          <tr><td class="mono">02/27</td><td class="mono cyan">1.50"</td><td>Harvest</td><td><span class="red">Severe</span></td></tr>
+          <tr><td class="mono">02/19</td><td class="mono cyan">1.00"</td><td>S. Huntsville</td><td><span class="amber">Moderate</span></td></tr>
+          <tr><td class="mono">02/11</td><td class="mono cyan">0.88"</td><td>Decatur</td><td><span class="green">Minor</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+        <h2>Storm Frequency</h2>
+      </div>
+      <div class="chart-container" style="height:120px;"><canvas id="stormFreqChart"></canvas></div>
+      <div style="font-size:10px;color:#4b5563;margin-top:6px;">12-month rolling window</div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================== MICHAEL AI SCREEN ======================== -->
+<div id="screen-michael" class="screen">
+  <div class="center-panel glass" style="padding:28px;height:80vh;display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-shrink:0;">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M12 2a8 8 0 0 0-8 8c0 3.4 2.1 6.3 5 7.5V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2.5c2.9-1.2 5-4.1 5-7.5a8 8 0 0 0-8-8z"/><path d="M9 22h6"/></svg>
+      <div>
+        <h2 style="font-size:22px;">Michael AI</h2>
+        <div style="font-size:11px;color:#6b7280;">Powered by Claude + GPT + Gemini + Grok</div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;">
+        <span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px;"><span class="dot dot-green" style="width:6px;height:6px;"></span> Online</span>
+      </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-bubble chat-ai">
+        <div style="font-weight:600;margin-bottom:4px;color:#06b6d4;">Michael AI</div>
+        Welcome to Michael AI. I can help you research properties, analyze storm damage patterns, score leads, and generate reports. What would you like to work on?
+      </div>
+      <div class="chat-bubble chat-user">Show me the top leads in South Huntsville with roof age over 15 years</div>
+      <div class="chat-bubble chat-ai">
+        <div style="font-weight:600;margin-bottom:4px;color:#06b6d4;">Michael AI</div>
+        I found <span class="cyan" style="font-weight:600;">47 properties</span> in South Huntsville with roofs aged 15+ years. Here are the top 3 by lead score:
+        <div style="margin-top:10px;padding:10px;background:rgba(13,17,23,0.5);border-radius:8px;border-left:3px solid #ef4444;">
+          <div style="font-weight:600;">412 Oak Ridge Dr</div>
+          <div style="font-size:11px;color:#9ca3af;margin-top:2px;">Score: <span class="red" style="font-weight:600;">94</span> • Roof: 22 yrs • Hail hit 03/28 • Owner: occupied</div>
+        </div>
+        <div style="margin-top:6px;padding:10px;background:rgba(13,17,23,0.5);border-radius:8px;border-left:3px solid #f59e0b;">
+          <div style="font-weight:600;">1887 Valley View Rd</div>
+          <div style="font-size:11px;color:#9ca3af;margin-top:2px;">Score: <span class="amber" style="font-weight:600;">81</span> • Roof: 18 yrs • Wind suspect • 3,200 sqft</div>
+        </div>
+        <div style="margin-top:6px;padding:10px;background:rgba(13,17,23,0.5);border-radius:8px;border-left:3px solid #22c55e;">
+          <div style="font-weight:600;">2205 Winchester Rd</div>
+          <div style="font-size:11px;color:#9ca3af;margin-top:2px;">Score: <span class="green" style="font-weight:600;">72</span> • Roof: 15 yrs • No damage • 2,800 sqft</div>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:8px;">Data from NOAA SWDI + county records. Want me to generate a canvassing route?</div>
+      </div>
+      <div class="chat-bubble chat-user">Yes, create a route optimized for this afternoon</div>
+      <div class="chat-bubble chat-ai">
+        <div style="font-weight:600;margin-bottom:4px;color:#06b6d4;">Michael AI</div>
+        Route generated for <span class="cyan" style="font-weight:600;">this afternoon (1:00 PM - 5:00 PM)</span>:
+        <div style="margin-top:8px;font-size:12px;">
+          <div style="padding:4px 0;display:flex;align-items:center;gap:8px;"><span style="background:#06b6d4;color:#0d1117;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">1</span> 412 Oak Ridge Dr <span style="color:#6b7280;font-size:10px;">1:00 PM</span></div>
+          <div style="padding:4px 0;display:flex;align-items:center;gap:8px;"><span style="background:#06b6d4;color:#0d1117;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">2</span> 1887 Valley View Rd <span style="color:#6b7280;font-size:10px;">1:45 PM</span></div>
+          <div style="padding:4px 0;display:flex;align-items:center;gap:8px;"><span style="background:#06b6d4;color:#0d1117;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">3</span> 2205 Winchester Rd <span style="color:#6b7280;font-size:10px;">2:30 PM</span></div>
+          <div style="padding:4px 0;display:flex;align-items:center;gap:8px;"><span style="background:rgba(6,182,212,0.3);color:#06b6d4;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;">+</span> <span style="color:#6b7280;">44 more stops through 5:00 PM</span></div>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:6px;">Est. drive time: 3.2 hrs • 28 miles total</div>
+      </div>
+    </div>
+
+    <!-- Chat Input -->
+    <div class="chat-input-row" style="flex-shrink:0;">
+      <input type="text" class="search-input" placeholder="Ask Michael AI..." id="michaelInput" onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="btn-cyan" onclick="sendChat()" style="padding:10px 16px;">
+        <svg style="display:inline;vertical-align:middle;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================== BOTTOM BAR ======================== -->
+<div class="bottom-bar glass">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="dot dot-green"></span>
+    <span style="font-size:12px;color:#9ca3af;">System Online</span>
+    <span style="font-size:12px;color:#4b5563;">|</span>
+    <span style="font-size:12px;color:#9ca3af;">Huntsville, AL 35810</span>
+    <span style="font-size:12px;color:#4b5563;">|</span>
+    <span style="font-size:12px;color:#9ca3af;" id="activeScreenLabel">Dashboard</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <span style="font-size:11px;color:#4b5563;">v1.0.0</span>
+    <span class="mono" style="font-size:12px;color:#06b6d4;" id="datetime"></span>
+  </div>
+</div>
+
+<script>
+  // ===== MAP =====
+  const map = L.map('map', { attributionControl: false, zoomControl: true }).setView([34.7304, -86.5861], 13);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
+
+  // Territory zone circles
+  const zones = [
+    { lat: 34.7004, lng: -86.5861, radius: 2500, color: '#06b6d4', label: 'South Huntsville' },
+    { lat: 34.7604, lng: -86.5561, radius: 2000, color: '#22c55e', label: 'Madison County' },
+    { lat: 34.7204, lng: -86.5161, radius: 1800, color: '#f59e0b', label: 'Hampton Cove' },
+    { lat: 34.7404, lng: -86.6161, radius: 1500, color: '#C9A84C', label: 'Jones Valley' },
+    { lat: 34.7804, lng: -86.6361, radius: 1600, color: '#ef4444', label: 'Harvest' },
+  ];
+  zones.forEach(z => {
+    L.circle([z.lat, z.lng], { radius: z.radius, color: z.color, fillColor: z.color, fillOpacity: 0.08, weight: 1, opacity: 0.4 }).addTo(map);
+  });
+
+  // Property markers
+  const properties = [
+    { lat: 34.7104, lng: -86.5741, score: 94, color: '#ef4444' },
+    { lat: 34.7254, lng: -86.5921, score: 81, color: '#f59e0b' },
+    { lat: 34.7354, lng: -86.5661, score: 72, color: '#22c55e' },
+    { lat: 34.7454, lng: -86.5801, score: 68, color: '#22c55e' },
+    { lat: 34.7154, lng: -86.6021, score: 88, color: '#ef4444' },
+    { lat: 34.7504, lng: -86.5461, score: 76, color: '#f59e0b' },
+    { lat: 34.7004, lng: -86.5561, score: 91, color: '#ef4444' },
+    { lat: 34.7604, lng: -86.5761, score: 63, color: '#22c55e' },
+    { lat: 34.7304, lng: -86.6161, score: 85, color: '#f59e0b' },
+    { lat: 34.7704, lng: -86.6261, score: 77, color: '#f59e0b' },
+  ];
+  properties.forEach(p => {
+    L.circleMarker([p.lat, p.lng], { radius: 5, color: p.color, fillColor: p.color, fillOpacity: 0.7, weight: 1 }).addTo(map).bindPopup('<div style="font-family:Inter;font-size:12px;">Lead Score: <strong>' + p.score + '</strong></div>');
+  });
+
+  // ===== SCREEN SWITCHING =====
+  function switchScreen(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('screen-' + name).classList.add('active');
+    const labels = { dashboard:'Dashboard', territory:'Territory', sweep:'GPS Sweep', stormscope:'StormScope', michael:'Michael AI' };
+    document.getElementById('activeScreenLabel').textContent = labels[name];
+    // Activate correct tab
+    const tabs = document.querySelectorAll('.nav-tab');
+    const order = ['dashboard','territory','sweep','stormscope','michael'];
+    tabs[order.indexOf(name)].classList.add('active');
+    // Redraw charts if needed
+    if (name === 'territory') { setTimeout(() => { drawRoofAgeChart(); drawScoreChart(); }, 100); }
+    if (name === 'stormscope') { setTimeout(() => { drawStormChart(); drawStormFreqChart(); }, 100); }
+    if (name === 'dashboard') { setTimeout(() => { drawPipelineChart(); drawTempChart(); drawRevenueChart(); }, 100); }
+  }
+
+  // ===== LIVE CLOCK =====
+  function updateTime() {
+    const now = new Date();
+    document.getElementById('datetime').textContent = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + '  ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+  updateTime();
+  setInterval(updateTime, 1000);
+
+  // ===== CHAT =====
+  function sendChat() {
+    const input = document.getElementById('michaelInput');
+    const val = input.value.trim();
+    if (!val) return;
+    const msgs = document.getElementById('chatMessages');
+    msgs.innerHTML += '<div class="chat-bubble chat-user">' + val + '</div>';
+    input.value = '';
+    setTimeout(() => {
+      msgs.innerHTML += '<div class="chat-bubble chat-ai"><div style="font-weight:600;margin-bottom:4px;color:#06b6d4;">Michael AI</div>Processing your request. Michael AI is analyzing property data, storm records, and lead scores to provide insights...</div>';
+      msgs.scrollTop = msgs.scrollHeight;
+    }, 600);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  // ===== CHARTS (Canvas) =====
+  function drawBarChart(id, labels, data, colors, maxVal) {
+    const canvas = document.getElementById(id);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * 2;
+    canvas.height = rect.height * 2;
+    canvas.style.height = rect.height + 'px';
+    ctx.scale(2, 2);
+    const w = rect.width, h = rect.height;
+    const barW = (w - 20) / labels.length - 6;
+    const max = maxVal || Math.max(...data) * 1.2;
+    ctx.clearRect(0, 0, w, h);
+
+    data.forEach((val, i) => {
+      const barH = (val / max) * (h - 25);
+      const x = 10 + i * (barW + 6);
+      const y = h - barH - 15;
+      ctx.fillStyle = colors[i % colors.length];
+      ctx.beginPath();
+      ctx.roundRect(x, y, barW, barH, 3);
+      ctx.fill();
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '9px Inter';
+      ctx.textAlign = 'center';
+      ctx.fillText(labels[i], x + barW/2, h - 2);
+    });
+  }
+
+  function drawLineChart(id, data, color, fillColor) {
+    const canvas = document.getElementById(id);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * 2;
+    canvas.height = rect.height * 2;
+    canvas.style.height = rect.height + 'px';
+    ctx.scale(2, 2);
+    const w = rect.width, h = rect.height;
+    const max = Math.max(...data) * 1.15;
+    const min = Math.min(...data) * 0.85;
+    const range = max - min || 1;
+    const stepX = w / (data.length - 1);
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Fill
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    data.forEach((val, i) => {
+      ctx.lineTo(i * stepX, h - ((val - min) / range) * (h - 10) - 5);
+    });
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, fillColor || 'rgba(6,182,212,0.15)');
+    grad.addColorStop(1, 'rgba(6,182,212,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    data.forEach((val, i) => {
+      const x = i * stepX;
+      const y = h - ((val - min) / range) * (h - 10) - 5;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = color || '#06b6d4';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Dots
+    data.forEach((val, i) => {
+      const x = i * stepX;
+      const y = h - ((val - min) / range) * (h - 10) - 5;
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = color || '#06b6d4';
+      ctx.fill();
+    });
+  }
+
+  function drawPipelineChart() {
+    drawBarChart('pipelineChart', ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], [8,12,6,15,11,4,14], ['#06b6d4','#06b6d4','#06b6d4','#06b6d4','#06b6d4','#06b6d4','#22d3ee']);
+  }
+
+  function drawTempChart() {
+    drawLineChart('tempChart', [72, 74, 71, 76, 78, 75, 78], '#f59e0b', 'rgba(245,158,11,0.1)');
+  }
+
+  function drawRevenueChart() {
+    drawBarChart('revenueChart', ['Jan','Feb','Mar','Apr','May','Jun'], [180,220,195,280,310,347], ['#C9A84C','#C9A84C','#C9A84C','#C9A84C','#C9A84C','#22c55e']);
+  }
+
+  function drawRoofAgeChart() {
+    drawBarChart('roofAgeChart', ['0-5','5-10','10-15','15-20','20-25','25+'], [320,480,560,620,510,357], ['#22c55e','#22c55e','#f59e0b','#f59e0b','#ef4444','#ef4444'], 700);
+  }
+
+  function drawScoreChart() {
+    drawBarChart('scoreChart', ['90+','80-89','70-79','60-69','50-59','<50'], [47,124,312,489,621,1254], ['#ef4444','#f59e0b','#C9A84C','#06b6d4','#6b7280','#374151'], 1400);
+  }
+
+  function drawStormChart() {
+    drawLineChart('stormChart', [2, 5, 3, 8, 12, 7, 4, 6, 9, 3, 1, 2], '#ef4444', 'rgba(239,68,68,0.1)');
+  }
+
+  function drawStormFreqChart() {
+    drawBarChart('stormFreqChart', ['May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr'], [8,12,15,11,7,4,2,1,3,5,9,7], ['#06b6d4','#06b6d4','#ef4444','#ef4444','#f59e0b','#22c55e','#22c55e','#22c55e','#22c55e','#f59e0b','#f59e0b','#06b6d4']);
+  }
+
+  // Initial draw
+  setTimeout(() => { drawPipelineChart(); drawTempChart(); drawRevenueChart(); }, 200);
+</script>
+</body>
+</html>
