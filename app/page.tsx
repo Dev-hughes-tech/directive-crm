@@ -35,7 +35,7 @@ import {
 } from 'lucide-react'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage } from '@/lib/types'
 import type { Marker } from '@/components/map/MapView'
-import { getClients, saveClients, getProposals, saveProposals, getMaterials, saveMaterials, getChatMessages, saveChatMessages } from '@/lib/storage'
+import { getClients, saveClient, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, markMessagesRead } from '@/lib/storage'
 import PropertyGraph from '@/components/dashboard/PropertyGraph'
 
 const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false })
@@ -63,23 +63,6 @@ function calculateLeadScore(property: Property): number {
   if (property.permit_count !== null && property.permit_count > 0) score -= 10
 
   return Math.max(10, Math.min(99, score))
-}
-
-// Get properties from localStorage
-function getProperties(): Property[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const data = localStorage.getItem('directive_properties')
-    return data ? JSON.parse(data) : []
-  } catch {
-    return []
-  }
-}
-
-// Save properties to localStorage
-function saveProperties(properties: Property[]): void {
-  if (typeof window === 'undefined') return
-  localStorage.setItem('directive_properties', JSON.stringify(properties))
 }
 
 // Get color badge for score
@@ -247,11 +230,21 @@ export default function Dashboard() {
 
   // Load properties on mount
   useEffect(() => {
-    setProperties(getProperties())
-    setClients(getClients())
-    setProposals(getProposals())
-    setMaterials(getMaterials())
-    setTeamMessages(getChatMessages('general'))
+    const loadData = async () => {
+      const [propsData, clientsData, proposalsData, materialsData, messagesData] = await Promise.all([
+        getProperties(),
+        getClients(),
+        getProposals(),
+        getMaterials(),
+        getChatMessages('general')
+      ])
+      setProperties(propsData)
+      setClients(clientsData)
+      setProposals(proposalsData)
+      setMaterials(materialsData)
+      setTeamMessages(messagesData)
+    }
+    loadData()
   }, [])
 
   // Fetch weather data on mount
@@ -371,11 +364,11 @@ export default function Dashboard() {
   }
 
   // Save sweep result
-  const handleSaveSweep = () => {
+  const handleSaveSweep = async () => {
     if (!sweepResult) return
     const updated = [...properties, sweepResult]
     setProperties(updated)
-    saveProperties(updated)
+    await saveProperty(sweepResult)
     setSweepResult(null)
     setSweepAddress('')
   }
@@ -1417,14 +1410,14 @@ export default function Dashboard() {
                             <p className="text-xs text-gray-400 uppercase tracking-wide">Status</p>
                             <select
                               value={selectedClient.status}
-                              onChange={(e) => {
+                              onChange={async (e) => {
                                 const updated = { ...selectedClient, status: e.target.value as any }
                                 setSelectedClient(updated)
                                 const idx = clients.findIndex(c => c.id === selectedClient.id)
                                 const newClients = [...clients]
                                 newClients[idx] = updated
                                 setClients(newClients)
-                                saveClients(newClients)
+                                await saveClient(updated)
                               }}
                               className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
                             >
@@ -1459,14 +1452,14 @@ export default function Dashboard() {
                         <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Notes</p>
                         <textarea
                           value={selectedClient.notes}
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const updated = { ...selectedClient, notes: e.target.value }
                             setSelectedClient(updated)
                             const idx = clients.findIndex(c => c.id === selectedClient.id)
                             const newClients = [...clients]
                             newClients[idx] = updated
                             setClients(newClients)
-                            saveClients(newClients)
+                            await saveClient(updated)
                           }}
                           className="w-full h-24 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
                           placeholder="Add notes..."
@@ -1500,7 +1493,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-white">Proposals</h2>
               <button
-                onClick={() => {
+                onClick={async () => {
                   const newProposal: Proposal = {
                     id: Math.random().toString(36).substr(2, 9),
                     client_id: '',
@@ -1514,7 +1507,7 @@ export default function Dashboard() {
                   }
                   const newProposals = [...proposals, newProposal]
                   setProposals(newProposals)
-                  saveProposals(newProposals)
+                  await saveProposal(newProposal)
                   setSelectedProposal(newProposal)
                   setEditingProposal(true)
                 }}
@@ -1648,25 +1641,26 @@ export default function Dashboard() {
 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       const idx = proposals.findIndex(p => p.id === selectedProposal.id)
                       const newProposals = [...proposals]
                       newProposals[idx] = selectedProposal
                       setProposals(newProposals)
-                      saveProposals(newProposals)
+                      await saveProposal(selectedProposal)
                     }}
                     className="flex-1 bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90"
                   >
                     Save Draft
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       const idx = proposals.findIndex(p => p.id === selectedProposal.id)
                       const newProposals = [...proposals]
-                      newProposals[idx] = { ...selectedProposal, status: 'sent', sent_at: new Date().toISOString() }
+                      const updated = { ...selectedProposal, status: 'sent' as const, sent_at: new Date().toISOString() }
+                      newProposals[idx] = updated
                       setProposals(newProposals)
-                      saveProposals(newProposals)
-                      setSelectedProposal(newProposals[idx])
+                      await saveProposal(updated)
+                      setSelectedProposal(updated)
                     }}
                     className="flex-1 bg-green/20 text-green py-2 rounded-lg font-medium hover:bg-green/30"
                   >
@@ -1838,7 +1832,7 @@ export default function Dashboard() {
                 placeholder="Type a message..."
                 value={teamChatInput}
                 onChange={(e) => setTeamChatInput(e.target.value)}
-                onKeyDown={(e) => {
+                onKeyDown={async (e) => {
                   if (e.key === 'Enter' && teamChatInput.trim()) {
                     const newMsg: ChatMessage = {
                       id: Math.random().toString(36).substr(2, 9),
@@ -1847,17 +1841,18 @@ export default function Dashboard() {
                       message: teamChatInput,
                       timestamp: new Date().toISOString(),
                       read: true,
+                      channel: 'general'
                     }
                     const newMessages = [...teamMessages, newMsg]
                     setTeamMessages(newMessages)
-                    saveChatMessages(newMessages, 'general')
+                    await saveChatMessage(newMsg)
                     setTeamChatInput('')
                   }
                 }}
                 className="flex-1 bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
               />
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (teamChatInput.trim()) {
                     const newMsg: ChatMessage = {
                       id: Math.random().toString(36).substr(2, 9),
@@ -1866,10 +1861,11 @@ export default function Dashboard() {
                       message: teamChatInput,
                       timestamp: new Date().toISOString(),
                       read: true,
+                      channel: 'general'
                     }
                     const newMessages = [...teamMessages, newMsg]
                     setTeamMessages(newMessages)
-                    saveChatMessages(newMessages, 'general')
+                    await saveChatMessage(newMsg)
                     setTeamChatInput('')
                   }
                 }}

@@ -142,6 +142,7 @@ export interface Material {
 
 export interface ChatMessage {
   id: string
+  channel: string
   sender_name: string
   sender_role: 'rep' | 'manager'
   message: string
