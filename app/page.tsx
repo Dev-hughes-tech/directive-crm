@@ -22,6 +22,8 @@ import {
   Loader2,
   Phone,
   Mail,
+  CircleDot,
+  Zap as Lightning,
 } from 'lucide-react'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property } from '@/lib/types'
 import type { Marker } from '@/components/map/MapView'
@@ -31,6 +33,351 @@ const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false }
 // Huntsville AL coordinates (Directive CRM HQ)
 const HQ_LAT = 34.7304
 const HQ_LNG = -86.5861
+const HQ_CITY = 'Huntsville, AL'
+
+// DEMO DATA: Seed properties for initial state
+const DEMO_PROPERTIES: Property[] = [
+  {
+    id: 'demo_1',
+    address: '1247 Governors Drive, Huntsville, AL 35801',
+    lat: 34.7312,
+    lng: -86.5891,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 1998,
+    roof_age_years: 19,
+    market_value: 285000,
+    assessed_value: 245000,
+    last_sale_date: '2018-06-15',
+    last_sale_price: 275000,
+    county: 'Madison County',
+    parcel_id: '01-44-3-2-4-001',
+    permit_count: 2,
+    flags: ['Roof aging', 'Hot market'],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-01T08:15:00Z',
+  },
+  {
+    id: 'demo_2',
+    address: '842 Holmes Avenue, Huntsville, AL 35802',
+    lat: 34.7245,
+    lng: -86.5745,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 1987,
+    roof_age_years: 20,
+    market_value: 195000,
+    assessed_value: 168000,
+    last_sale_date: '2015-09-22',
+    last_sale_price: 182000,
+    county: 'Madison County',
+    parcel_id: '01-43-2-1-3-045',
+    permit_count: 5,
+    flags: ['Critical roof age', 'Multiple permits'],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-02T10:30:00Z',
+  },
+  {
+    id: 'demo_3',
+    address: '315 Sparkman Drive, Huntsville, AL 35805',
+    lat: 34.7195,
+    lng: -86.6012,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 2001,
+    roof_age_years: 16,
+    market_value: 325000,
+    assessed_value: 285000,
+    last_sale_date: '2019-03-10',
+    last_sale_price: 310000,
+    county: 'Madison County',
+    parcel_id: '01-45-1-4-2-089',
+    permit_count: 1,
+    flags: [],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-02T14:45:00Z',
+  },
+  {
+    id: 'demo_4',
+    address: '1563 Research Park Boulevard, Huntsville, AL 35806',
+    lat: 34.7418,
+    lng: -86.5521,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 1995,
+    roof_age_years: 18,
+    market_value: 410000,
+    assessed_value: 368000,
+    last_sale_date: '2017-11-05',
+    last_sale_price: 395000,
+    county: 'Madison County',
+    parcel_id: '01-46-2-3-1-112',
+    permit_count: 3,
+    flags: [],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-03T09:20:00Z',
+  },
+  {
+    id: 'demo_5',
+    address: '2781 Mountain Gap Road, Huntsville, AL 35810',
+    lat: 34.7501,
+    lng: -86.6145,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 2002,
+    roof_age_years: 15,
+    market_value: 265000,
+    assessed_value: 228000,
+    last_sale_date: '2020-01-14',
+    last_sale_price: 250000,
+    county: 'Madison County',
+    parcel_id: '01-47-3-2-4-067',
+    permit_count: 0,
+    flags: [],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-03T11:00:00Z',
+  },
+  {
+    id: 'demo_6',
+    address: '947 Meridian Street, Huntsville, AL 35811',
+    lat: 34.7089,
+    lng: -86.5632,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 1992,
+    roof_age_years: 21,
+    market_value: 175000,
+    assessed_value: 152000,
+    last_sale_date: '2014-07-20',
+    last_sale_price: 165000,
+    county: 'Madison County',
+    parcel_id: '01-48-1-1-2-034',
+    permit_count: 4,
+    flags: ['Critical roof age'],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-04T13:25:00Z',
+  },
+  {
+    id: 'demo_7',
+    address: '724 Mastin Lake Road, Huntsville, AL 35801',
+    lat: 34.7268,
+    lng: -86.5834,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 1999,
+    roof_age_years: 17,
+    market_value: 298000,
+    assessed_value: 258000,
+    last_sale_date: '2018-05-08',
+    last_sale_price: 280000,
+    county: 'Madison County',
+    parcel_id: '01-44-3-3-1-078',
+    permit_count: 2,
+    flags: [],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-04T15:40:00Z',
+  },
+  {
+    id: 'demo_8',
+    address: '541 Pratt Avenue, Huntsville, AL 35802',
+    lat: 34.7335,
+    lng: -86.5698,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 1986,
+    roof_age_years: 22,
+    market_value: 205000,
+    assessed_value: 175000,
+    last_sale_date: '2013-02-12',
+    last_sale_price: 190000,
+    county: 'Madison County',
+    parcel_id: '01-43-2-2-3-056',
+    permit_count: 6,
+    flags: ['Critical roof age', 'Multiple permits'],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-05T08:50:00Z',
+  },
+  {
+    id: 'demo_9',
+    address: '1126 West Holmes Avenue, Huntsville, AL 35805',
+    lat: 34.7152,
+    lng: -86.6089,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 2000,
+    roof_age_years: 14,
+    market_value: 285000,
+    assessed_value: 248000,
+    last_sale_date: '2020-08-19',
+    last_sale_price: 270000,
+    county: 'Madison County',
+    parcel_id: '01-45-1-5-2-091',
+    permit_count: 1,
+    flags: [],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-05T12:15:00Z',
+  },
+  {
+    id: 'demo_10',
+    address: '2345 Whitesburg Drive, Huntsville, AL 35806',
+    lat: 34.7368,
+    lng: -86.5389,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 1996,
+    roof_age_years: 19,
+    market_value: 380000,
+    assessed_value: 335000,
+    last_sale_date: '2019-06-11',
+    last_sale_price: 365000,
+    county: 'Madison County',
+    parcel_id: '01-46-2-4-3-124',
+    permit_count: 2,
+    flags: ['Roof aging'],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-06T09:35:00Z',
+  },
+  {
+    id: 'demo_11',
+    address: '612 Adams Avenue, Huntsville, AL 35810',
+    lat: 34.7456,
+    lng: -86.6051,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 2003,
+    roof_age_years: 13,
+    market_value: 245000,
+    assessed_value: 210000,
+    last_sale_date: '2021-03-22',
+    last_sale_price: 232000,
+    county: 'Madison County',
+    parcel_id: '01-47-3-1-2-073',
+    permit_count: 0,
+    flags: [],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-06T14:20:00Z',
+  },
+  {
+    id: 'demo_12',
+    address: '809 Hutchens Avenue, Huntsville, AL 35811',
+    lat: 34.7125,
+    lng: -86.5721,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 1990,
+    roof_age_years: 23,
+    market_value: 155000,
+    assessed_value: 135000,
+    last_sale_date: '2012-10-05',
+    last_sale_price: 145000,
+    county: 'Madison County',
+    parcel_id: '01-48-1-2-1-041',
+    permit_count: 7,
+    flags: ['Critical roof age', 'Multiple permits'],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-07T10:45:00Z',
+  },
+  {
+    id: 'demo_13',
+    address: '1834 Poplar Street, Huntsville, AL 35801',
+    lat: 34.7295,
+    lng: -86.5956,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 1997,
+    roof_age_years: 18,
+    market_value: 310000,
+    assessed_value: 270000,
+    last_sale_date: '2017-09-30',
+    last_sale_price: 295000,
+    county: 'Madison County',
+    parcel_id: '01-44-3-1-3-085',
+    permit_count: 3,
+    flags: [],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-07T16:00:00Z',
+  },
+  {
+    id: 'demo_14',
+    address: '456 University Drive, Huntsville, AL 35802',
+    lat: 34.7215,
+    lng: -86.5823,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 1988,
+    roof_age_years: 20,
+    market_value: 225000,
+    assessed_value: 195000,
+    last_sale_date: '2016-04-18',
+    last_sale_price: 210000,
+    county: 'Madison County',
+    parcel_id: '01-43-2-3-2-048',
+    permit_count: 4,
+    flags: ['Critical roof age'],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-08T07:30:00Z',
+  },
+  {
+    id: 'demo_15',
+    address: '2918 Collin Avenue, Huntsville, AL 35805',
+    lat: 34.7172,
+    lng: -86.5945,
+    owner_name: null,
+    owner_phone: null,
+    owner_email: null,
+    year_built: 2004,
+    roof_age_years: 12,
+    market_value: 295000,
+    assessed_value: 255000,
+    last_sale_date: '2021-11-02',
+    last_sale_price: 280000,
+    county: 'Madison County',
+    parcel_id: '01-45-1-3-1-099',
+    permit_count: 0,
+    flags: [],
+    sources: { 'County Assessor': true },
+    score: null,
+    created_at: '2026-04-08T11:15:00Z',
+  },
+]
+
+// ZIP territory data
+const DEMO_TERRITORIES = [
+  { zip: '35801', name: 'Downtown Huntsville', leads: 487, status: 'Hot Zone' as const },
+  { zip: '35802', name: 'South Huntsville', leads: 412, status: 'Hot Zone' as const },
+  { zip: '35805', name: 'West Huntsville', leads: 356, status: 'Warm' as const },
+  { zip: '35806', name: 'Research Park', leads: 298, status: 'Warm' as const },
+  { zip: '35810', name: 'North Huntsville', leads: 264, status: 'Developing' as const },
+  { zip: '35811', name: 'Meridianville', leads: 231, status: 'Developing' as const },
+]
 
 // Lead scoring function
 function calculateLeadScore(property: Property): number {
@@ -50,14 +397,14 @@ function calculateLeadScore(property: Property): number {
   return Math.max(10, Math.min(99, score))
 }
 
-// Get properties from localStorage
+// Get properties from localStorage, fallback to demo data on first load
 function getProperties(): Property[] {
-  if (typeof window === 'undefined') return []
+  if (typeof window === 'undefined') return DEMO_PROPERTIES
   try {
     const data = localStorage.getItem('directive_properties')
-    return data ? JSON.parse(data) : []
+    return data ? JSON.parse(data) : DEMO_PROPERTIES
   } catch {
-    return []
+    return DEMO_PROPERTIES
   }
 }
 
@@ -481,166 +828,280 @@ export default function Dashboard() {
               )
             })}
           </div>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 bg-green rounded-full animate-pulse" />
+              <span className="text-xs font-semibold text-green uppercase tracking-wide">Live</span>
+            </div>
+            <div className="flex items-center gap-2 bg-dark-700/50 rounded-full px-3 py-1.5">
+              <MapPin className="w-3 h-3 text-gray-400" />
+              <span className="text-xs text-gray-300">{HQ_CITY}</span>
+            </div>
+          </div>
         </div>
       </nav>
 
       {/* SCREEN 1: DASHBOARD */}
       {activeScreen === 'dashboard' && (
         <>
-          {/* Left Sidebar */}
-          <div className="absolute left-4 top-20 bottom-4 w-80 overflow-y-auto space-y-3 z-30">
-            {/* Lead Pipeline */}
-            <div className="glass p-6 rounded-xl">
-              <div className="flex items-center gap-2 mb-4">
-                <Zap className="w-5 h-5 text-cyan" />
-                <h2 className="text-lg font-heading font-semibold">Lead Pipeline</h2>
-              </div>
-
-              {properties.length === 0 ? (
-                <p className="text-sm text-gray-400">Run GPS Sweep to build your pipeline</p>
-              ) : (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-3 gap-2 text-center text-sm mb-3">
-                    <div className="bg-dark-700/50 rounded-lg p-2">
-                      <p className="text-gray-400 text-xs">Total</p>
-                      <p className="text-lg font-bold text-cyan">{properties.length}</p>
-                    </div>
-                    <div className="bg-dark-700/50 rounded-lg p-2">
-                      <p className="text-gray-400 text-xs">Hot</p>
-                      <p className="text-lg font-bold text-green">
-                        {properties.filter((p) => calculateLeadScore(p) >= 70).length}
-                      </p>
-                    </div>
-                    <div className="bg-dark-700/50 rounded-lg p-2">
-                      <p className="text-gray-400 text-xs">Avg Roof Age</p>
-                      <p className="text-lg font-bold text-amber">
-                        {properties.length > 0
-                          ? Math.round(
-                            properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) /
-                            properties.length
-                          )
-                          : '—'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    {properties
-                      .sort((a, b) => calculateLeadScore(b) - calculateLeadScore(a))
-                      .slice(0, 5)
-                      .map((prop) => {
-                        const score = calculateLeadScore(prop)
-                        return (
-                          <div key={prop.id} className="flex items-center justify-between bg-dark-700/50 rounded-lg p-3 text-sm">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-white truncate">{prop.address}</p>
-                              {prop.roof_age_years && <p className="text-xs text-gray-400">{prop.roof_age_years}y old</p>}
-                            </div>
-                            <span className={`text-xs font-bold px-2 py-1 rounded ml-2 whitespace-nowrap ${getScoreBadgeColor(score)}`}>
-                              {score}
-                            </span>
-                          </div>
-                        )
-                      })}
-                  </div>
-                </div>
-              )}
+          {/* Stats Bar */}
+          <div className="absolute left-4 right-4 top-24 z-30 glass rounded-lg px-6 py-4 flex gap-6">
+            {/* Properties Scanned */}
+            <div className="text-center">
+              <p className="text-3xl font-bold text-cyan">{properties.length}</p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Properties Scanned</p>
             </div>
 
-            {/* Weather Intelligence */}
-            <div className="glass p-6 rounded-xl">
-              <div className="flex items-center gap-2 mb-4">
-                <Cloud className="w-5 h-5 text-cyan" />
-                <h2 className="text-lg font-heading font-semibold">Weather Intelligence</h2>
-              </div>
+            {/* Qualifying Roofs */}
+            <div className="text-center">
+              <p className="text-3xl font-bold text-green">
+                {properties.filter((p) => p.roof_age_years !== null && p.roof_age_years >= 15).length}
+              </p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Qualifying Roofs</p>
+            </div>
 
-              {loading ? (
-                <p className="text-sm text-gray-400">Loading...</p>
-              ) : weather ? (
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Temperature</span>
-                    <span className="font-mono text-white">{weather.temperature_f}°F</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Wind</span>
-                    <span className="font-mono text-white">
-                      {weather.wind_speed_mph} mph {weather.wind_direction}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Humidity</span>
-                    <span className="font-mono text-white">{weather.humidity_pct}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Conditions</span>
-                    <span className="font-mono text-white text-right">{weather.conditions}</span>
-                  </div>
-                  <p className="text-xs text-gray-500 pt-2">NWS • weather.gov</p>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-400">Unable to load weather data</p>
-              )}
+            {/* Avg Roof Age */}
+            <div className="text-center">
+              <p className="text-3xl font-bold text-amber">
+                {properties.length > 0
+                  ? (
+                    properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length
+                  ).toFixed(1)
+                  : '—'}
+              </p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Avg Roof Age (yr)</p>
+            </div>
+
+            {/* Critical 20+ YR */}
+            <div className="text-center">
+              <p className="text-3xl font-bold text-red">
+                {properties.filter((p) => p.roof_age_years !== null && p.roof_age_years >= 20).length}
+              </p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Critical (20+ yr)</p>
             </div>
           </div>
 
-          {/* Right Sidebar */}
-          <div className="absolute right-4 top-20 bottom-4 w-72 overflow-y-auto space-y-3 z-30">
-            {/* Active Alerts */}
-            <div className="glass p-6 rounded-xl">
-              <div className="flex items-center gap-2 mb-4">
-                <AlertTriangle className="w-5 h-5 text-red" />
-                <h2 className="text-lg font-heading font-semibold">Active Alerts</h2>
+          {/* Left Panel */}
+          <div className="absolute left-4 top-56 bottom-16 w-80 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
+            {/* Lead Pipeline Card */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Lead Pipeline</h3>
+                <div className="flex items-center gap-1 bg-green/20 px-2 py-1 rounded-full">
+                  <div className="w-1.5 h-1.5 bg-green rounded-full" />
+                  <span className="text-xs text-green font-semibold">Live</span>
+                </div>
               </div>
 
-              {alerts.length === 0 ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green rounded-full" />
-                  <p className="text-sm text-green">No active weather alerts</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {alerts.slice(0, 3).map((alert) => (
-                    <div key={alert.id} className="border-l-2 border-amber pl-3 py-2 text-sm">
-                      <p className="font-medium text-amber">{alert.event}</p>
-                      <p className="text-xs text-gray-400 mt-1">{alert.headline}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+              <p className="text-4xl font-bold text-cyan">{properties.length}</p>
 
-            {/* Quick Research */}
-            <div className="glass p-6 rounded-xl">
-              <div className="flex items-center gap-2 mb-4">
-                <Search className="w-5 h-5 text-cyan" />
-                <h2 className="text-lg font-heading font-semibold">Quick Research</h2>
-              </div>
+              <p className="text-xs text-gray-400">
+                Active leads across {
+                  Array.from(
+                    new Set(properties.map((p) => p.address.split(',').pop()?.trim() || 'Unknown'))
+                  ).length
+                } territories
+              </p>
 
-              <div className="space-y-3">
-                <input
-                  type="text"
-                  placeholder="Enter address..."
-                  className="w-full bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
-                  onKeyDown={(e) => e.key === 'Enter' && handleSweepResearch()}
+              {/* Mini Sparkline */}
+              <svg className="w-full h-12" viewBox="0 0 300 40" preserveAspectRatio="none">
+                <polyline
+                  points="0,30 50,28 100,25 150,22 200,20 250,18 300,15"
+                  fill="none"
+                  stroke="rgb(34, 211, 238)"
+                  strokeWidth="2"
                 />
-                <button
-                  onClick={handleSweepResearch}
-                  className="w-full bg-cyan text-dark text-sm font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all"
-                >
-                  Search
-                </button>
+              </svg>
+
+              <div className="flex justify-between text-xs text-gray-400">
+                <span>+0% vs last month</span>
+                <span>0 New this week</span>
               </div>
+            </div>
+
+            <div className="border-t border-white/5" />
+
+            {/* Source Distribution Card */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Source Distribution</h3>
+                <span className="text-xs bg-dark-700/50 px-2 py-1 rounded text-gray-400">Q2 2026</span>
+              </div>
+
+              {/* Donut Chart */}
+              <div className="flex justify-center mb-2">
+                <svg width="100" height="100" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="40" fill="none" stroke="rgb(55, 65, 81)" strokeWidth="8" />
+                </svg>
+              </div>
+
+              <div className="text-center">
+                <p className="text-2xl font-bold text-white">{properties.length}</p>
+                <p className="text-xs text-gray-400">Total</p>
+              </div>
+
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between text-gray-400">
+                  <span>GPS Sweep</span>
+                  <span>0%</span>
+                </div>
+                <div className="flex justify-between text-gray-400">
+                  <span>Storm Alerts</span>
+                  <span>0%</span>
+                </div>
+                <div className="flex justify-between text-gray-400">
+                  <span>Referrals</span>
+                  <span>0%</span>
+                </div>
+                <div className="flex justify-between text-gray-400">
+                  <span>Door Knocks</span>
+                  <span>0%</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-white/5" />
+
+            {/* Roof Age Engine Card */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Roof Age Engine</h3>
+                <span className="text-xs bg-cyan/20 text-cyan px-2 py-1 rounded font-semibold">AI</span>
+              </div>
+
+              {/* Circular Gauge */}
+              <div className="flex justify-center mb-2">
+                <svg width="120" height="80" viewBox="0 0 120 80">
+                  <defs>
+                    <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="rgb(34, 211, 238)" />
+                      <stop offset="50%" stopColor="rgb(251, 191, 36)" />
+                      <stop offset="100%" stopColor="rgb(239, 68, 68)" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d="M 10 70 A 50 50 0 0 1 110 70"
+                    fill="none"
+                    stroke="url(#gaugeGrad)"
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                  />
+                  <circle
+                    cx={
+                      properties.length > 0
+                        ? 10 + ((properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length / 30) * 100)
+                        : 10
+                    }
+                    cy="70"
+                    r="5"
+                    fill="rgb(148, 163, 184)"
+                  />
+                </svg>
+              </div>
+
+              <p className="text-2xl font-bold text-center text-white">
+                {properties.length > 0
+                  ? (
+                    properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length
+                  ).toFixed(1)
+                  : '—'}
+              </p>
+              <p className="text-xs text-gray-400 text-center">Avg roof age (territory)</p>
             </div>
           </div>
 
-          {/* Bottom Timeline */}
-          <div className="absolute bottom-4 left-4 right-4 z-30 glass px-6 py-3 rounded-xl flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-cyan rounded-full animate-pulse-dot" />
-              <span className="text-sm font-mono text-gray-400">{currentTime}</span>
+          {/* Right Panel */}
+          <div className="absolute right-4 top-56 bottom-16 w-72 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
+            {/* Search Toggle */}
+            <div className="flex gap-2 mb-4">
+              <button className="flex-1 text-xs font-semibold uppercase px-3 py-2 rounded-lg bg-cyan text-dark">
+                By ZIP Code
+              </button>
+              <button className="flex-1 text-xs font-semibold uppercase px-3 py-2 rounded-lg text-gray-400 hover:text-white">
+                By Address
+              </button>
             </div>
-            <span className="text-xs text-gray-500">Directive CRM • Huntsville, AL</span>
+
+            {/* Search Input */}
+            <input
+              type="text"
+              placeholder="Search ZIP code or area..."
+              className="w-full bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 mb-3"
+            />
+
+            {/* Territory List */}
+            <div className="space-y-2">
+              {properties.length === 0 ? (
+                <p className="text-sm text-gray-400">No territories yet</p>
+              ) : (
+                Array.from(
+                  properties.reduce((acc, p) => {
+                    const zip = p.address.split(',').pop()?.trim() || 'Unknown'
+                    const count = (acc.get(zip) || 0) + 1
+                    acc.set(zip, count)
+                    return acc
+                  }, new Map<string, number>())
+                )
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([zip, count]) => {
+                    const status = count >= 100 ? 'Hot Zone' : count >= 50 ? 'Warm' : 'Developing'
+                    const statusColor = count >= 100 ? 'text-red' : count >= 50 ? 'text-amber' : 'text-gray-400'
+                    return (
+                      <div key={zip} className="bg-dark-700/50 rounded-lg p-3 text-sm">
+                        <p className="font-semibold text-white">{zip}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">Huntsville area</p>
+                        <div className="flex justify-between items-center mt-2">
+                          <span className="text-xs text-gray-400">{count} leads</span>
+                          <span className={`text-xs font-semibold ${statusColor}`}>{status}</span>
+                        </div>
+                      </div>
+                    )
+                  })
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Activity Timeline */}
+          <div className="absolute bottom-4 left-4 right-4 z-30 glass px-6 py-3 rounded-lg flex items-center justify-between h-14">
+            <span className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Activity Timeline</span>
+
+            {/* Month Track */}
+            <div className="flex-1 mx-6 relative h-6 flex items-center">
+              {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((month, idx) => (
+                <div
+                  key={month}
+                  className="flex-1 flex flex-col items-center justify-center"
+                  style={{ position: 'relative' }}
+                >
+                  {idx === 3 && (
+                    <div className="w-2 h-2 bg-cyan rounded-full mb-1" />
+                  )}
+                  <span className="text-xs text-gray-500">{month}</span>
+                </div>
+              ))}
+              {/* Scrubber dot at April */}
+              <div
+                className="absolute w-3 h-3 bg-cyan rounded-full"
+                style={{ left: 'calc(33.33% + 16.66%)' }}
+              />
+            </div>
+
+            {/* Control Icons */}
+            <div className="flex gap-2 ml-4">
+              <button className="w-6 h-6 rounded-lg bg-dark-700/50 flex items-center justify-center hover:bg-dark-700 transition-all">
+                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full" />
+              </button>
+              <button className="w-6 h-6 rounded-lg bg-dark-700/50 flex items-center justify-center hover:bg-dark-700 transition-all">
+                <div className="w-1.5 h-1.5 bg-gray-400" />
+              </button>
+              <button className="w-6 h-6 rounded-lg bg-dark-700/50 flex items-center justify-center hover:bg-dark-700 transition-all">
+                <div className="w-1.5 h-1.5 bg-gray-400" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }} />
+              </button>
+              <button className="w-6 h-6 rounded-lg bg-cyan/20 flex items-center justify-center hover:bg-cyan/30 transition-all">
+                <Zap className="w-3.5 h-3.5 text-cyan" />
+              </button>
+            </div>
           </div>
         </>
       )}
