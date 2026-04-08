@@ -111,7 +111,7 @@ export default function MapView({ lat, lng, zoom = 14, className = '', onMapClic
         weight: 1,
         opacity: 1,
         fillOpacity: 0.8,
-      }).addTo(mapRef.current)
+      }).addTo(mapRef.current!)
 
       if (marker.onClick) {
         circleMarker.on('click', marker.onClick)
