@@ -17,8 +17,13 @@ export async function GET(request: NextRequest) {
 
     // Check for severe conditions relevant to roofing
     const conditions = weatherData.weatherCondition?.description?.text || null
-    const windSpeed = weatherData.wind?.speed?.value || null
-    const windUnit = weatherData.wind?.speed?.unit || 'MPH'
+    // Convert wind speed to mph regardless of API unit
+    const rawWindSpeed = weatherData.wind?.speed?.value || null
+    const rawWindUnit = weatherData.wind?.speed?.unit || 'MPH'
+    const windSpeed = rawWindSpeed !== null
+      ? (rawWindUnit === 'KILOMETERS_PER_HOUR' ? Math.round(rawWindSpeed * 0.621371) : Math.round(rawWindSpeed))
+      : null
+    const windUnit = 'mph'
     const precipitation = weatherData.precipitation?.probability?.percent || null
     const temperature = weatherData.temperature?.degrees || null
     const tempUnit = weatherData.temperature?.unit || 'FAHRENHEIT'

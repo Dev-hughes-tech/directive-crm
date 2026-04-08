@@ -745,24 +745,24 @@ export default function Dashboard() {
 
       {/* Top Navigation Bar */}
       <nav className="absolute top-0 left-0 right-0 z-40 glass m-4 rounded-lg">
-        <div className="flex items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-3 flex-shrink-0">
             <Image
               src="/directive-wordmark.png"
               alt="Directive"
-              width={140}
-              height={36}
-              className="h-8 w-auto"
+              width={120}
+              height={32}
+              className="h-7 w-auto"
             />
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-1 overflow-x-auto scrollbar-hide">
             {[
               { id: 'dashboard' as Screen, label: 'Dashboard', icon: BarChart3 },
               { id: 'territory' as Screen, label: 'Territory', icon: MapPin },
-              { id: 'sweep' as Screen, label: 'GPS Sweep', icon: Navigation },
+              { id: 'sweep' as Screen, label: 'Sweep', icon: Navigation },
               { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio },
-              { id: 'michael' as Screen, label: 'Michael AI', icon: Brain },
+              { id: 'michael' as Screen, label: 'Michael', icon: Brain },
               { id: 'clients' as Screen, label: 'Clients', icon: Users },
               { id: 'proposals' as Screen, label: 'Proposals', icon: FileText },
               { id: 'materials' as Screen, label: 'Materials', icon: Package },
@@ -777,13 +777,13 @@ export default function Dashboard() {
                     setActiveScreen(tab.id)
                     if (tab.id === 'team') setUnreadCount(0)
                   }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all relative ${
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all relative whitespace-nowrap flex-shrink-0 ${
                     activeScreen === tab.id
                       ? 'bg-cyan text-dark'
                       : 'text-gray-400 hover:text-white hover:bg-dark-700/50'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon className="w-3.5 h-3.5" />
                   {tab.label}
                   {hasUnread && (
                     <span className="absolute top-1 right-1 w-2 h-2 bg-red rounded-full" />
