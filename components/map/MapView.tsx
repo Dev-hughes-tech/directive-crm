@@ -41,8 +41,12 @@ export default function MapView({
   onModeChange,
   geoJsonData
 }: MapViewProps) {
+  const apiKey = process.env.NEXT_PUBLIC_MAPS_API_KEY || ''
+
+  // v2 — cache-busted 2026-04-08
   const { isLoaded, loadError } = useJsApiLoader({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_MAPS_API_KEY || '',
+    id: 'directive-crm-map',
+    googleMapsApiKey: apiKey,
   })
 
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null)
