@@ -21,6 +21,7 @@ interface MapViewProps {
   onMapClick?: (lat: number, lng: number) => void
   mode?: 'dark' | 'satellite'
   markers?: Marker[]
+  onModeChange?: (mode: 'dark' | 'satellite') => void
 }
 
 // CartoDB Dark Matter — free, no API key, perfect night mode
@@ -28,7 +29,7 @@ const DARK_TILES = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.pn
 // ESRI World Imagery — free satellite tiles, no API key
 const SATELLITE_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 
-export default function MapView({ lat, lng, zoom = 14, className = '', onMapClick, mode = 'dark', markers = [] }: MapViewProps) {
+export default function MapView({ lat, lng, zoom = 14, className = '', onMapClick, mode = 'dark', markers = [], onModeChange }: MapViewProps) {
   const mapRef = useRef<L.Map | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const tileLayerRef = useRef<L.TileLayer | null>(null)
@@ -47,7 +48,7 @@ export default function MapView({ lat, lng, zoom = 14, className = '', onMapClic
 
     tileLayerRef.current = L.tileLayer(
       currentMode === 'dark' ? DARK_TILES : SATELLITE_TILES,
-      { maxZoom: 19 }
+      { maxZoom: 19, minZoom: 3 }
     ).addTo(mapRef.current)
 
     if (onMapClick) {
@@ -70,7 +71,7 @@ export default function MapView({ lat, lng, zoom = 14, className = '', onMapClic
     mapRef.current.removeLayer(tileLayerRef.current)
     tileLayerRef.current = L.tileLayer(
       currentMode === 'dark' ? DARK_TILES : SATELLITE_TILES,
-      { maxZoom: 19 }
+      { maxZoom: 19, minZoom: 3 }
     ).addTo(mapRef.current)
   }, [currentMode])
 
@@ -124,13 +125,6 @@ export default function MapView({ lat, lng, zoom = 14, className = '', onMapClic
   return (
     <div className={`relative w-full h-full ${className}`}>
       <div ref={containerRef} className="w-full h-full" />
-      {/* Toggle button */}
-      <button
-        onClick={() => setCurrentMode(prev => prev === 'dark' ? 'satellite' : 'dark')}
-        className="absolute top-3 right-3 z-[1000] glass-sm px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-cyan transition-colors cursor-pointer"
-      >
-        {currentMode === 'dark' ? '🛰 Satellite' : '🌙 Night'}
-      </button>
     </div>
   )
 }

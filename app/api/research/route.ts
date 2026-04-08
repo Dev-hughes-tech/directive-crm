@@ -8,17 +8,16 @@ export async function POST(request: NextRequest) {
     const { address } = await request.json()
     if (!address) return NextResponse.json({ error: 'Address is required', data: null }, { status: 400 })
 
-    const prompt = `You are a property research assistant. Search for real property and owner information for this exact address: ${address}
+    const prompt = `You are a property research assistant. Conduct thorough, multi-query research for this exact address: ${address}
 
-Search these sources:
-1. County assessor/GIS records
-2. FastPeopleSearch.com
-3. TruePeopleSearch.com
-4. Zillow.com
-5. Redfin.com
-6. County permit records
+AGGRESSIVE SEARCH STRATEGY:
+1. First: Search "{address}" site:countyassessor OR site:property-appraiser.org owner
+2. If no owner found: Search "{address}" owner name property records
+3. For phone: Search "{owner_name}" "{city}" "{state}" phone contact
+4. Try FastPeopleSearch-style: Search "{owner_name}" "{zip_code}" contact information
+5. Supplement: Zillow, Redfin, county GIS, permit records, tax records
 
-Return ONLY a valid JSON object. Return null for every field you cannot find explicitly — do not estimate, infer, or invent any value:
+CRITICAL: Return ONLY a valid JSON object. Return null for every field you cannot find explicitly — do NOT estimate, infer, or invent any value:
 
 {
   "ownerName": null,

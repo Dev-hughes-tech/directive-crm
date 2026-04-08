@@ -24,9 +24,19 @@ import {
   Mail,
   CircleDot,
   Zap as Lightning,
+  Users,
+  FileText,
+  Package,
+  MessageSquare,
+  Plus,
+  Trash2,
+  Edit2,
+  X,
 } from 'lucide-react'
-import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property } from '@/lib/types'
+import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage } from '@/lib/types'
 import type { Marker } from '@/components/map/MapView'
+import { getClients, saveClients, getProposals, saveProposals, getMaterials, saveMaterials, getChatMessages, saveChatMessages } from '@/lib/storage'
+import PropertyGraph from '@/components/dashboard/PropertyGraph'
 
 const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false })
 
@@ -210,9 +220,36 @@ export default function Dashboard() {
   const [stormLoading, setStormLoading] = useState(false)
   const [stormRisk, setStormRisk] = useState<{ level: 'High' | 'Moderate' | 'Low'; eventCount: number } | null>(null)
 
+  // Clients screen state
+  const [clients, setClients] = useState<Client[]>([])
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null)
+  const [clientStatusFilter, setClientStatusFilter] = useState<string>('all')
+
+  // Proposals screen state
+  const [proposals, setProposals] = useState<Proposal[]>([])
+  const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null)
+  const [editingProposal, setEditingProposal] = useState(false)
+
+  // Materials screen state
+  const [materials, setMaterials] = useState<Material[]>([])
+  const [roofWidth, setRoofWidth] = useState('')
+  const [roofLength, setRoofLength] = useState('')
+  const [addingMaterial, setAddingMaterial] = useState(false)
+
+  // Team chat state
+  const [teamMessages, setTeamMessages] = useState<ChatMessage[]>([])
+  const [currentUserRole, setCurrentUserRole] = useState<'rep' | 'manager'>('rep')
+  const [teamChatInput, setTeamChatInput] = useState('')
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [mapMode, setMapMode] = useState<'dark' | 'satellite'>('dark')
+
   // Load properties on mount
   useEffect(() => {
     setProperties(getProperties())
+    setClients(getClients())
+    setProposals(getProposals())
+    setMaterials(getMaterials())
+    setTeamMessages(getChatMessages('general'))
   }, [])
 
   // Fetch weather data on mount
@@ -437,14 +474,25 @@ export default function Dashboard() {
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-dark">
       {/* Background Map */}
-      <div className="absolute inset-0 z-0">
+      <div className="absolute inset-0 z-0" style={{ isolation: 'isolate' }}>
         <MapView
           lat={mapCenter.lat}
           lng={mapCenter.lng}
           zoom={mapZoom}
-          mode={activeScreen === 'stormscope' ? 'satellite' : 'dark'}
+          mode={mapMode}
           markers={activeScreen === 'territory' ? territoryMarkers : []}
+          onModeChange={setMapMode}
         />
+
+        {/* Map Mode Toggle Button - Page Level Z-index */}
+        {(activeScreen === 'territory' || activeScreen === 'stormscope') && (
+          <button
+            onClick={() => setMapMode(prev => prev === 'dark' ? 'satellite' : 'dark')}
+            className="absolute top-24 right-4 z-50 glass-sm px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-cyan transition-colors cursor-pointer rounded"
+          >
+            {mapMode === 'dark' ? '🛰 Satellite' : '🌙 Night'}
+          </button>
+        )}
       </div>
 
       {/* Top Navigation Bar */}
@@ -467,13 +515,21 @@ export default function Dashboard() {
               { id: 'sweep' as Screen, label: 'GPS Sweep', icon: Navigation },
               { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio },
               { id: 'michael' as Screen, label: 'Michael AI', icon: Brain },
+              { id: 'clients' as Screen, label: 'Clients', icon: Users },
+              { id: 'proposals' as Screen, label: 'Proposals', icon: FileText },
+              { id: 'materials' as Screen, label: 'Materials', icon: Package },
+              { id: 'team' as Screen, label: 'Team', icon: MessageSquare },
             ].map((tab) => {
               const Icon = tab.icon
+              const hasUnread = tab.id === 'team' && unreadCount > 0
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveScreen(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  onClick={() => {
+                    setActiveScreen(tab.id)
+                    if (tab.id === 'team') setUnreadCount(0)
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all relative ${
                     activeScreen === tab.id
                       ? 'bg-cyan text-dark'
                       : 'text-gray-400 hover:text-white hover:bg-dark-700/50'
@@ -481,6 +537,9 @@ export default function Dashboard() {
                 >
                   <Icon className="w-4 h-4" />
                   {tab.label}
+                  {hasUnread && (
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-red rounded-full" />
+                  )}
                 </button>
               )
             })}
@@ -666,6 +725,11 @@ export default function Dashboard() {
               </p>
               <p className="text-xs text-gray-400 text-center">Avg roof age (territory)</p>
             </div>
+          </div>
+
+          {/* Center Panel: PropertyGraph */}
+          <div className="absolute left-96 right-96 top-56 h-80 z-30">
+            <PropertyGraph properties={properties} center={mapCenter} />
           </div>
 
           {/* Right Panel */}
@@ -1207,6 +1271,552 @@ export default function Dashboard() {
                 onClick={handleSendChat}
                 disabled={chatLoading || !chatInput.trim()}
                 className="bg-cyan text-dark px-4 py-2 rounded-lg font-medium hover:bg-cyan/90 transition-all disabled:opacity-50"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SCREEN 6: CLIENTS */}
+      {activeScreen === 'clients' && (
+        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+          {/* Left Panel: Client List */}
+          <div className="w-1/3 glass rounded-lg p-6 flex flex-col">
+            <h2 className="text-lg font-semibold text-white mb-4">CRM Pipeline</h2>
+
+            {/* Status Filter */}
+            <div className="flex gap-2 mb-4 flex-wrap">
+              {['all', 'new_lead', 'contacted', 'proposal_sent', 'scheduled', 'complete', 'lost'].map(status => (
+                <button
+                  key={status}
+                  onClick={() => setClientStatusFilter(status)}
+                  className={`px-3 py-1 text-xs rounded-full transition-all ${
+                    clientStatusFilter === status
+                      ? 'bg-cyan text-dark'
+                      : 'bg-dark-700 text-gray-300 hover:text-white'
+                  }`}
+                >
+                  {status === 'all' ? 'All' : status.replace(/_/g, ' ').toUpperCase()}
+                </button>
+              ))}
+            </div>
+
+            {/* Client List */}
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {clients
+                .filter(c => clientStatusFilter === 'all' || c.status === clientStatusFilter)
+                .map(client => {
+                  const prop = properties.find(p => p.id === client.property_id)
+                  const statusColors: Record<string, string> = {
+                    new_lead: 'bg-cyan/20 text-cyan',
+                    contacted: 'bg-amber/20 text-amber',
+                    proposal_sent: 'bg-gold/20 text-gold',
+                    scheduled: 'bg-green/20 text-green',
+                    complete: 'bg-green/20 text-green/60',
+                    lost: 'bg-red/20 text-red',
+                  }
+                  return (
+                    <button
+                      key={client.id}
+                      onClick={() => setSelectedClient(client)}
+                      className={`w-full text-left p-3 rounded-lg transition-all ${
+                        selectedClient?.id === client.id
+                          ? 'glass-sm ring-1 ring-cyan'
+                          : 'bg-dark-700/50 hover:bg-dark-700'
+                      }`}
+                    >
+                      <p className="text-sm font-semibold text-white">{prop?.address || '—'}</p>
+                      <p className="text-xs text-gray-400 mt-1">{prop?.owner_name || 'Unknown Owner'}</p>
+                      <div className="flex justify-between items-center mt-2">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[client.status]}`}>
+                          {client.status.replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-xs text-gray-400">{prop ? Math.max(10, Math.min(99, 50 + (prop.roof_age_years || 0))) : '—'}</span>
+                      </div>
+                    </button>
+                  )
+                })}
+            </div>
+          </div>
+
+          {/* Right Panel: Client Details */}
+          <div className="w-2/3 glass rounded-lg p-6 flex flex-col">
+            {selectedClient ? (
+              <>
+                {(() => {
+                  const prop = properties.find(p => p.id === selectedClient.property_id)
+                  return (
+                    <>
+                      <div className="mb-6 pb-6 border-b border-white/10">
+                        <h2 className="text-xl font-semibold text-white">{prop?.address || '—'}</h2>
+                        <p className="text-sm text-gray-400 mt-1">Owner: {prop?.owner_name || '—'}</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-6 mb-6">
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-wide">Status</p>
+                            <select
+                              value={selectedClient.status}
+                              onChange={(e) => {
+                                const updated = { ...selectedClient, status: e.target.value as any }
+                                setSelectedClient(updated)
+                                const idx = clients.findIndex(c => c.id === selectedClient.id)
+                                const newClients = [...clients]
+                                newClients[idx] = updated
+                                setClients(newClients)
+                                saveClients(newClients)
+                              }}
+                              className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                            >
+                              <option value="new_lead">New Lead</option>
+                              <option value="contacted">Contacted</option>
+                              <option value="proposal_sent">Proposal Sent</option>
+                              <option value="scheduled">Scheduled</option>
+                              <option value="complete">Complete</option>
+                              <option value="lost">Lost</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-wide">Last Contact</p>
+                            <p className="mt-1 text-sm text-white">{selectedClient.last_contact || '—'}</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-wide">Phone</p>
+                            <p className="mt-1 text-sm text-white">{prop?.owner_phone || '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-wide">Email</p>
+                            <p className="mt-1 text-sm text-white">{prop?.owner_email || '—'}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 mb-4">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Notes</p>
+                        <textarea
+                          value={selectedClient.notes}
+                          onChange={(e) => {
+                            const updated = { ...selectedClient, notes: e.target.value }
+                            setSelectedClient(updated)
+                            const idx = clients.findIndex(c => c.id === selectedClient.id)
+                            const newClients = [...clients]
+                            newClients[idx] = updated
+                            setClients(newClients)
+                            saveClients(newClients)
+                          }}
+                          className="w-full h-24 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                          placeholder="Add notes..."
+                        />
+                      </div>
+
+                      <button
+                        onClick={() => setActiveScreen('proposals')}
+                        className="w-full bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90"
+                      >
+                        Generate Proposal
+                      </button>
+                    </>
+                  )
+                })()}
+              </>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-gray-400">Select a client to view details</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SCREEN 7: PROPOSALS */}
+      {activeScreen === 'proposals' && (
+        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+          {/* Left Panel: Proposal List */}
+          <div className="w-1/3 glass rounded-lg p-6 flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">Proposals</h2>
+              <button
+                onClick={() => {
+                  const newProposal: Proposal = {
+                    id: Math.random().toString(36).substr(2, 9),
+                    client_id: '',
+                    property_id: '',
+                    status: 'draft',
+                    line_items: [],
+                    total: 0,
+                    notes: '',
+                    created_at: new Date().toISOString(),
+                    sent_at: null,
+                  }
+                  const newProposals = [...proposals, newProposal]
+                  setProposals(newProposals)
+                  saveProposals(newProposals)
+                  setSelectedProposal(newProposal)
+                  setEditingProposal(true)
+                }}
+                className="p-1.5 rounded hover:bg-dark-700 text-cyan"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {proposals.map(proposal => {
+                const prop = properties.find(p => p.id === proposal.property_id)
+                return (
+                  <button
+                    key={proposal.id}
+                    onClick={() => {
+                      setSelectedProposal(proposal)
+                      setEditingProposal(false)
+                    }}
+                    className={`w-full text-left p-3 rounded-lg transition-all ${
+                      selectedProposal?.id === proposal.id
+                        ? 'glass-sm ring-1 ring-cyan'
+                        : 'bg-dark-700/50 hover:bg-dark-700'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-white">{prop?.address || 'Unknown'}</p>
+                    <div className="flex justify-between items-center mt-2">
+                      <span className="text-xs text-gray-400">${proposal.total.toLocaleString()}</span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-amber/20 text-amber">{proposal.status}</span>
+                    </div>
+                  </button>
+                )
+              })}
+              {proposals.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-8">No proposals yet</p>
+              )}
+            </div>
+          </div>
+
+          {/* Right Panel: Proposal Editor */}
+          <div className="w-2/3 glass rounded-lg p-6 flex flex-col">
+            {selectedProposal ? (
+              <>
+                <div className="mb-4 pb-4 border-b border-white/10">
+                  <h2 className="text-lg font-semibold text-white">
+                    {properties.find(p => p.id === selectedProposal.property_id)?.address || 'Select property'}
+                  </h2>
+                </div>
+
+                <div className="flex-1 overflow-y-auto mb-4 space-y-4">
+                  <div>
+                    <label className="text-xs text-gray-400 uppercase tracking-wide">Status</label>
+                    <select
+                      value={selectedProposal.status}
+                      onChange={(e) => {
+                        const updated = { ...selectedProposal, status: e.target.value as any }
+                        setSelectedProposal(updated)
+                        const idx = proposals.findIndex(p => p.id === selectedProposal.id)
+                        const newProposals = [...proposals]
+                        newProposals[idx] = updated
+                        setProposals(newProposals)
+                      }}
+                      className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="sent">Sent</option>
+                      <option value="accepted">Accepted</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-400 uppercase tracking-wide mb-2 block">Line Items</label>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-white/10">
+                          <th className="text-left py-2 text-gray-400">Description</th>
+                          <th className="text-right py-2 text-gray-400 w-16">Qty</th>
+                          <th className="text-right py-2 text-gray-400 w-20">Price</th>
+                          <th className="text-right py-2 text-gray-400 w-20">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="space-y-1">
+                        {['Tear-off & Disposal', 'Architectural Shingles (30yr)', 'Synthetic Underlayment', 'Ridge Cap', 'Drip Edge', 'Ice & Water Shield', 'Labor'].map((desc, idx) => {
+                          const lineItem = selectedProposal.line_items[idx] || { id: idx.toString(), description: desc, quantity: 0, unit: 'ea', unit_price: 0, total: 0 }
+                          return (
+                            <tr key={idx}>
+                              <td className="py-2 text-gray-300">{desc}</td>
+                              <td className="text-right"><input type="number" min="0" className="w-14 bg-dark-700 border border-white/10 rounded px-2 py-1" placeholder="0" /></td>
+                              <td className="text-right"><input type="number" min="0" className="w-20 bg-dark-700 border border-white/10 rounded px-2 py-1" placeholder="0" /></td>
+                              <td className="text-right text-cyan">$0</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-400 uppercase tracking-wide mb-2 block">Notes</label>
+                    <textarea
+                      value={selectedProposal.notes}
+                      onChange={(e) => {
+                        const updated = { ...selectedProposal, notes: e.target.value }
+                        setSelectedProposal(updated)
+                        const idx = proposals.findIndex(p => p.id === selectedProposal.id)
+                        const newProposals = [...proposals]
+                        newProposals[idx] = updated
+                        setProposals(newProposals)
+                      }}
+                      className="w-full h-16 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                      placeholder="Add notes..."
+                    />
+                  </div>
+
+                  <div className="bg-dark-700/50 rounded p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Subtotal:</span>
+                      <span className="text-white">${selectedProposal.total.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Tax (0%):</span>
+                      <span className="text-white">$0</span>
+                    </div>
+                    <div className="flex justify-between text-lg font-semibold border-t border-white/10 pt-2">
+                      <span className="text-gray-400">Total:</span>
+                      <span className="text-cyan">${selectedProposal.total.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const idx = proposals.findIndex(p => p.id === selectedProposal.id)
+                      const newProposals = [...proposals]
+                      newProposals[idx] = selectedProposal
+                      setProposals(newProposals)
+                      saveProposals(newProposals)
+                    }}
+                    className="flex-1 bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90"
+                  >
+                    Save Draft
+                  </button>
+                  <button
+                    onClick={() => {
+                      const idx = proposals.findIndex(p => p.id === selectedProposal.id)
+                      const newProposals = [...proposals]
+                      newProposals[idx] = { ...selectedProposal, status: 'sent', sent_at: new Date().toISOString() }
+                      setProposals(newProposals)
+                      saveProposals(newProposals)
+                      setSelectedProposal(newProposals[idx])
+                    }}
+                    className="flex-1 bg-green/20 text-green py-2 rounded-lg font-medium hover:bg-green/30"
+                  >
+                    Mark Sent
+                  </button>
+                  <button disabled className="flex-1 bg-gray-700 text-gray-400 py-2 rounded-lg font-medium opacity-50">
+                    Export PDF
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-gray-400">Select or create a proposal</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SCREEN 8: MATERIALS */}
+      {activeScreen === 'materials' && (
+        <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)] gap-4">
+          {/* Roof Calculator */}
+          <div className="glass rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-white mb-4">Roof Area Calculator</h3>
+            <div className="grid grid-cols-4 gap-4 items-end">
+              <div>
+                <label className="text-xs text-gray-400 uppercase tracking-wide">Width (ft)</label>
+                <input
+                  type="number"
+                  value={roofWidth}
+                  onChange={(e) => setRoofWidth(e.target.value)}
+                  className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 uppercase tracking-wide">Length (ft)</label>
+                <input
+                  type="number"
+                  value={roofLength}
+                  onChange={(e) => setRoofLength(e.target.value)}
+                  className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white"
+                />
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 uppercase tracking-wide">Sq Ft</p>
+                <p className="mt-1 text-2xl font-bold text-cyan">
+                  {roofWidth && roofLength ? (parseFloat(roofWidth) * parseFloat(roofLength)).toLocaleString() : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 uppercase tracking-wide">Squares</p>
+                <p className="mt-1 text-2xl font-bold text-green">
+                  {roofWidth && roofLength ? ((parseFloat(roofWidth) * parseFloat(roofLength)) / 100).toFixed(1) : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Materials Catalog */}
+          <div className="flex-1 glass rounded-lg p-6 overflow-y-auto flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Materials Catalog</h3>
+              <button
+                onClick={() => setAddingMaterial(!addingMaterial)}
+                className="p-1.5 rounded hover:bg-dark-700 text-cyan"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+
+            {materials.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-gray-400">No materials added yet. Add your first material to build your catalog.</p>
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="text-left py-2 text-gray-400">Name</th>
+                    <th className="text-left py-2 text-gray-400">Category</th>
+                    <th className="text-left py-2 text-gray-400">Unit</th>
+                    <th className="text-right py-2 text-gray-400">Cost</th>
+                    <th className="text-left py-2 text-gray-400">Supplier</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {materials.map(mat => (
+                    <tr key={mat.id} className="hover:bg-dark-700/50">
+                      <td className="py-3 text-white">{mat.name}</td>
+                      <td className="py-3 text-gray-400 text-xs">{mat.category}</td>
+                      <td className="py-3 text-gray-400">{mat.unit}</td>
+                      <td className="py-3 text-right text-cyan font-semibold">${mat.unit_cost}</td>
+                      <td className="py-3 text-gray-400 text-sm">{mat.supplier}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SCREEN 9: TEAM CHAT */}
+      {activeScreen === 'team' && (
+        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+          {/* Left Panel: Channels & User Role */}
+          <div className="w-48 glass rounded-lg p-6 flex flex-col">
+            <div className="mb-6">
+              <label className="text-xs text-gray-400 uppercase tracking-wide">I am:</label>
+              <select
+                value={currentUserRole}
+                onChange={(e) => setCurrentUserRole(e.target.value as any)}
+                className="mt-2 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+              >
+                <option value="rep">Rep</option>
+                <option value="manager">Manager</option>
+              </select>
+            </div>
+
+            <div className="space-y-2 flex-1">
+              {['general', 'management'].map(channel => (
+                <button
+                  key={channel}
+                  className="w-full text-left px-3 py-2 rounded-lg bg-dark-700/50 hover:bg-dark-700 text-white text-sm font-medium transition-all"
+                >
+                  # {channel}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Right Panel: Chat */}
+          <div className="flex-1 glass rounded-lg p-6 flex flex-col">
+            <h2 className="text-lg font-semibold text-white mb-4">Team Chat</h2>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto mb-4 space-y-3 pr-2">
+              {teamMessages.length === 0 ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-gray-400">No messages yet. Start the conversation!</p>
+                </div>
+              ) : (
+                teamMessages.map(msg => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.sender_role === 'manager' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-xs px-4 py-2 rounded-lg ${
+                        msg.sender_role === 'manager'
+                          ? 'bg-gold/20 text-gold'
+                          : 'bg-cyan/20 text-cyan'
+                      }`}
+                    >
+                      <p className="text-xs font-semibold mb-1">{msg.sender_name}</p>
+                      <p className="text-sm">{msg.message}</p>
+                      <p className="text-xs mt-1 opacity-60">{new Date(msg.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Input */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Type a message..."
+                value={teamChatInput}
+                onChange={(e) => setTeamChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && teamChatInput.trim()) {
+                    const newMsg: ChatMessage = {
+                      id: Math.random().toString(36).substr(2, 9),
+                      sender_name: currentUserRole === 'manager' ? 'Manager' : 'Rep',
+                      sender_role: currentUserRole,
+                      message: teamChatInput,
+                      timestamp: new Date().toISOString(),
+                      read: true,
+                    }
+                    const newMessages = [...teamMessages, newMsg]
+                    setTeamMessages(newMessages)
+                    saveChatMessages(newMessages, 'general')
+                    setTeamChatInput('')
+                  }
+                }}
+                className="flex-1 bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+              />
+              <button
+                onClick={() => {
+                  if (teamChatInput.trim()) {
+                    const newMsg: ChatMessage = {
+                      id: Math.random().toString(36).substr(2, 9),
+                      sender_name: currentUserRole === 'manager' ? 'Manager' : 'Rep',
+                      sender_role: currentUserRole,
+                      message: teamChatInput,
+                      timestamp: new Date().toISOString(),
+                      read: true,
+                    }
+                    const newMessages = [...teamMessages, newMsg]
+                    setTeamMessages(newMessages)
+                    saveChatMessages(newMessages, 'general')
+                    setTeamChatInput('')
+                  }
+                }}
+                className="bg-cyan text-dark px-4 py-2 rounded-lg font-medium hover:bg-cyan/90"
               >
                 <Send className="w-4 h-4" />
               </button>

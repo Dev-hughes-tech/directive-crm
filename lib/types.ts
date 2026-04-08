@@ -96,4 +96,55 @@ export interface StormEvent {
   description: string
 }
 
-export type Screen = 'dashboard' | 'territory' | 'sweep' | 'stormscope' | 'michael'
+export type Screen = 'dashboard' | 'territory' | 'sweep' | 'stormscope' | 'michael' | 'clients' | 'proposals' | 'materials' | 'team'
+
+export interface Client {
+  id: string
+  property_id: string
+  status: 'new_lead' | 'contacted' | 'proposal_sent' | 'scheduled' | 'complete' | 'lost'
+  notes: string
+  last_contact: string | null
+  assigned_to: string | null
+  created_at: string
+}
+
+export interface Proposal {
+  id: string
+  client_id: string
+  property_id: string
+  status: 'draft' | 'sent' | 'accepted' | 'rejected'
+  line_items: ProposalLineItem[]
+  total: number
+  notes: string
+  created_at: string
+  sent_at: string | null
+}
+
+export interface ProposalLineItem {
+  id: string
+  description: string
+  quantity: number
+  unit: string
+  unit_price: number
+  total: number
+}
+
+export interface Material {
+  id: string
+  name: string
+  category: 'shingles' | 'underlayment' | 'flashing' | 'fasteners' | 'ventilation' | 'other'
+  unit: string
+  unit_cost: number
+  supplier: string
+  supplier_phone: string | null
+  notes: string
+}
+
+export interface ChatMessage {
+  id: string
+  sender_name: string
+  sender_role: 'rep' | 'manager'
+  message: string
+  timestamp: string
+  read: boolean
+}
