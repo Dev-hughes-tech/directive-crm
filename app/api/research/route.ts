@@ -29,14 +29,21 @@ export async function POST(request: NextRequest) {
     const prompt = `You are a property research assistant. Search for real data on this address: ${address}
 
 SEARCH ORDER — run these searches one at a time until you find data:
-1. Search: "${address} property owner tax records"
-2. Search: "${address} owner name county assessor"
-3. Search: "fastpeoplesearch ${address}"
-4. Search: "truepeoplesearch ${address} owner"
-5. Search: "${address} owner phone whitepages"
-6. Search: "${address} zillow"
-7. Search: "${address} redfin"
-8. Search: "${address} year built permit records"
+1. Search: "${address} site:qpublic.net owner" — Alabama/Florida county tax assessor (most reliable for owner name)
+2. Search: "${address} site:probate.alacourt.gov OR ingenuity probate Alabama owner deed"
+3. Search: "${address} Alabama county tax assessor owner property record"
+4. Search: "${address} property owner deed recording"
+5. Search: "fastpeoplesearch ${address}"
+6. Search: "truepeoplesearch ${address} owner phone"
+7. Search: "${address} whitepages owner"
+8. Search: "${address} zillow owner year built"
+9. Search: "${address} redfin sold history"
+
+COUNTY-SPECIFIC SOURCES TO PRIORITIZE (Alabama and Florida):
+- qpublic.net — county tax assessor records, has owner name + property data
+- Alabama counties use Ingenuity (ING) probate system — search "[county] county AL ingenuity probate [address]"
+- Florida counties: search "[address] site:pcpao.org OR site:bcpa.net OR site:miamidade.gov/pa owner"
+- For any result from these official government sources, trust the owner name and property data found there
 
 ABSOLUTE RULES — violations are not allowed under any circumstances:
 - NEVER invent, estimate, calculate, or infer any value
