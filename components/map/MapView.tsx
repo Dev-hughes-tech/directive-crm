@@ -190,7 +190,7 @@ export default function MapView({
 
   return (
     <div className={`relative ${className}`}>
-      <div className="absolute top-4 right-4 z-10 flex gap-2">
+      <div className="absolute bottom-6 right-4 z-10 flex gap-2">
         <button
           onClick={() => {
             const newMode = mapType === 'satellite' ? 'roadmap' : 'satellite'
