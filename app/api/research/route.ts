@@ -26,17 +26,27 @@ export async function POST(request: NextRequest) {
     const { address } = await request.json()
     if (!address) return NextResponse.json({ error: 'Address is required', data: null }, { status: 400 })
 
-    const prompt = `You are a property research assistant. Conduct thorough, multi-query research for this exact address: ${address}
+    const prompt = `You are a property research assistant. Search for real data on this address: ${address}
 
-AGGRESSIVE SEARCH STRATEGY:
-1. First: Search "{address}" site:countyassessor OR site:property-appraiser.org owner
-2. If no owner found: Search "{address}" owner name property records
-3. For phone: Search "{owner_name}" "{city}" "{state}" phone contact
-4. Try FastPeopleSearch-style: Search "{owner_name}" "{zip_code}" contact information
-5. Supplement: Zillow, Redfin, county GIS, permit records, tax records
+SEARCH ORDER — run these searches one at a time until you find data:
+1. Search: "${address} property owner tax records"
+2. Search: "${address} owner name county assessor"
+3. Search: "fastpeoplesearch ${address}"
+4. Search: "truepeoplesearch ${address} owner"
+5. Search: "${address} owner phone whitepages"
+6. Search: "${address} zillow"
+7. Search: "${address} redfin"
+8. Search: "${address} year built permit records"
 
-CRITICAL: Return ONLY a valid JSON object. Return null for every field you cannot find explicitly — do NOT estimate, infer, or invent any value:
+ABSOLUTE RULES — violations are not allowed under any circumstances:
+- NEVER invent, estimate, calculate, or infer any value
+- NEVER derive roofAgeYears from yearBuilt — roofAgeYears must come ONLY from a roof permit record or an explicit statement like "roof replaced in [year]" found in search results. If no such record exists, roofAgeYears MUST be null.
+- NEVER guess a phone number. ownerPhone must be copied verbatim from a search result or null.
+- NEVER guess an owner name. ownerName must appear explicitly in a search result as the owner of this property or null.
+- If a search result is vague, uncertain, or doesn't explicitly state a value for this exact address, return null for that field.
+- A field with uncertain data is ALWAYS better as null than as a guess.
 
+Return ONLY this exact JSON with real values or null:
 {
   "ownerName": null,
   "ownerPhone": null,
@@ -55,13 +65,13 @@ CRITICAL: Return ONLY a valid JSON object. Return null for every field you canno
   "sources": {}
 }
 
-Rules:
-- ownerPhone must match format XXX-XXX-XXXX or null
-- yearBuilt must be between 1800 and 2026 or null
-- marketValue and assessedValue must be numbers with no $ sign or null
-- sources: for each non-null field, record which website it came from
-- flags: array of notable real findings only
-- Return ONLY the JSON object, no explanation, no markdown`
+Format rules:
+- ownerPhone: XXX-XXX-XXXX format only, or null
+- yearBuilt: integer 1800-2026 only, or null
+- marketValue, assessedValue, lastSalePrice: plain numbers (no $ or commas), or null
+- sources: object mapping each non-null field name to the URL or site where it was found
+- flags: only real notable findings like "storm damage reported", "foreclosure", "recent sale" — no invented flags
+- Return ONLY the JSON. No explanation, no markdown, no commentary.`
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
@@ -80,12 +90,22 @@ Rules:
 
     const data = JSON.parse(jsonMatch[0])
 
-    // Validate — drop anything that fails format checks
+    // Validate — drop anything that fails format or plausibility checks
     if (data.ownerPhone && !/^\d{3}-\d{3}-\d{4}$/.test(data.ownerPhone)) data.ownerPhone = null
     if (data.yearBuilt && (data.yearBuilt < 1800 || data.yearBuilt > 2026)) data.yearBuilt = null
     if (data.marketValue && typeof data.marketValue !== 'number') data.marketValue = null
+    if (data.marketValue && data.marketValue < 5000) data.marketValue = null
     if (data.assessedValue && typeof data.assessedValue !== 'number') data.assessedValue = null
+    if (data.assessedValue && data.assessedValue < 1000) data.assessedValue = null
     if (data.lastSalePrice && typeof data.lastSalePrice !== 'number') data.lastSalePrice = null
+    // roofAgeYears must come from explicit permit/replacement record — wipe if suspicious
+    if (data.roofAgeYears !== null && typeof data.roofAgeYears !== 'number') data.roofAgeYears = null
+    if (data.roofAgeYears !== null && (data.roofAgeYears < 1 || data.roofAgeYears > 60)) data.roofAgeYears = null
+    // If roofAgeYears matches exactly (currentYear - yearBuilt), it was calculated — wipe it
+    if (data.roofAgeYears !== null && data.yearBuilt) {
+      const currentYear = new Date().getFullYear()
+      if (data.roofAgeYears === currentYear - data.yearBuilt) data.roofAgeYears = null
+    }
 
     // Geocode the address for precise coordinates
     const geocoded = await geocodeAddress(address)

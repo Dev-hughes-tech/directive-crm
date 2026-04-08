@@ -35,7 +35,7 @@ export default function MapView({
   zoom = 14,
   className = '',
   onMapClick,
-  mode = 'dark',
+  mode = 'satellite',
   markers = [],
   onModeChange
 }: MapViewProps) {
