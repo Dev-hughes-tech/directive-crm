@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api'
 import type { Property } from '@/lib/types'
 
@@ -19,9 +19,9 @@ interface MapViewProps {
   zoom?: number
   className?: string
   onMapClick?: (lat: number, lng: number) => void
-  mode?: 'dark' | 'satellite'
+  mode?: 'dark' | 'satellite' | '3d'
   markers?: MapMarker[]
-  onModeChange?: (mode: 'dark' | 'satellite') => void
+  onModeChange?: (mode: 'dark' | 'satellite' | '3d') => void
 }
 
 const containerStyle = {
@@ -45,6 +45,8 @@ export default function MapView({
 
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null)
   const [mapType, setMapType] = useState<'roadmap' | 'satellite' | 'hybrid'>(mode === 'satellite' ? 'satellite' : 'roadmap')
+  const [tilt, setTilt] = useState(0)
+  const mapRef = useRef<google.maps.Map | null>(null)
 
   const center = { lat, lng }
 
@@ -89,13 +91,46 @@ export default function MapView({
     )
   }
 
+  const handle3DToggle = () => {
+    if (!mapRef.current) return
+    const newTilt = tilt === 0 ? 45 : 0
+    setTilt(newTilt)
+    mapRef.current.setTilt(newTilt)
+  }
+
+  const handleMapLoad = (map: google.maps.Map) => {
+    mapRef.current = map
+  }
+
   return (
     <div className={`relative ${className}`}>
+      <div className="absolute top-4 right-4 z-10 flex gap-2">
+        <button
+          onClick={() => {
+            const newMode = mapType === 'satellite' ? 'roadmap' : 'satellite'
+            setMapType(newMode)
+            onModeChange?.(newMode === 'satellite' ? 'satellite' : 'dark')
+          }}
+          className="bg-white/10 hover:bg-white/20 text-white text-xs px-3 py-1.5 rounded border border-white/20 transition-colors"
+        >
+          {mapType === 'satellite' ? 'Map' : 'Satellite'}
+        </button>
+        {mapType === 'satellite' && (
+          <button
+            onClick={handle3DToggle}
+            className="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs px-3 py-1.5 rounded border border-cyan-500/40 transition-colors"
+          >
+            {tilt === 45 ? '2D' : '3D'}
+          </button>
+        )}
+      </div>
+
       <GoogleMap
         mapContainerStyle={containerStyle}
         center={center}
         zoom={zoom}
         mapTypeId={mapType}
+        onLoad={handleMapLoad}
         onClick={(e) => {
           if (e.latLng && onMapClick) {
             onMapClick(e.latLng.lat(), e.latLng.lng())
@@ -110,6 +145,8 @@ export default function MapView({
             position: google.maps.ControlPosition.LEFT_BOTTOM,
           },
           styles: [],
+          tilt: tilt,
+          heading: 0,
         }}
       >
         {markers.map((marker) => (

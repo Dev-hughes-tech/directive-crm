@@ -40,6 +40,7 @@ import PropertyGraph from '@/components/dashboard/PropertyGraph'
 
 const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false })
 import StreetView from '@/components/StreetView'
+import AerialView from '@/components/AerialView'
 
 // Huntsville AL coordinates (Directive CRM HQ)
 const HQ_LAT = 34.7304
@@ -182,6 +183,7 @@ export default function Dashboard() {
   const [properties, setProperties] = useState<Property[]>([])
   const [mapCenter, setMapCenter] = useState({ lat: HQ_LAT, lng: HQ_LNG })
   const [mapZoom, setMapZoom] = useState(14)
+  const [mapMode, setMapMode] = useState<'dark' | 'satellite' | '3d'>('dark')
   const [loading, setLoading] = useState(true)
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
   const [chatInput, setChatInput] = useState('')
@@ -199,6 +201,13 @@ export default function Dashboard() {
   const [territoryFilter, setTerritoryFilter] = useState<'all' | 'hot' | 'researched'>('all')
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null)
   const [showSatelliteSnapshot, setShowSatelliteSnapshot] = useState(false)
+  const [routeLoading, setRouteLoading] = useState(false)
+  const [routeResult, setRouteResult] = useState<{
+    orderedWaypoints: Array<{ lat: number; lng: number; address: string; id: string }>
+    totalDistanceMiles: string
+    totalDurationMinutes: number
+    googleMapsUrl: string
+  } | null>(null)
 
   // StormScope state
   const [stormAddress, setStormAddress] = useState('')
@@ -226,7 +235,6 @@ export default function Dashboard() {
   const [currentUserRole, setCurrentUserRole] = useState<'rep' | 'manager'>('rep')
   const [teamChatInput, setTeamChatInput] = useState('')
   const [unreadCount, setUnreadCount] = useState(0)
-  const [mapMode, setMapMode] = useState<'dark' | 'satellite'>('dark')
 
   // Load properties on mount
   useEffect(() => {
@@ -310,8 +318,17 @@ export default function Dashboard() {
     setSweepPhase('geocoding')
 
     try {
+      // Phase 0: Validate address
+      const validateRes = await fetch('/api/validate-address', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: sweepAddress })
+      })
+      const validation = await validateRes.json()
+      const addressToResearch = validation.canonical || sweepAddress
+
       // Phase 1: Geocode
-      const geocodeRes = await fetch(`/api/geocode?q=${encodeURIComponent(sweepAddress)}`)
+      const geocodeRes = await fetch(`/api/geocode?q=${encodeURIComponent(addressToResearch)}`)
       if (!geocodeRes.ok) throw new Error('Geocoding failed')
       const { lat, lng, display_name } = await geocodeRes.json()
 
@@ -321,7 +338,7 @@ export default function Dashboard() {
       const researchRes = await fetch('/api/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: sweepAddress }),
+        body: JSON.stringify({ address: addressToResearch }),
       })
 
       if (!researchRes.ok) throw new Error('Research failed')
@@ -443,6 +460,32 @@ export default function Dashboard() {
       console.error('Storm assessment error:', error)
     } finally {
       setStormLoading(false)
+    }
+  }
+
+  // Handle route optimization
+  const handlePlanRoute = async () => {
+    const filteredProperties = properties.filter((p) => {
+      if (territoryFilter === 'hot') return calculateLeadScore(p) >= 70
+      if (territoryFilter === 'researched') return p.sources && Object.keys(p.sources).length > 0
+      return true
+    })
+
+    if (filteredProperties.length < 2) return
+    setRouteLoading(true)
+    try {
+      const waypoints = filteredProperties.map(p => ({ lat: p.lat, lng: p.lng, address: p.address, id: p.id }))
+      const res = await fetch('/api/route-optimize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ waypoints, origin: { lat: waypoints[0].lat, lng: waypoints[0].lng } })
+      })
+      const data = await res.json()
+      if (data.orderedWaypoints) setRouteResult(data)
+    } catch {
+      /* silent */
+    } finally {
+      setRouteLoading(false)
     }
   }
 
@@ -872,6 +915,47 @@ export default function Dashboard() {
                 <span>📡</span>
                 Satellite Snapshot
               </button>
+
+              {/* Plan Route Button */}
+              {properties.length >= 2 && (
+                <button
+                  onClick={handlePlanRoute}
+                  disabled={routeLoading}
+                  className="w-full mb-4 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-400 text-sm px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {routeLoading ? (
+                    <>
+                      <span className="animate-spin">⚙</span>
+                      Optimizing...
+                    </>
+                  ) : (
+                    <>
+                      <span>🗺</span>
+                      Plan Optimal Route ({properties.length} stops)
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* Route Result */}
+              {routeResult && (
+                <div className="glass-sm rounded-lg p-3 border border-cyan-500/20 mb-4">
+                  <div className="text-sm text-white font-medium mb-1">Optimized Route</div>
+                  <div className="text-xs text-white/60 mb-2">{routeResult.totalDistanceMiles} miles • ~{routeResult.totalDurationMinutes} min</div>
+                  <ol className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                    {routeResult.orderedWaypoints.map((w, i) => (
+                      <li key={w.id} className="text-xs text-white/70 flex gap-2">
+                        <span className="text-cyan-400 font-mono flex-shrink-0">{i + 1}.</span>
+                        <span className="truncate">{w.address}</span>
+                      </li>
+                    ))}
+                  </ol>
+                  <a href={routeResult.googleMapsUrl} target="_blank" rel="noopener noreferrer"
+                    className="mt-2 block text-center text-xs text-cyan-400 hover:text-cyan-300 transition-colors">
+                    Open in Google Maps →
+                  </a>
+                </div>
+              )}
 
               {/* ZIP Breakdown */}
               {properties.length > 0 && (
@@ -1407,6 +1491,13 @@ export default function Dashboard() {
                           lng={prop.lng}
                           address={prop.address}
                           className="w-full h-48 mb-4 rounded-lg"
+                        />
+                      )}
+
+                      {prop && (
+                        <AerialView
+                          address={prop.address}
+                          className="w-full h-40 mb-4 rounded-lg"
                         />
                       )}
 
