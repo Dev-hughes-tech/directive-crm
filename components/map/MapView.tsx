@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api'
-import type { Property } from '@/lib/types'
 
 export interface MapMarker {
   id: string
@@ -25,44 +24,30 @@ interface MapViewProps {
   geoJsonData?: object | null
 }
 
-const containerStyle = {
-  width: '100%',
-  height: '100%',
+const containerStyle = { width: '100%', height: '100%' }
+
+const colorMap = {
+  green: '#22c55e',
+  amber: '#f59e0b',
+  red: '#ef4444',
 }
 
-export default function MapView({
+// ─── Inner map — only mounted once we have a real API key ───────────────────
+function MapInner({
+  apiKey,
   lat,
   lng,
-  zoom = 14,
-  className = '',
+  zoom,
+  className,
   onMapClick,
-  mode = 'satellite',
-  markers = [],
+  mode,
+  markers,
   onModeChange,
-  geoJsonData
-}: MapViewProps) {
-  // Fetch API key at runtime — avoids build-time baking issues
-  const [apiKey, setApiKey] = useState<string | null>(null)
-
-  useEffect(() => {
-    // Try env var first (works if build-time baking succeeded)
-    const envKey = process.env.NEXT_PUBLIC_MAPS_API_KEY
-    if (envKey) {
-      setApiKey(envKey)
-      return
-    }
-    // Fallback: fetch from server at runtime
-    fetch('/api/maps-key')
-      .then(r => r.json())
-      .then(d => { if (d.key) setApiKey(d.key) })
-      .catch(() => {})
-  }, [])
-
+  geoJsonData,
+}: MapViewProps & { apiKey: string }) {
   const { isLoaded, loadError } = useJsApiLoader({
-    id: 'directive-crm-map-v3',
-    googleMapsApiKey: apiKey ?? '',
-    // Don't attempt to load until we have the key
-    ...(apiKey === null ? { googleMapsApiKey: '__PENDING__' } : {}),
+    id: 'directive-crm-map',
+    googleMapsApiKey: apiKey,
   })
 
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null)
@@ -76,21 +61,6 @@ export default function MapView({
 
   const center = { lat, lng }
 
-  const colorMap = {
-    green: '#22c55e',
-    amber: '#f59e0b',
-    red: '#ef4444',
-  }
-
-  const getMarkerIcon = (color: 'green' | 'amber' | 'red'): google.maps.Symbol => ({
-    path: google.maps.SymbolPath.CIRCLE,
-    scale: 10,
-    fillColor: colorMap[color],
-    fillOpacity: 0.8,
-    strokeColor: 'rgba(255,255,255,0.3)',
-    strokeWeight: 1,
-  })
-
   useEffect(() => {
     if (mode === 'satellite' && mapType !== 'satellite') {
       setMapType('satellite')
@@ -99,20 +69,21 @@ export default function MapView({
       setMapType('roadmap')
       onModeChange?.('dark')
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
 
-  // Handle GeoJSON data layer
+  // GeoJSON overlay
   useEffect(() => {
     if (!mapRef.current) return
     if (!geoJsonData) {
-      mapRef.current.data.forEach((feature: google.maps.Data.Feature) => {
-        mapRef.current?.data.remove(feature)
+      mapRef.current.data.forEach((f: google.maps.Data.Feature) => {
+        mapRef.current?.data.remove(f)
       })
       return
     }
     mapRef.current.data.addGeoJson(geoJsonData)
     mapRef.current.data.setStyle((feature: google.maps.Data.Feature) => {
-      const color = feature.getProperty('color') as string || '#06b6d4'
+      const color = (feature.getProperty('color') as string) || '#06b6d4'
       const type = feature.getProperty('type') as string
       if (type === 'territory') {
         return {
@@ -120,7 +91,7 @@ export default function MapView({
           fillOpacity: 0.08,
           strokeColor: '#06b6d4',
           strokeWeight: 2,
-          strokeOpacity: 0.6
+          strokeOpacity: 0.6,
         } as google.maps.Data.StyleOptions
       }
       return {
@@ -130,31 +101,22 @@ export default function MapView({
           fillColor: color,
           fillOpacity: 0.7,
           strokeColor: '#fff',
-          strokeWeight: 1.5
-        }
+          strokeWeight: 1.5,
+        },
       } as google.maps.Data.StyleOptions
     })
     return () => {
       if (mapRef.current?.data) {
-        mapRef.current.data.forEach((feature: google.maps.Data.Feature) => {
-          mapRef.current?.data.remove(feature)
+        mapRef.current.data.forEach((f: google.maps.Data.Feature) => {
+          mapRef.current?.data.remove(f)
         })
       }
     }
   }, [geoJsonData])
 
-  // Still loading key
-  if (apiKey === null) {
-    return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-white/40 text-sm ${className}`}>
-        <div className="animate-pulse text-cyan-400">Connecting to maps...</div>
-      </div>
-    )
-  }
-
   if (loadError) {
     return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-white/40 text-sm ${className}`}>
+      <div className={`flex items-center justify-center bg-[#0d1117] text-red-400 text-sm ${className}`}>
         Map failed to load — check API key
       </div>
     )
@@ -162,8 +124,8 @@ export default function MapView({
 
   if (!isLoaded) {
     return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-white/40 text-sm ${className}`}>
-        <div className="animate-pulse text-cyan-400">Loading map...</div>
+      <div className={`flex items-center justify-center bg-[#0d1117] text-cyan-400 text-sm ${className}`}>
+        <div className="animate-pulse">Loading map...</div>
       </div>
     )
   }
@@ -176,33 +138,38 @@ export default function MapView({
   }
 
   const handlePhotoMode = async () => {
-    if (photoTileSession) {
-      setPhotoTileSession(null)
-      return
-    }
+    if (photoTileSession) { setPhotoTileSession(null); return }
     setLoadingPhotoTiles(true)
     try {
       const res = await fetch('/api/map-tiles-session', { method: 'POST' })
       const data = await res.json()
       if (data.session) setPhotoTileSession(data.session)
-    } catch { /* silent */ }
-    finally { setLoadingPhotoTiles(false) }
+    } catch { /* silent */ } finally { setLoadingPhotoTiles(false) }
   }
 
   const handleMapLoad = (map: google.maps.Map) => {
     mapRef.current = map
-    if (photoTileSession && mapRef.current && apiKey) {
+    if (photoTileSession) {
       const imageMapType = new google.maps.ImageMapType({
         getTileUrl: (coord, zoom) =>
           `https://tile.googleapis.com/v1/2dtiles/${zoom}/${coord.x}/${coord.y}?session=${photoTileSession}&key=${apiKey}`,
         tileSize: new google.maps.Size(256, 256),
         maxZoom: 22,
         minZoom: 0,
-        name: 'Photo'
+        name: 'Photo',
       })
-      mapRef.current.overlayMapTypes.insertAt(0, imageMapType)
+      map.overlayMapTypes.insertAt(0, imageMapType)
     }
   }
+
+  const getMarkerIcon = (color: 'green' | 'amber' | 'red'): google.maps.Symbol => ({
+    path: google.maps.SymbolPath.CIRCLE,
+    scale: 10,
+    fillColor: colorMap[color],
+    fillOpacity: 0.8,
+    strokeColor: 'rgba(255,255,255,0.3)',
+    strokeWeight: 1,
+  })
 
   return (
     <div className={`relative ${className}`}>
@@ -264,11 +231,11 @@ export default function MapView({
             position: google.maps.ControlPosition.LEFT_BOTTOM,
           },
           styles: [],
-          tilt: tilt,
+          tilt,
           heading: 0,
         }}
       >
-        {markers.map((marker) => (
+        {markers?.map((marker) => (
           <Marker
             key={marker.id}
             position={{ lat: marker.lat, lng: marker.lng }}
@@ -300,4 +267,49 @@ export default function MapView({
       </GoogleMap>
     </div>
   )
+}
+
+// ─── Outer wrapper — fetches key, shows loading until ready ─────────────────
+export default function MapView(props: MapViewProps) {
+  const [apiKey, setApiKey] = useState<string | null>(null)
+  const [keyError, setKeyError] = useState(false)
+
+  useEffect(() => {
+    // Try build-time env var first
+    const envKey = process.env.NEXT_PUBLIC_MAPS_API_KEY
+    if (envKey && envKey.length > 10) {
+      setApiKey(envKey)
+      return
+    }
+    // Fallback: fetch key from server at runtime
+    fetch('/api/maps-key')
+      .then(r => r.json())
+      .then(d => {
+        if (d.key && d.key.length > 10) {
+          setApiKey(d.key)
+        } else {
+          setKeyError(true)
+        }
+      })
+      .catch(() => setKeyError(true))
+  }, [])
+
+  if (keyError) {
+    return (
+      <div className={`flex items-center justify-center bg-[#0d1117] text-red-400 text-sm ${props.className}`}>
+        Maps API key not configured
+      </div>
+    )
+  }
+
+  if (!apiKey) {
+    return (
+      <div className={`flex items-center justify-center bg-[#0d1117] text-cyan-400 text-sm ${props.className}`}>
+        <div className="animate-pulse">Connecting to maps...</div>
+      </div>
+    )
+  }
+
+  // Only mount MapInner (which calls useJsApiLoader) once we have a real key
+  return <MapInner {...props} apiKey={apiKey} />
 }
