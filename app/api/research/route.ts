@@ -28,22 +28,23 @@ export async function POST(request: NextRequest) {
 
     const prompt = `You are a property research assistant. Search for real data on this address: ${address}
 
-SEARCH ORDER — run these searches one at a time until you find data:
-1. Search: "${address} site:qpublic.net owner" — Alabama/Florida county tax assessor (most reliable for owner name)
-2. Search: "${address} site:probate.alacourt.gov OR ingenuity probate Alabama owner deed"
-3. Search: "${address} Alabama county tax assessor owner property record"
-4. Search: "${address} property owner deed recording"
-5. Search: "fastpeoplesearch ${address}"
-6. Search: "truepeoplesearch ${address} owner phone"
-7. Search: "${address} whitepages owner"
-8. Search: "${address} zillow owner year built"
-9. Search: "${address} redfin sold history"
+SEARCH ORDER — run these searches one at a time until you find owner data:
+1. Search: "${address} site:ingprobate.com land records deed grantee" — Alabama ING Probate land records (most direct source for owner name from deed recordings)
+2. Search: "${address} ingprobate.com Alabama county deed owner grantee"
+3. Search: "${address} site:qpublic.net owner" — Alabama/Florida county tax assessor
+4. Search: "${address} Alabama county tax assessor owner property record"
+5. Search: "${address} property owner deed recording grantee"
+6. Search: "fastpeoplesearch ${address}"
+7. Search: "truepeoplesearch ${address} owner phone"
+8. Search: "${address} whitepages owner phone"
+9. Search: "${address} zillow year built"
+10. Search: "${address} redfin sold history"
 
-COUNTY-SPECIFIC SOURCES TO PRIORITIZE (Alabama and Florida):
-- qpublic.net — county tax assessor records, has owner name + property data
-- Alabama counties use Ingenuity (ING) probate system — search "[county] county AL ingenuity probate [address]"
-- Florida counties: search "[address] site:pcpao.org OR site:bcpa.net OR site:miamidade.gov/pa owner"
-- For any result from these official government sources, trust the owner name and property data found there
+COUNTY-SPECIFIC SOURCES TO PRIORITIZE:
+- ingprobate.com — Alabama county probate/land records portal. Land Records section shows deed recordings with grantee = current owner. Search by address to find the most recent deed. The grantee on the most recent deed IS the current owner.
+- qpublic.net — county tax assessor records for AL and FL, has owner name + assessed value + year built
+- Florida counties: pcpao.org (Pinellas), bcpa.net (Broward), miamidade.gov/pa (Miami-Dade)
+- For any result from official .gov or ingprobate.com sources, trust the owner name found there — these are legal public records
 
 ABSOLUTE RULES — violations are not allowed under any circumstances:
 - NEVER invent, estimate, calculate, or infer any value
