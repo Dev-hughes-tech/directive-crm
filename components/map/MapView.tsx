@@ -237,7 +237,10 @@ export default function MapView({
         }}
         options={{
           mapTypeControl: false,
-          streetViewControl: false,
+          streetViewControl: true,
+          streetViewControlOptions: {
+            position: google.maps.ControlPosition.LEFT_BOTTOM,
+          },
           fullscreenControl: false,
           zoomControl: true,
           zoomControlOptions: {
