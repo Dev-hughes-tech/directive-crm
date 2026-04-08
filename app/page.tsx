@@ -40,6 +40,8 @@ import PropertyGraph from '@/components/dashboard/PropertyGraph'
 
 const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false })
 const WeatherWidget = dynamic(() => import('@/components/WeatherWidget'), { ssr: false })
+const PropertyMapEmbed = dynamic(() => import('@/components/PropertyMapEmbed'), { ssr: false })
+const DamagePhotoUpload = dynamic(() => import('@/components/DamagePhotoUpload'), { ssr: false })
 import StreetView from '@/components/StreetView'
 import AerialView from '@/components/AerialView'
 
@@ -214,10 +216,13 @@ export default function Dashboard() {
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null)
   const [showSatelliteSnapshot, setShowSatelliteSnapshot] = useState(false)
   const [routeLoading, setRouteLoading] = useState(false)
+  const [avoidTolls, setAvoidTolls] = useState(false)
   const [routeResult, setRouteResult] = useState<{
     orderedWaypoints: Array<{ lat: number; lng: number; address: string; id: string }>
     totalDistanceMiles: string
     totalDurationMinutes: number
+    tollCost: string | null
+    trafficAware: boolean
     googleMapsUrl: string
   } | null>(null)
   const [mapGeoJson, setMapGeoJson] = useState<object | null>(null)
@@ -243,6 +248,7 @@ export default function Dashboard() {
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null)
   const [editingProposal, setEditingProposal] = useState(false)
+  const [proposalMapMode, setProposalMapMode] = useState<'place' | 'streetview' | 'satellite'>('place')
 
   // Materials screen state
   const [materials, setMaterials] = useState<Material[]>([])
@@ -654,7 +660,7 @@ export default function Dashboard() {
       const res = await fetch('/api/route-optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ waypoints, origin: { lat: waypoints[0].lat, lng: waypoints[0].lng } })
+        body: JSON.stringify({ waypoints, origin: { lat: waypoints[0].lat, lng: waypoints[0].lng }, avoidTolls })
       })
       const data = await res.json()
       if (data.orderedWaypoints) setRouteResult(data)
@@ -1139,6 +1145,15 @@ export default function Dashboard() {
                 </div>
               )}
 
+              {/* Avoid Tolls Toggle */}
+              {properties.length >= 2 && (
+                <label className="flex items-center gap-2 text-xs text-white/60 cursor-pointer mb-2">
+                  <input type="checkbox" checked={avoidTolls} onChange={(e) => setAvoidTolls(e.target.checked)}
+                    className="accent-cyan-500" />
+                  Avoid tolls
+                </label>
+              )}
+
               {/* Plan Route Button */}
               {properties.length >= 2 && (
                 <button
@@ -1164,7 +1179,13 @@ export default function Dashboard() {
               {routeResult && (
                 <div className="glass-sm rounded-lg p-3 border border-cyan-500/20 mb-4">
                   <div className="text-sm text-white font-medium mb-1">Optimized Route</div>
-                  <div className="text-xs text-white/60 mb-2">{routeResult.totalDistanceMiles} miles • ~{routeResult.totalDurationMinutes} min</div>
+                  <div className="text-xs text-white/60 mb-1">{routeResult.totalDistanceMiles} miles • ~{routeResult.totalDurationMinutes} min</div>
+                  {routeResult.tollCost && (
+                    <div className="text-xs text-amber-400 mb-1">Est. tolls: {routeResult.tollCost}</div>
+                  )}
+                  {routeResult.trafficAware && (
+                    <div className="text-xs text-green-400/60 mb-2">Traffic-aware routing</div>
+                  )}
                   <ol className="mt-2 space-y-1 max-h-48 overflow-y-auto">
                     {routeResult.orderedWaypoints.map((w, i) => (
                       <li key={w.id} className="text-xs text-white/70 flex gap-2">
@@ -1913,10 +1934,22 @@ export default function Dashboard() {
                             setClients(newClients)
                             await saveClient(updated)
                           }}
-                          className="w-full h-24 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                          className="w-full h-20 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
                           placeholder="Add notes..."
                         />
                       </div>
+
+                      {prop && (
+                        <div className="mb-4">
+                          <DamagePhotoUpload
+                            propertyId={prop.id}
+                            lat={prop.lat}
+                            lng={prop.lng}
+                            address={prop.address}
+                            onPhotoSaved={(url) => console.log('Photo saved for', prop.id)}
+                          />
+                        </div>
+                      )}
 
                       <button
                         onClick={() => setActiveScreen('proposals')}
@@ -2008,6 +2041,29 @@ export default function Dashboard() {
                     {properties.find(p => p.id === selectedProposal.property_id)?.address || 'Select property'}
                   </h2>
                 </div>
+
+                {(() => {
+                  const selectedProposalProperty = properties.find(p => p.id === selectedProposal.property_id)
+                  return selectedProposalProperty ? (
+                    <div className="mb-4">
+                      <div className="flex gap-1 mb-1">
+                        {(['place', 'streetview', 'satellite'] as const).map(m => (
+                          <button key={m} onClick={() => setProposalMapMode(m)}
+                            className={`text-xs px-2 py-1 rounded capitalize transition-colors ${proposalMapMode === m ? 'bg-cyan-500/30 text-cyan-400' : 'text-white/40 hover:text-white/70'}`}>
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                      <PropertyMapEmbed
+                        address={selectedProposalProperty.address}
+                        lat={selectedProposalProperty.lat}
+                        lng={selectedProposalProperty.lng}
+                        mode={proposalMapMode}
+                        className="w-full h-36"
+                      />
+                    </div>
+                  ) : null
+                })()}
 
                 <div className="flex-1 overflow-y-auto mb-4 space-y-4">
                   <div>
