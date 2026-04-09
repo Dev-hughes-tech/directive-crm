@@ -116,7 +116,7 @@ function MapInner({
 
   if (loadError) {
     return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-red-400 text-sm ${className}`}>
+      <div className={`flex items-center justify-center bg-[#0d1117] text-red-400 text-sm h-full w-full ${className}`}>
         Map failed to load — check API key
       </div>
     )
@@ -124,7 +124,7 @@ function MapInner({
 
   if (!isLoaded) {
     return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-cyan-400 text-sm ${className}`}>
+      <div className={`flex items-center justify-center bg-[#0d1117] text-cyan-400 text-sm h-full w-full ${className}`}>
         <div className="animate-pulse">Loading map...</div>
       </div>
     )
@@ -172,7 +172,7 @@ function MapInner({
   })
 
   return (
-    <div className={`relative ${className}`}>
+    <div className={`relative h-full w-full ${className}`}>
       {/* Map controls — bottom right, clear of nav */}
       <div className="absolute bottom-6 right-4 z-10 flex gap-2">
         <button
@@ -296,7 +296,7 @@ export default function MapView(props: MapViewProps) {
 
   if (keyError) {
     return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-red-400 text-sm ${props.className}`}>
+      <div className={`flex items-center justify-center bg-[#0d1117] text-red-400 text-sm h-full w-full ${props.className}`}>
         Maps API key not configured
       </div>
     )
@@ -304,7 +304,7 @@ export default function MapView(props: MapViewProps) {
 
   if (!apiKey) {
     return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-cyan-400 text-sm ${props.className}`}>
+      <div className={`flex items-center justify-center bg-[#0d1117] text-cyan-400 text-sm h-full w-full ${props.className}`}>
         <div className="animate-pulse">Connecting to maps...</div>
       </div>
     )
