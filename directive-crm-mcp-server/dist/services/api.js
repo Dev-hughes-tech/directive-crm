@@ -4,7 +4,7 @@ export class DirectiveAPI {
     constructor() {
         this.client = axios.create({
             baseURL: API_BASE_URL,
-            timeout: 30000,
+            timeout: 100000,
             headers: {
                 'Content-Type': 'application/json',
             },
@@ -12,10 +12,23 @@ export class DirectiveAPI {
     }
     async research(address) {
         try {
-            const response = await this.client.post('/api/research', {
-                address,
-            });
-            return response.data;
+            // Step 1: Start async research job (returns immediately)
+            const startResponse = await this.client.post('/api/research/start', { address });
+            const { jobId } = startResponse.data;
+            // Step 2: Poll for completion (up to 90 seconds, 30 x 3s)
+            const maxAttempts = 30;
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                const statusResponse = await this.client.get(`/api/research/status?jobId=${jobId}`);
+                const job = statusResponse.data;
+                if (job.status === 'done') {
+                    return (job.data || {});
+                }
+                if (job.status === 'error') {
+                    throw new Error(`Research failed: ${job.error || 'Unknown error'}`);
+                }
+            }
+            throw new Error('Research timed out after 90 seconds');
         }
         catch (error) {
             if (axios.isAxiosError(error)) {
