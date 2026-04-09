@@ -587,12 +587,15 @@ export default function Dashboard() {
         body: JSON.stringify({ address: addressToResearch }),
       })
 
-      if (!researchRes.ok) throw new Error('Research failed')
-      const { data } = await researchRes.json()
+      const researchJson = await researchRes.json()
+      if (!researchRes.ok || !researchJson.data) {
+        console.error('Research failed:', researchJson.error || researchRes.status)
+      }
+      const data = researchJson.data || {}
 
       setSweepPhase('scoring')
 
-      // Phase 3: Create property
+      // Phase 3: Create property (works even if research returned partial/no data)
       const newProperty: Property = {
         id: `prop_${Date.now()}`,
         address: display_name || sweepAddress,

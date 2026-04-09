@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 
+// Research makes 2 Claude API calls with web search — needs extended timeout
+export const maxDuration = 60
+
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
@@ -47,12 +50,19 @@ For EACH piece of information you find, note exactly where you found it (the web
 
 Report ALL findings in plain text — what you found, where you found it, exact values. Do not make up any data. If you can't find something, say so.`
 
-    const researchResponse = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 16000,
-      tools: [{ type: 'web_search_20250305' as const, name: 'web_search' }],
-      messages: [{ role: 'user', content: researchPrompt }],
-    })
+    let researchResponse
+    try {
+      researchResponse = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 16000,
+        tools: [{ type: 'web_search_20250305' as const, name: 'web_search' }],
+        messages: [{ role: 'user', content: researchPrompt }],
+      })
+    } catch (apiError: unknown) {
+      const errMsg = apiError instanceof Error ? apiError.message : String(apiError)
+      console.error('Anthropic API error (research pass):', errMsg)
+      return NextResponse.json({ error: `Claude API failed: ${errMsg}`, data: null }, { status: 502 })
+    }
 
     // Collect everything Claude found
     let researchFindings = ''
@@ -61,6 +71,7 @@ Report ALL findings in plain text — what you found, where you found it, exact 
     }
 
     if (!researchFindings.trim()) {
+      console.error('Research returned no text blocks. Stop reason:', researchResponse.stop_reason, 'Content types:', researchResponse.content.map(b => b.type))
       return NextResponse.json({ error: 'Research returned no findings', data: null })
     }
 
@@ -101,11 +112,18 @@ Return ONLY this JSON object, nothing else:
   "sources": {}
 }`
 
-    const extractResponse = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: extractPrompt }],
-    })
+    let extractResponse
+    try {
+      extractResponse = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: extractPrompt }],
+      })
+    } catch (apiError: unknown) {
+      const errMsg = apiError instanceof Error ? apiError.message : String(apiError)
+      console.error('Anthropic API error (extract pass):', errMsg)
+      return NextResponse.json({ error: `Claude extraction failed: ${errMsg}`, data: null }, { status: 502 })
+    }
 
     let jsonText = ''
     for (const block of extractResponse.content) {
@@ -113,9 +131,18 @@ Return ONLY this JSON object, nothing else:
     }
 
     const jsonMatch = jsonText.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) return NextResponse.json({ error: 'Failed to parse extracted data', data: null })
+    if (!jsonMatch) {
+      console.error('Failed to parse JSON from extract response:', jsonText.slice(0, 500))
+      return NextResponse.json({ error: 'Failed to parse extracted data', data: null })
+    }
 
-    const data = JSON.parse(jsonMatch[0])
+    let data
+    try {
+      data = JSON.parse(jsonMatch[0])
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError, 'Raw:', jsonMatch[0].slice(0, 500))
+      return NextResponse.json({ error: 'Invalid JSON from extraction', data: null })
+    }
 
     // Validate — strip anything that fails format or plausibility checks
     if (data.ownerPhone && !/^\d{3}-\d{3}-\d{4}$/.test(data.ownerPhone)) data.ownerPhone = null
