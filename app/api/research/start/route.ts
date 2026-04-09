@@ -62,22 +62,27 @@ export async function POST(request: NextRequest) {
 
 TARGET ADDRESS: ${address}
 
-SEARCH 1 — COUNTY TAX ASSESSOR (highest priority)
-Search: "${address}" county tax assessor property owner parcel
-Goal: Find the government property record. Extract legal owner name, parcel ID, assessed value, county name, year built.
+Parse the address to extract: street number, street name, city, state, zip.
 
-SEARCH 2 — ZILLOW
-Search: "${address}" site:zillow.com
-Extract: market value (Zestimate), last sale date, last sale price, year built (if not found above).
+SEARCH 1 — QPUBLIC / COUNTY TAX ASSESSOR (highest priority)
+Primary search: site:qpublic.net "${address}"
+Fallback search: "[city] [state] county tax assessor property search [street number] [street name]"
+Goal: Open the actual property detail page. Extract: legal owner name (GRANTEE or OWNER field), parcel ID, assessed value, county, year built, last sale date, last sale price.
+Alabama counties on qPublic: madison, jefferson, shelby, baldwin, montgomery, etc.
+
+SEARCH 2 — ZILLOW / REALTOR / REDFIN
+Search: "${address}" home value owner
+Try zillow.com, realtor.com, redfin.com — whichever returns results first.
+Extract: market value (Zestimate or estimate), last sale date, last sale price, year built (fill any gaps from Search 1).
 
 SEARCH 3 — ROOFING PERMITS
-Search: "${address}" roofing permit "re-roof" OR "${address}" building permit roof
-Extract: most recent roof permit date. Calculate roofAgeYears = 2026 minus that permit year. If no permit found, roofAgeYears = null.
+Search: "[city] [state] building permit [street number] [street name] roof"
+Also try: "[county] county permit search [address]"
+Extract: most recent roof permit date. roofAgeYears = 2026 minus permit year. null if no permit found.
 
-SEARCH 4 — OWNER PHONE (only if you found owner name in Search 1)
-Search: "[owner full name from Search 1]" "[city]" "[state]" phone
-Try: fastpeoplesearch.com, whitepages.com, spokeo.com
-Extract: phone number, email if listed.
+SEARCH 4 — OWNER CONTACT
+If owner name found: search "[owner name] [city] [state]" on fastpeoplesearch.com OR whitepages.com
+Extract: phone in XXX-XXX-XXXX format, email if listed. null if not found.
 
 OUTPUT RULES — STRICT:
 - null for any value not explicitly found. Never guess or estimate.
