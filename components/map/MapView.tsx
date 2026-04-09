@@ -22,6 +22,7 @@ interface MapViewProps {
   markers?: MapMarker[]
   onModeChange?: (mode: 'dark' | 'satellite' | '3d') => void
   geoJsonData?: object | null
+  radarOverlay?: boolean
 }
 
 const containerStyle = { width: '100%', height: '100vh' }
@@ -67,6 +68,7 @@ function MapInner({
   markers,
   onModeChange,
   geoJsonData,
+  radarOverlay,
 }: MapViewProps & { apiKey: string }) {
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'directive-crm-map',
@@ -74,7 +76,7 @@ function MapInner({
   })
 
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null)
-  const [viewMode, setViewMode] = useState<MapViewMode>(
+  const [viewMode, setViewMode] = useState<MapViewMode | 'globe'>(
     mode === 'satellite' ? 'satellite' : 'night-terrain'
   )
   const [tilt, setTilt] = useState(0)
@@ -86,7 +88,7 @@ function MapInner({
   const center = { lat, lng }
 
   // Map the viewMode to Google's mapTypeId
-  const googleMapType = viewMode === 'night' ? 'roadmap' : viewMode === 'night-terrain' ? 'terrain' : viewMode
+  const googleMapType = viewMode === 'night' ? 'roadmap' : viewMode === 'night-terrain' ? 'terrain' : viewMode === 'globe' ? 'satellite' : (viewMode as MapViewMode)
 
   useEffect(() => {
     if (mode === 'satellite' && viewMode !== 'satellite') {
@@ -173,6 +175,25 @@ function MapInner({
     }
   }, [geoJsonData])
 
+  // NOAA NEXRAD radar overlay
+  useEffect(() => {
+    if (!mapRef.current) return
+    if (!radarOverlay) {
+      mapRef.current.overlayMapTypes.clear()
+      return
+    }
+    const radarMapType = new google.maps.ImageMapType({
+      getTileUrl: (coord: google.maps.Point, zoom: number) =>
+        `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/${zoom}/${coord.x}/${coord.y}.png`,
+      tileSize: new google.maps.Size(256, 256),
+      maxZoom: 11,
+      minZoom: 0,
+      opacity: 0.7,
+      name: 'NEXRAD',
+    })
+    mapRef.current.overlayMapTypes.insertAt(0, radarMapType)
+  }, [radarOverlay])
+
   if (loadError) {
     return (
       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0d1117', color: '#f87171', fontSize: '14px' }}>
@@ -208,6 +229,7 @@ function MapInner({
 
   const handleMapLoad = (map: google.maps.Map) => {
     mapRef.current = map
+    // Add photo tiles if session exists
     if (photoTileSession) {
       const imageMapType = new google.maps.ImageMapType({
         getTileUrl: (coord, zoom) =>
@@ -218,6 +240,19 @@ function MapInner({
         name: 'Photo',
       })
       map.overlayMapTypes.insertAt(0, imageMapType)
+    }
+    // Add radar overlay if enabled
+    if (radarOverlay) {
+      const radarMapType = new google.maps.ImageMapType({
+        getTileUrl: (coord: google.maps.Point, zoom: number) =>
+          `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/${zoom}/${coord.x}/${coord.y}.png`,
+        tileSize: new google.maps.Size(256, 256),
+        maxZoom: 11,
+        minZoom: 0,
+        opacity: 0.7,
+        name: 'NEXRAD',
+      })
+      map.overlayMapTypes.insertAt(0, radarMapType)
     }
   }
 
@@ -230,36 +265,46 @@ function MapInner({
     strokeWeight: 1,
   })
 
-  const viewModes: { key: MapViewMode; label: string; icon: string }[] = [
+  const viewModes: { key: MapViewMode | 'globe'; label: string; icon: string }[] = [
     { key: 'roadmap', label: 'Map', icon: '🗺' },
     { key: 'satellite', label: 'Satellite', icon: '🛰' },
     { key: 'hybrid', label: 'Hybrid', icon: '🏙' },
     { key: 'terrain', label: 'Terrain', icon: '⛰' },
     { key: 'night', label: 'Night', icon: '🌙' },
     { key: 'night-terrain', label: 'Night Terrain', icon: '🏔' },
-  ] as { key: MapViewMode; label: string; icon: string }[]
+    { key: 'globe', label: 'Globe', icon: '🌐' },
+  ] as { key: MapViewMode | 'globe'; label: string; icon: string }[]
 
-  const supports3D = viewMode === 'satellite' || viewMode === 'hybrid'
+  const supports3D = viewMode === 'satellite' || viewMode === 'hybrid' || viewMode === 'globe'
 
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
-      {/* Map view controls — bottom right */}
-      <div className="absolute bottom-6 right-4 z-10 flex flex-col items-end gap-2">
-        {/* View picker dropdown */}
+      {/* Map view controls — horizontally centered at bottom */}
+      <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-10 flex flex-col items-center gap-2">
+        {/* View picker dropdown (appears above controls) */}
         {showViewPicker && (
-          <div className="bg-black/80 backdrop-blur-md rounded-lg border border-white/20 p-1 flex flex-col gap-0.5 mb-1 shadow-xl">
+          <div className="bg-black/80 backdrop-blur-md rounded-lg border border-white/20 p-1 flex flex-col gap-0.5 shadow-xl mb-1">
             {viewModes.map(v => (
               <button
                 key={v.key}
                 onClick={() => {
-                  setViewMode(v.key)
-                  setShowViewPicker(false)
-                  if (v.key === 'satellite' || v.key === 'hybrid') {
+                  if (v.key === 'globe') {
+                    setViewMode('globe')
+                    setTilt(45)
+                    mapRef.current?.setZoom(5)
                     onModeChange?.('satellite')
                   } else {
-                    onModeChange?.('dark')
-                    if (tilt !== 0) { setTilt(0); mapRef.current?.setTilt(0) }
+                    setViewMode(v.key as MapViewMode)
+                    setShowViewPicker(false)
+                    if (v.key === 'satellite' || v.key === 'hybrid') {
+                      onModeChange?.('satellite')
+                    } else {
+                      onModeChange?.('dark')
+                      setTilt(0)
+                      mapRef.current?.setTilt(0)
+                    }
                   }
+                  setShowViewPicker(false)
                 }}
                 className={`flex items-center gap-2 text-xs px-3 py-2 rounded transition-all whitespace-nowrap ${
                   viewMode === v.key
@@ -274,11 +319,11 @@ function MapInner({
           </div>
         )}
 
-        {/* Control buttons row */}
-        <div className="flex gap-2">
+        {/* Control buttons horizontal pill */}
+        <div className="bg-black/60 backdrop-blur-md rounded-full border border-white/20 p-1.5 flex flex-row items-center gap-2 shadow-xl">
           <button
             onClick={() => setShowViewPicker(!showViewPicker)}
-            className="bg-black/60 hover:bg-black/80 text-white text-xs px-3 py-1.5 rounded border border-white/20 transition-colors backdrop-blur-sm flex items-center gap-1.5"
+            className="bg-black/40 hover:bg-black/60 text-white text-xs px-3 py-1.5 rounded-full border border-white/20 transition-colors flex items-center gap-1.5"
           >
             <span>{viewModes.find(v => v.key === viewMode)?.icon}</span>
             <span>{viewModes.find(v => v.key === viewMode)?.label}</span>
@@ -289,17 +334,17 @@ function MapInner({
             <>
               <button
                 onClick={handle3DToggle}
-                className="bg-cyan-500/30 hover:bg-cyan-500/50 text-cyan-400 text-xs px-3 py-1.5 rounded border border-cyan-500/40 transition-colors backdrop-blur-sm"
+                className="bg-cyan-500/30 hover:bg-cyan-500/50 text-cyan-400 text-xs px-3 py-1.5 rounded-full border border-cyan-500/40 transition-colors"
               >
                 {tilt === 45 ? '2D' : '3D'}
               </button>
               <button
                 onClick={handlePhotoMode}
                 disabled={loadingPhotoTiles}
-                className={`text-xs px-3 py-1.5 rounded border transition-colors backdrop-blur-sm ${
+                className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
                   photoTileSession
                     ? 'bg-cyan-500/30 text-cyan-400 border-cyan-500/40'
-                    : 'bg-black/60 text-white border-white/20 disabled:opacity-50'
+                    : 'bg-black/40 text-white border-white/20 disabled:opacity-50'
                 }`}
               >
                 {loadingPhotoTiles ? '...' : 'Photo'}
@@ -324,15 +369,15 @@ function MapInner({
           mapTypeControl: false,
           streetViewControl: true,
           streetViewControlOptions: {
-            position: google.maps.ControlPosition.LEFT_BOTTOM,
+            position: google.maps.ControlPosition.RIGHT_BOTTOM,
           },
           fullscreenControl: false,
           zoomControl: true,
           zoomControlOptions: {
-            position: google.maps.ControlPosition.LEFT_BOTTOM,
+            position: google.maps.ControlPosition.RIGHT_BOTTOM,
           },
           styles: (viewMode === 'night' || viewMode === 'night-terrain') ? nightStyle : [],
-          tilt,
+          tilt: (viewMode as MapViewMode | 'globe') === 'globe' ? 45 : tilt,
           heading: 0,
         }}
       >

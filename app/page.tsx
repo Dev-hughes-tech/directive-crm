@@ -248,6 +248,11 @@ export default function Dashboard() {
   const [stormAddress, setStormAddress] = useState('')
   const [stormLoading, setStormLoading] = useState(false)
   const [stormRisk, setStormRisk] = useState<{ level: 'High' | 'Moderate' | 'Low'; eventCount: number } | null>(null)
+  const [showRadar, setShowRadar] = useState(false)
+
+  // Pin drop state (GPS Sweep)
+  const [pinDropLat, setPinDropLat] = useState<number | null>(null)
+  const [pinDropLng, setPinDropLng] = useState<number | null>(null)
 
   // Clients screen state
   const [clients, setClients] = useState<Client[]>([])
@@ -560,7 +565,7 @@ export default function Dashboard() {
     setSweepPhase('geocoding')
 
     try {
-      // Phase 0: Validate address
+      // Phase 0: Validate & normalize address
       const validateRes = await fetch('/api/validate-address', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -569,58 +574,88 @@ export default function Dashboard() {
       const validation = await validateRes.json()
       const addressToResearch = validation.canonical || sweepAddress
 
-      // Phase 1: Geocode
+      // Phase 1: Geocode — get coordinates immediately so map can fly there
       const geocodeRes = await fetch(`/api/geocode?q=${encodeURIComponent(addressToResearch)}`)
       if (!geocodeRes.ok) throw new Error('Geocoding failed')
       const { lat, lng, display_name } = await geocodeRes.json()
 
-      // Fly to the property location immediately
+      // Fly to property on map right away
       setMapCenter({ lat, lng })
       setMapZoom(18)
 
       setSweepPhase('researching')
 
-      // Phase 2: Research
-      const researchRes = await fetch('/api/research', {
+      // Phase 2: Start async research job — returns jobId immediately (no timeout)
+      const startRes = await fetch('/api/research/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: addressToResearch }),
       })
+      if (!startRes.ok) throw new Error('Could not start research job')
+      const { jobId } = await startRes.json()
 
-      const researchJson = await researchRes.json()
-      if (!researchRes.ok || !researchJson.data) {
-        console.error('Research failed:', researchJson.error || researchRes.status)
-      }
-      const data = researchJson.data || {}
+      // Phase 3: Poll for results every 3 seconds (research runs in background)
+      let data: Record<string, unknown> = {}
+      let attempts = 0
+      const maxAttempts = 30 // 30 × 3s = 90 seconds max wait
 
-      setSweepPhase('scoring')
+      await new Promise<void>((resolve) => {
+        const poll = async () => {
+          attempts++
+          try {
+            const statusRes = await fetch(`/api/research/status?jobId=${jobId}`)
+            const status = await statusRes.json()
 
-      // Phase 3: Create property (works even if research returned partial/no data)
+            if (status.status === 'done') {
+              data = status.data || {}
+              setSweepPhase('scoring')
+              resolve()
+              return
+            }
+            if (status.status === 'error') {
+              console.error('Research job error:', status.error)
+              resolve()
+              return
+            }
+          } catch (e) {
+            console.error('Poll error:', e)
+          }
+
+          if (attempts >= maxAttempts) {
+            console.warn('Research timed out after 90s')
+            resolve()
+            return
+          }
+          setTimeout(poll, 3000)
+        }
+        setTimeout(poll, 3000)
+      })
+
+      // Phase 4: Build property from whatever research returned
       const newProperty: Property = {
         id: `prop_${Date.now()}`,
         address: display_name || sweepAddress,
         lat,
         lng,
-        owner_name: data.ownerName || null,
-        owner_phone: data.ownerPhone || null,
-        owner_email: data.ownerEmail || null,
-        year_built: data.yearBuilt || null,
-        roof_age_years: data.roofAgeYears || null,
-        market_value: data.marketValue || null,
-        assessed_value: data.assessedValue || null,
-        last_sale_date: data.lastSaleDate || null,
-        last_sale_price: data.lastSalePrice || null,
-        county: data.county || null,
-        parcel_id: data.parcelId || null,
-        permit_count: data.permitCount || null,
-        flags: data.flags || [],
-        sources: data.sources || {},
+        owner_name: (data.ownerName as string) || null,
+        owner_phone: (data.ownerPhone as string) || null,
+        owner_email: (data.ownerEmail as string) || null,
+        year_built: (data.yearBuilt as number) || null,
+        roof_age_years: (data.roofAgeYears as number) || null,
+        market_value: (data.marketValue as number) || null,
+        assessed_value: (data.assessedValue as number) || null,
+        last_sale_date: (data.lastSaleDate as string) || null,
+        last_sale_price: (data.lastSalePrice as number) || null,
+        county: (data.county as string) || null,
+        parcel_id: (data.parcelId as string) || null,
+        permit_count: (data.permitCount as number) || null,
+        flags: (data.flags as string[]) || [],
+        sources: (data.sources as Record<string, string>) || {},
         score: null,
         created_at: new Date().toISOString(),
       }
 
       setSweepResult(newProperty)
-      // Final zoom to rooftop level once research is done
       setMapZoom(19)
       setSweepPhase('idle')
     } catch (error) {
@@ -628,6 +663,29 @@ export default function Dashboard() {
       setSweepPhase('idle')
     } finally {
       setSweepLoading(false)
+    }
+  }
+
+  // Handle map click for pin drop in GPS Sweep mode
+  const handleSweepMapClick = async (lat: number, lng: number) => {
+    setPinDropLat(lat)
+    setPinDropLng(lng)
+    setSweepUserLocation({ lat, lng })
+    setSweepLocationAccuracy(null)
+    // Auto-trigger residential sweep at dropped pin
+    setResidentialLoading(true)
+    try {
+      const res = await fetch('/api/residential-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng, radius: 804 }) // 0.5mi = 804m
+      })
+      const data = await res.json()
+      setResidentialResults(data.places || [])
+    } catch (error) {
+      console.error('Pin drop residential sweep error:', error)
+    } finally {
+      setResidentialLoading(false)
     }
   }
 
@@ -827,9 +885,20 @@ export default function Dashboard() {
               lng={mapCenter.lng}
               zoom={mapZoom}
               mode={mapMode}
-              markers={activeScreen === 'territory' ? territoryMarkers : activeScreen === 'sweep' && sweepResult ? [{ id: 'sweep-target', lat: sweepResult.lat, lng: sweepResult.lng, color: 'green' as const, label: sweepResult.address }] : []}
+              markers={
+                activeScreen === 'territory'
+                  ? territoryMarkers
+                  : activeScreen === 'sweep'
+                  ? [
+                      ...(sweepResult ? [{ id: 'sweep-target', lat: sweepResult.lat, lng: sweepResult.lng, color: 'green' as const, label: sweepResult.address }] : []),
+                      ...(pinDropLat && pinDropLng ? [{ id: 'pin-drop', lat: pinDropLat, lng: pinDropLng, color: 'amber' as const, label: '📍 Dropped Pin — 0.5mi sweep active' }] : []),
+                    ]
+                  : []
+              }
               onModeChange={setMapMode}
               geoJsonData={activeScreen === 'territory' ? mapGeoJson : null}
+              radarOverlay={activeScreen === 'stormscope' && showRadar}
+              onMapClick={activeScreen === 'sweep' ? handleSweepMapClick : undefined}
             />
 
           </>
@@ -1513,6 +1582,19 @@ export default function Dashboard() {
                   </p>
                 )}
 
+                {/* Pin drop hint */}
+                <div className="bg-amber/10 border border-amber/20 rounded-lg px-3 py-2 text-xs text-amber/80 flex items-center gap-2">
+                  <MapPin className="w-3 h-3 flex-shrink-0" />
+                  <span>Tap the map to drop a pin and sweep 0.5mi residential radius</span>
+                </div>
+
+                {pinDropLat && pinDropLng && (
+                  <div className="bg-dark-700/50 rounded-lg px-3 py-2 text-xs flex items-center justify-between">
+                    <span className="text-gray-400">Pin: {pinDropLat.toFixed(4)}, {pinDropLng.toFixed(4)}</span>
+                    <button onClick={() => { setPinDropLat(null); setPinDropLng(null); setSweepUserLocation(null); }} className="text-red hover:text-red/80 ml-2">✕</button>
+                  </div>
+                )}
+
                 {/* Path Tracking */}
                 <div className="pt-3 border-t border-white/10">
                   <button
@@ -1826,6 +1908,25 @@ export default function Dashboard() {
 
           {/* Right Panel */}
           <div className="absolute right-4 top-20 bottom-4 w-72 overflow-y-auto space-y-3 z-30">
+            {/* Live Radar Toggle */}
+            <div className="glass p-4 rounded-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Radio className="w-4 h-4 text-cyan" />
+                  <span className="text-sm font-semibold">Live NEXRAD Radar</span>
+                </div>
+                <button
+                  onClick={() => setShowRadar(!showRadar)}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${showRadar ? 'bg-cyan' : 'bg-dark-700'}`}
+                >
+                  <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${showRadar ? 'translate-x-5' : ''}`} />
+                </button>
+              </div>
+              {showRadar && (
+                <p className="text-xs text-cyan/70 mt-2">NOAA NEXRAD radar overlay active</p>
+              )}
+            </div>
+
             {/* Active Alerts */}
             <div className="glass p-6 rounded-xl">
               <div className="flex items-center gap-2 mb-4">
