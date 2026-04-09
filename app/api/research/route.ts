@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 
-// Research makes 2 Claude API calls with web search — needs extended timeout
 export const maxDuration = 60
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
   const apiKey = process.env.MAPS_API_KEY
@@ -22,78 +19,78 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lng: numb
 }
 
 export async function POST(request: NextRequest) {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY
+  if (!anthropicKey) {
+    console.error('ANTHROPIC_API_KEY not set')
+    return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured', data: null }, { status: 500 })
+  }
+
+  const client = new Anthropic({ apiKey: anthropicKey })
+
   try {
     const { address } = await request.json()
     if (!address) return NextResponse.json({ error: 'Address is required', data: null }, { status: 400 })
 
-    // ── PASS 1: Free research — let Claude think and search on its own ──
-    const researchPrompt = `You are a property research assistant. You have been given a real residential address. Your job is to find as much factual information about this property and its current owner as possible.
+    const prompt = `You are a professional property intelligence researcher for a roofing sales company. You will research the following address completely and return structured data. Be aggressive and thorough — use every search below.
 
-Address: ${address}
+TARGET ADDRESS: ${address}
 
-USE YOUR OWN JUDGMENT to determine the best search strategy. Think about:
-- What state and county is this address in?
-- What public records systems exist for that county and state?
-- County tax assessor websites, property appraiser portals, deed/probate records
-- People search sites for phone numbers once you have an owner name
+══════════════════════════════════════════
+REQUIRED SEARCH SEQUENCE — do ALL of these:
+══════════════════════════════════════════
 
-Search strategy:
-1. Start by searching for the property address + "owner" or "property records" or "tax assessor"
-2. Search for "[county name] [state] property records" or "[county name] [state] tax assessor" to find the right government portal
-3. Search the address on those portals
-4. Once you have an owner name, search "[owner name] [city] [state] phone" on people search sites
-5. Search the address on real estate sites for market data
+SEARCH 1 — ZILLOW
+Query: site:zillow.com "${address}"
+Get: owner name, year built, market value (Zestimate), last sale date, last sale price, beds/baths, lot size
 
-You must run at least 6 separate web searches. Be resourceful — if one search doesn't work, try a different angle. Think like an investigator.
+SEARCH 2 — REALTOR.COM
+Query: site:realtor.com "${address}"
+Get: same fields as Zillow, cross-reference values, look for listing history
 
-For EACH piece of information you find, note exactly where you found it (the website/source).
+SEARCH 3 — COUNTY TAX ASSESSOR (most important for owner name + assessed value)
+Query: "${address}" county tax assessor property records owner
+Then search: "[city] [state] county property appraiser" to find the official government portal
+Get: legal owner name, parcel ID, assessed value, taxable value, year built, land value
 
-Report ALL findings in plain text — what you found, where you found it, exact values. Do not make up any data. If you can't find something, say so.`
+SEARCH 4 — BUILDING & ROOFING PERMITS
+Query: "${address}" building permit roof permit
+Also try: "[city] [state] building permits search" to find the permit portal
+Get: permit number, permit type, issue date, description — look specifically for "ROOFING", "ROOF", "RE-ROOF" permits
 
-    let researchResponse
-    try {
-      researchResponse = await client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 16000,
-        tools: [{ type: 'web_search_20250305' as const, name: 'web_search' }],
-        messages: [{ role: 'user', content: researchPrompt }],
-      })
-    } catch (apiError: unknown) {
-      const errMsg = apiError instanceof Error ? apiError.message : String(apiError)
-      console.error('Anthropic API error (research pass):', errMsg)
-      return NextResponse.json({ error: `Claude API failed: ${errMsg}`, data: null }, { status: 502 })
-    }
+SEARCH 5 — DEED / PUBLIC RECORDS
+Query: "${address}" deed property records sale history
+Try: site:publicrecordsnow.com OR site:county-records.com OR "[county] clerk of courts records"
+Get: grantee/grantor names, deed date, sale price, legal description
 
-    // Collect everything Claude found
-    let researchFindings = ''
-    for (const block of researchResponse.content) {
-      if (block.type === 'text') researchFindings += block.text
-    }
+SEARCH 6 — PEOPLE SEARCH (for owner phone number)
+Once you have the owner name from searches above:
+Query: "[owner full name] [city] [state] phone number"
+Also try: site:whitepages.com "[owner name]" [city] OR site:fastpeoplesearch.com "[owner name]"
+Get: phone number, age, email if available
 
-    if (!researchFindings.trim()) {
-      console.error('Research returned no text blocks. Stop reason:', researchResponse.stop_reason, 'Content types:', researchResponse.content.map(b => b.type))
-      return NextResponse.json({ error: 'Research returned no findings', data: null })
-    }
+SEARCH 7 — HOTPADS / APARTMENTS.COM (if multi-family or rental)
+Query: site:hotpads.com "${address}"
+Get: rental history, unit count, property type
 
-    // ── PASS 2: Extract structured JSON from what was actually found ──
-    const extractPrompt = `Here is research that was conducted on the property at ${address}:
+SEARCH 8 — PROPERTY SHARK / NEFOS / ATTOM
+Query: "${address}" property report owner history
+Get: any additional ownership data, prior sales, foreclosure history
 
----
-${researchFindings}
----
+══════════════════════════════════════════
+OUTPUT RULES (CRITICAL):
+══════════════════════════════════════════
+- ONLY include values you ACTUALLY FOUND in search results
+- NEVER guess, estimate, or infer — use null if not found
+- ownerPhone: format as XXX-XXX-XXXX, null if not found
+- roofAgeYears: ONLY from a roofing permit date (calculate from permit year to 2026). NEVER use year built. null if no roof permit found
+- marketValue, assessedValue, lastSalePrice: integers only, no $ or commas
+- yearBuilt: 4-digit year integer, must be between 1800-2026
+- sources: for each non-null field, record the exact website/URL where found
+- flags: array of strings like ["vacant", "rental", "foreclosure", "investor-owned", "high-value", "old-roof"] based on what you found
 
-Extract the data into this exact JSON. Use ONLY values that appear explicitly in the research above.
-If a value was not found or is uncertain, use null — never guess or infer.
+After completing all searches, output your findings inside <json> tags:
 
-CRITICAL RULES:
-- ownerName: must appear in research as the actual current owner of this specific address. null if not found.
-- ownerPhone: must be a real phone number found in the research. Format as XXX-XXX-XXXX. null if not found.
-- roofAgeYears: only from a roof permit or explicit "roof replaced in [year]" statement. NEVER calculate from yearBuilt. null if not found.
-- marketValue / assessedValue / lastSalePrice: numbers only, no $ or commas. null if not found.
-- yearBuilt: integer between 1800 and 2026. null if not found.
-- sources: for each non-null field, record the website where that data was found.
-
-Return ONLY this JSON object, nothing else:
+<json>
 {
   "ownerName": null,
   "ownerPhone": null,
@@ -110,53 +107,114 @@ Return ONLY this JSON object, nothing else:
   "parcelId": null,
   "flags": [],
   "sources": {}
-}`
+}
+</json>`
 
-    let extractResponse
+    let response
     try {
-      extractResponse = await client.messages.create({
+      response = await client.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
-        messages: [{ role: 'user', content: extractPrompt }],
+        max_tokens: 16000,
+        tools: [{ type: 'web_search_20250305' as const, name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }],
       })
     } catch (apiError: unknown) {
       const errMsg = apiError instanceof Error ? apiError.message : String(apiError)
-      console.error('Anthropic API error (extract pass):', errMsg)
-      return NextResponse.json({ error: `Claude extraction failed: ${errMsg}`, data: null }, { status: 502 })
+      console.error('Anthropic API error:', errMsg)
+      return NextResponse.json({ error: `Claude API failed: ${errMsg}`, data: null }, { status: 502 })
     }
 
-    let jsonText = ''
-    for (const block of extractResponse.content) {
-      if (block.type === 'text') jsonText += block.text
+    // Collect all text blocks from response
+    let fullText = ''
+    for (const block of response.content) {
+      if (block.type === 'text') fullText += block.text
     }
 
-    const jsonMatch = jsonText.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      console.error('Failed to parse JSON from extract response:', jsonText.slice(0, 500))
-      return NextResponse.json({ error: 'Failed to parse extracted data', data: null })
+    if (!fullText.trim()) {
+      console.error('No text in response. Stop:', response.stop_reason, 'Block types:', response.content.map(b => b.type))
+      return NextResponse.json({ error: 'Research returned no text output', data: null })
+    }
+
+    // Extract JSON — prefer <json> tags, fall back to brace-matching
+    let jsonStr = ''
+    const tagMatch = fullText.match(/<json>\s*([\s\S]*?)\s*<\/json>/)
+    if (tagMatch) {
+      jsonStr = tagMatch[1]
+    } else {
+      const braceMatch = fullText.match(/\{[\s\S]*"ownerName"[\s\S]*\}/)
+      if (braceMatch) jsonStr = braceMatch[0]
+    }
+
+    if (!jsonStr) {
+      console.error('No JSON found. Response preview:', fullText.slice(0, 1000))
+      return NextResponse.json({ error: 'Could not extract structured data from research', data: null })
     }
 
     let data
     try {
-      data = JSON.parse(jsonMatch[0])
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError, 'Raw:', jsonMatch[0].slice(0, 500))
-      return NextResponse.json({ error: 'Invalid JSON from extraction', data: null })
+      data = JSON.parse(jsonStr)
+    } catch {
+      try {
+        // Fix common JSON issues: trailing commas
+        const cleaned = jsonStr.replace(/,(\s*[}\]])/g, '$1')
+        data = JSON.parse(cleaned)
+      } catch (parseError) {
+        console.error('JSON parse failed:', parseError, '\nRaw JSON:', jsonStr.slice(0, 600))
+        return NextResponse.json({ error: 'Could not parse research data', data: null })
+      }
     }
 
-    // Validate — strip anything that fails format or plausibility checks
-    if (data.ownerPhone && !/^\d{3}-\d{3}-\d{4}$/.test(data.ownerPhone)) data.ownerPhone = null
-    if (data.yearBuilt && (data.yearBuilt < 1800 || data.yearBuilt > 2026)) data.yearBuilt = null
-    if (data.marketValue !== null && (typeof data.marketValue !== 'number' || data.marketValue < 5000)) data.marketValue = null
-    if (data.assessedValue !== null && (typeof data.assessedValue !== 'number' || data.assessedValue < 1000)) data.assessedValue = null
-    if (data.lastSalePrice !== null && typeof data.lastSalePrice !== 'number') data.lastSalePrice = null
-    if (data.roofAgeYears !== null && (typeof data.roofAgeYears !== 'number' || data.roofAgeYears < 1 || data.roofAgeYears > 60)) data.roofAgeYears = null
-    // Wipe roof age if it was calculated from year built (not from a permit)
-    if (data.roofAgeYears !== null && data.yearBuilt) {
-      if (data.roofAgeYears === new Date().getFullYear() - data.yearBuilt) data.roofAgeYears = null
+    // ── Validate and sanitize all fields ──
+
+    // Phone: normalize to XXX-XXX-XXXX
+    if (data.ownerPhone) {
+      const digits = String(data.ownerPhone).replace(/\D/g, '')
+      if (digits.length === 10) {
+        data.ownerPhone = `${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6)}`
+      } else if (digits.length === 11 && digits[0] === '1') {
+        data.ownerPhone = `${digits.slice(1,4)}-${digits.slice(4,7)}-${digits.slice(7)}`
+      } else {
+        data.ownerPhone = null
+      }
     }
 
-    // Geocode for precise coordinates
+    // Year built: must be plausible integer
+    if (data.yearBuilt) {
+      const y = parseInt(data.yearBuilt)
+      data.yearBuilt = (y >= 1800 && y <= 2026) ? y : null
+    }
+
+    // Dollar values: must be positive numbers above minimums
+    const toNum = (v: unknown, min: number) => {
+      const n = typeof v === 'string' ? parseFloat(v.replace(/[$,]/g, '')) : Number(v)
+      return (!isNaN(n) && n >= min) ? Math.round(n) : null
+    }
+    data.marketValue  = toNum(data.marketValue, 5000)
+    data.assessedValue = toNum(data.assessedValue, 1000)
+    data.lastSalePrice = toNum(data.lastSalePrice, 100)
+
+    // Roof age: only from permits, not year built
+    if (data.roofAgeYears !== null) {
+      const r = parseFloat(data.roofAgeYears)
+      if (isNaN(r) || r < 1 || r > 60) {
+        data.roofAgeYears = null
+      } else {
+        // Reject if it matches year-built calculation (means Claude cheated)
+        if (data.yearBuilt && Math.round(r) === 2026 - data.yearBuilt) {
+          data.roofAgeYears = null
+        } else {
+          data.roofAgeYears = Math.round(r)
+        }
+      }
+    }
+
+    // Permit count: must be a non-negative integer
+    if (data.permitCount !== null) {
+      const p = parseInt(data.permitCount)
+      data.permitCount = (!isNaN(p) && p >= 0) ? p : null
+    }
+
+    // Geocode for coordinates
     const geocoded = await geocodeAddress(address)
 
     return NextResponse.json({
@@ -168,8 +226,8 @@ Return ONLY this JSON object, nothing else:
     })
 
   } catch (error) {
-    console.error('/api/research error:', error)
-    return NextResponse.json({ error: 'Research failed', data: null }, { status: 500 })
+    const errMsg = error instanceof Error ? error.message : String(error)
+    console.error('/api/research unhandled error:', errMsg)
+    return NextResponse.json({ error: `Research failed: ${errMsg}`, data: null }, { status: 500 })
   }
 }
-// Wed Apr  8 18:36:46 EDT 2026
