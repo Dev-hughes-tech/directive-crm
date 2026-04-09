@@ -96,6 +96,41 @@ function MapInner({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
 
+  // Fly-to animation when lat/lng/zoom props change
+  const prevCenter = useRef({ lat, lng })
+  const prevZoom = useRef(zoom)
+  useEffect(() => {
+    if (!mapRef.current) return
+    const map = mapRef.current
+    const centerChanged = Math.abs(prevCenter.current.lat - lat) > 0.0001 || Math.abs(prevCenter.current.lng - lng) > 0.0001
+    const zoomChanged = prevZoom.current !== zoom
+
+    if (!centerChanged && !zoomChanged) return
+
+    prevCenter.current = { lat, lng }
+    prevZoom.current = zoom
+
+    const target = { lat, lng }
+    const targetZoom = zoom || 18
+
+    // Smooth fly-to: zoom out → pan → zoom in
+    const currentZoom = map.getZoom() || 14
+    const midZoom = Math.min(currentZoom, targetZoom) - 2
+
+    // Step 1: zoom out slightly
+    map.setZoom(Math.max(midZoom, 8))
+
+    // Step 2: pan to target after brief delay
+    setTimeout(() => {
+      map.panTo(target)
+    }, 300)
+
+    // Step 3: zoom into target
+    setTimeout(() => {
+      map.setZoom(targetZoom)
+    }, 800)
+  }, [lat, lng, zoom])
+
   // GeoJSON overlay
   useEffect(() => {
     if (!mapRef.current) return

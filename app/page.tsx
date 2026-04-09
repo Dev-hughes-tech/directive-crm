@@ -574,6 +574,10 @@ export default function Dashboard() {
       if (!geocodeRes.ok) throw new Error('Geocoding failed')
       const { lat, lng, display_name } = await geocodeRes.json()
 
+      // Fly to the property location immediately
+      setMapCenter({ lat, lng })
+      setMapZoom(18)
+
       setSweepPhase('researching')
 
       // Phase 2: Research
@@ -613,6 +617,8 @@ export default function Dashboard() {
       }
 
       setSweepResult(newProperty)
+      // Final zoom to rooftop level once research is done
+      setMapZoom(19)
       setSweepPhase('idle')
     } catch (error) {
       console.error('Sweep error:', error)
@@ -818,7 +824,7 @@ export default function Dashboard() {
               lng={mapCenter.lng}
               zoom={mapZoom}
               mode={mapMode}
-              markers={activeScreen === 'territory' ? territoryMarkers : []}
+              markers={activeScreen === 'territory' ? territoryMarkers : activeScreen === 'sweep' && sweepResult ? [{ id: 'sweep-target', lat: sweepResult.lat, lng: sweepResult.lng, color: 'green' as const, label: sweepResult.address }] : []}
               onModeChange={setMapMode}
               geoJsonData={activeScreen === 'territory' ? mapGeoJson : null}
             />
