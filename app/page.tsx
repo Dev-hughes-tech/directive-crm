@@ -797,7 +797,16 @@ export default function Dashboard() {
       {/* Background */}
       <div className="absolute inset-0 z-0" style={{ isolation: 'isolate' }}>
         {activeScreen === 'dashboard' ? (
-          <div className="absolute inset-0 bg-[#0d1117]" style={{backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(6,182,212,0.06) 0%, transparent 60%)'}} />
+          <div className="absolute inset-0">
+            <MapView
+              lat={mapCenter.lat}
+              lng={mapCenter.lng}
+              zoom={11}
+              mode="dark"
+              onModeChange={() => {}}
+            />
+            <div className="absolute inset-0 bg-[#0d1117]/60" style={{backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(6,182,212,0.06) 0%, transparent 60%)'}} />
+          </div>
         ) : (
           <>
             <MapView
@@ -821,9 +830,9 @@ export default function Dashboard() {
             <Image
               src="/directive-wordmark.png"
               alt="Directive"
-              width={120}
-              height={32}
-              className="h-7 w-auto"
+              width={200}
+              height={48}
+              className="h-10 w-auto"
             />
           </div>
 

@@ -32,7 +32,7 @@ const colorMap = {
   red: '#ef4444',
 }
 
-type MapViewMode = 'roadmap' | 'satellite' | 'hybrid' | 'terrain' | 'night'
+type MapViewMode = 'roadmap' | 'satellite' | 'hybrid' | 'terrain' | 'night' | 'night-terrain'
 
 const nightStyle: google.maps.MapTypeStyle[] = [
   { elementType: 'geometry', stylers: [{ color: '#0d1117' }] },
@@ -75,7 +75,7 @@ function MapInner({
 
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null)
   const [viewMode, setViewMode] = useState<MapViewMode>(
-    mode === 'satellite' ? 'satellite' : 'roadmap'
+    mode === 'satellite' ? 'satellite' : 'night-terrain'
   )
   const [tilt, setTilt] = useState(0)
   const [photoTileSession, setPhotoTileSession] = useState<string | null>(null)
@@ -86,7 +86,7 @@ function MapInner({
   const center = { lat, lng }
 
   // Map the viewMode to Google's mapTypeId
-  const googleMapType = viewMode === 'night' ? 'roadmap' : viewMode
+  const googleMapType = viewMode === 'night' ? 'roadmap' : viewMode === 'night-terrain' ? 'terrain' : viewMode
 
   useEffect(() => {
     if (mode === 'satellite' && viewMode !== 'satellite') {
@@ -201,7 +201,8 @@ function MapInner({
     { key: 'hybrid', label: 'Hybrid', icon: '🏙' },
     { key: 'terrain', label: 'Terrain', icon: '⛰' },
     { key: 'night', label: 'Night', icon: '🌙' },
-  ]
+    { key: 'night-terrain', label: 'Night Terrain', icon: '🏔' },
+  ] as { key: MapViewMode; label: string; icon: string }[]
 
   const supports3D = viewMode === 'satellite' || viewMode === 'hybrid'
 
@@ -295,7 +296,7 @@ function MapInner({
           zoomControlOptions: {
             position: google.maps.ControlPosition.LEFT_BOTTOM,
           },
-          styles: viewMode === 'night' ? nightStyle : [],
+          styles: (viewMode === 'night' || viewMode === 'night-terrain') ? nightStyle : [],
           tilt,
           heading: 0,
         }}
