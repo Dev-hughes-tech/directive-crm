@@ -131,7 +131,97 @@ export interface StormEvent {
   description: string
 }
 
-export type Screen = 'dashboard' | 'territory' | 'sweep' | 'stormscope' | 'michael' | 'clients' | 'proposals' | 'materials' | 'team'
+export type Screen = 'dashboard' | 'territory' | 'sweep' | 'stormscope' | 'michael' | 'clients' | 'proposals' | 'materials' | 'team' | 'jobs'
+
+export type JobStage =
+  | 'sold'
+  | 'permit_applied'
+  | 'permit_approved'
+  | 'crew_scheduled'
+  | 'in_progress'
+  | 'final_inspection'
+  | 'supplement_filed'
+  | 'invoice_sent'
+  | 'collected'
+
+export const JOB_STAGES: { key: JobStage; label: string; color: string }[] = [
+  { key: 'sold',             label: 'Sold',              color: '#06B6D4' },
+  { key: 'permit_applied',   label: 'Permit Applied',    color: '#8B5CF6' },
+  { key: 'permit_approved',  label: 'Permit Approved',   color: '#A78BFA' },
+  { key: 'crew_scheduled',   label: 'Crew Scheduled',    color: '#F59E0B' },
+  { key: 'in_progress',      label: 'In Progress',       color: '#FB923C' },
+  { key: 'final_inspection', label: 'Final Inspection',  color: '#60A5FA' },
+  { key: 'supplement_filed', label: 'Supplement Filed',  color: '#F472B6' },
+  { key: 'invoice_sent',     label: 'Invoice Sent',      color: '#34D399' },
+  { key: 'collected',        label: 'Collected',         color: '#10B981' },
+]
+
+export type PhotoCategory =
+  | 'overall_roof'
+  | 'ridge'
+  | 'valleys'
+  | 'gutters'
+  | 'downspouts'
+  | 'skylights'
+  | 'interior_damage'
+  | 'before'
+  | 'after'
+  | 'other'
+
+export interface JobPhoto {
+  id: string
+  job_id: string
+  category: PhotoCategory
+  data_url: string
+  caption: string
+  taken_at: string
+}
+
+export interface InsuranceClaim {
+  id: string
+  job_id: string
+  insurance_company: string
+  claim_number: string
+  adjuster_name: string | null
+  adjuster_phone: string | null
+  adjuster_email: string | null
+  deductible: number | null
+  initial_payout: number | null
+  supplement_amount: number | null
+  final_payout: number | null
+  status: 'pending' | 'adjuster_scheduled' | 'inspection_done' | 'supplement_submitted' | 'supplement_approved' | 'paid'
+  notes: string
+  created_at: string
+}
+
+export interface Job {
+  id: string
+  property_id: string | null
+  client_id: string | null
+  proposal_id: string | null
+  stage: JobStage
+  title: string
+  address: string
+  owner_name: string | null
+  contract_amount: number | null
+  contract_signed_at: string | null
+  permit_number: string | null
+  permit_applied_at: string | null
+  permit_approved_at: string | null
+  scheduled_date: string | null
+  crew_lead: string | null
+  crew_members: string[]
+  started_at: string | null
+  completed_at: string | null
+  invoice_number: string | null
+  invoice_sent_at: string | null
+  amount_collected: number | null
+  collected_at: string | null
+  insurance: InsuranceClaim | null
+  photos: JobPhoto[]
+  notes: string
+  created_at: string
+}
 
 export interface Client {
   id: string

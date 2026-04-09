@@ -32,10 +32,17 @@ import {
   Trash2,
   Edit2,
   X,
+  Briefcase,
+  Camera,
+  ShieldCheck,
+  CheckCircle2,
+  ChevronDown,
+  Calculator,
 } from 'lucide-react'
-import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage } from '@/lib/types'
+import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
+import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
-import { getClients, saveClient, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, markMessagesRead } from '@/lib/storage'
+import { getClients, saveClient, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, markMessagesRead, getJobs, saveJob, deleteJob } from '@/lib/storage'
 import PropertyGraph from '@/components/dashboard/PropertyGraph'
 
 const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false })
@@ -581,11 +588,30 @@ export default function Dashboard() {
   const [editingProposal, setEditingProposal] = useState(false)
   const [proposalMapMode, setProposalMapMode] = useState<'place' | 'streetview' | 'satellite'>('place')
 
-  // Materials screen state
+  // Materials screen state — upgraded calculator
   const [materials, setMaterials] = useState<Material[]>([])
   const [roofWidth, setRoofWidth] = useState('')
   const [roofLength, setRoofLength] = useState('')
   const [addingMaterial, setAddingMaterial] = useState(false)
+  const [roofPitch, setRoofPitch] = useState<string>('6/12')
+  const [wastePercent, setWastePercent] = useState<number>(10)
+  const [dormerSqft, setDormerSqft] = useState<string>('')
+  const [valleyDeductSqft, setValleyDeductSqft] = useState<string>('')
+  const [roofType, setRoofType] = useState<'gable' | 'hip'>('gable')
+
+  // Jobs / Production Management state
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+  const [jobStageFilter, setJobStageFilter] = useState<JobStage | 'all'>('all')
+  const [addingJob, setAddingJob] = useState(false)
+  const [newJobTitle, setNewJobTitle] = useState('')
+  const [newJobAddress, setNewJobAddress] = useState('')
+  const [newJobOwner, setNewJobOwner] = useState('')
+  const [newJobAmount, setNewJobAmount] = useState('')
+  const [jobTab, setJobTab] = useState<'pipeline' | 'detail' | 'insurance' | 'photos'>('pipeline')
+  const [addingSupplementNote, setAddingSupplementNote] = useState(false)
+  const [photoCategory, setPhotoCategory] = useState<PhotoCategory>('overall_roof')
+  const photoInputRef = useRef<HTMLInputElement>(null)
 
   // Team chat state
   const [teamMessages, setTeamMessages] = useState<ChatMessage[]>([])
@@ -594,21 +620,34 @@ export default function Dashboard() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [activeChannel, setActiveChannel] = useState<'general' | 'management'>('general')
 
+  // Dashboard enhanced state
+  const [dashboardTab, setDashboardTab] = useState<'overview' | 'storm-leads' | 'michael-leads' | 'historical'>('overview')
+  const [weatherZip, setWeatherZip] = useState('')
+  const [dashWeather, setDashWeather] = useState<WeatherCurrent | null>(null)
+  const [dashAlerts, setDashAlerts] = useState<WeatherAlert[]>([])
+  const [recentAlerts90d, setRecentAlerts90d] = useState<any[]>([])
+  const [michaelLeads, setMichaelLeads] = useState<Array<{ address: string; reason: string; score: number; source: string }>>([])
+  const [michaelLeadsLoading, setMichaelLeadsLoading] = useState(false)
+  const [timelineView, setTimelineView] = useState<'month' | 'week' | 'day'>('month')
+  const [timelinePlaying, setTimelinePlaying] = useState(false)
+
   // Load properties on mount
   useEffect(() => {
     const loadData = async () => {
-      const [propsData, clientsData, proposalsData, materialsData, messagesData] = await Promise.all([
+      const [propsData, clientsData, proposalsData, materialsData, messagesData, jobsData] = await Promise.all([
         getProperties(),
         getClients(),
         getProposals(),
         getMaterials(),
-        getChatMessages('general')
+        getChatMessages('general'),
+        getJobs(),
       ])
       setProperties(propsData)
       setClients(clientsData)
       setProposals(proposalsData)
       setMaterials(materialsData)
       setTeamMessages(messagesData)
+      setJobs(jobsData)
     }
     loadData()
   }, [])
@@ -1196,6 +1235,76 @@ export default function Dashboard() {
     }
   }
 
+  // Dashboard: Fetch weather by ZIP code
+  const handleWeatherZipLookup = async () => {
+    if (!weatherZip.trim()) return
+    try {
+      const geoRes = await fetch(`/api/geocode?q=${encodeURIComponent(weatherZip)}`)
+      if (!geoRes.ok) return
+      const { lat, lng } = await geoRes.json()
+      const [wRes, aRes] = await Promise.all([
+        fetch(`/api/weather/current?lat=${lat}&lng=${lng}`),
+        fetch(`/api/weather/alerts?lat=${lat}&lng=${lng}`),
+      ])
+      if (wRes.ok) setDashWeather(await wRes.json())
+      if (aRes.ok) setDashAlerts(await aRes.json())
+    } catch (e) {
+      console.error('Weather ZIP lookup error:', e)
+    }
+  }
+
+  // Michael AI Daily Lead Engine
+  const runMichaelLeadEngine = async () => {
+    setMichaelLeadsLoading(true)
+    try {
+      const response = await fetch('/api/michael', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'user', content: `You are the Directive CRM lead generation engine. Analyze the following data and generate a list of the top 10 leads I should pursue today. For each lead, provide: the address, a reason why this is a good lead, a score from 1-100, and the source of the lead intelligence.
+
+Current data:
+- ${properties.length} total properties in pipeline
+- ${properties.filter(p => calculateLeadScore(p) >= 70).length} hot leads (score 70+)
+- ${properties.filter(p => p.storm_history?.stormRiskLevel === 'high').length} properties in high storm risk zones
+- ${properties.filter(p => p.roof_age_years !== null && p.roof_age_years >= 20).length} properties with roofs 20+ years old
+- ${hailEvents.length} hail events in the past year
+- ${alerts.length} active weather alerts
+
+Property addresses in pipeline:
+${properties.slice(0, 50).map(p => `${p.address} | Roof: ${p.roof_age_years || '?'}yr | Score: ${calculateLeadScore(p)} | Storm Risk: ${p.storm_history?.stormRiskLevel || 'unknown'}`).join('\n')}
+
+Based on storm damage zones, roof age, property values, and weather patterns, identify the best leads. Format your response as JSON array: [{"address":"...","reason":"...","score":85,"source":"Storm Damage Zone"}]
+Only respond with the JSON array, no other text.` }
+          ],
+          context: {
+            activeScreen: 'dashboard',
+            leadCount: properties.length,
+            hotLeadCount: properties.filter(p => calculateLeadScore(p) >= 70).length,
+            alertCount: alerts.length,
+          }
+        })
+      })
+      if (response.ok) {
+        const { reply } = await response.json()
+        try {
+          const jsonMatch = reply.match(/\[[\s\S]*\]/)
+          if (jsonMatch) {
+            const leads = JSON.parse(jsonMatch[0])
+            setMichaelLeads(leads.slice(0, 10))
+          }
+        } catch {
+          console.error('Failed to parse Michael leads')
+        }
+      }
+    } catch (e) {
+      console.error('Michael lead engine error:', e)
+    } finally {
+      setMichaelLeadsLoading(false)
+    }
+  }
+
   // Territory markers
   const territoryMarkers: MapMarker[] = properties.map((p) => {
     const score = calculateLeadScore(p)
@@ -1278,6 +1387,7 @@ export default function Dashboard() {
               { id: 'sweep' as Screen, label: 'Sweep', icon: Navigation },
               { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio },
               { id: 'michael' as Screen, label: 'Michael', icon: Brain },
+              { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase },
               { id: 'clients' as Screen, label: 'Clients', icon: Users },
               { id: 'proposals' as Screen, label: 'Proposals', icon: FileText },
               { id: 'materials' as Screen, label: 'Materials', icon: Package },
@@ -1361,264 +1471,576 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Left Panel */}
-          <div className="absolute left-4 top-56 bottom-16 w-80 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
-            {/* Lead Pipeline Card */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Lead Pipeline</h3>
-                <div className="flex items-center gap-1 bg-green/20 px-2 py-1 rounded-full">
-                  <div className="w-1.5 h-1.5 bg-green rounded-full" />
-                  <span className="text-xs text-green font-semibold">Live</span>
+          {/* Dashboard Tab Bar */}
+          <div className="absolute left-4 right-4 top-40 z-30 flex gap-2">
+            <button
+              onClick={() => setDashboardTab('overview')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
+                dashboardTab === 'overview'
+                  ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                  : 'glass text-gray-300 hover:text-white'
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => setDashboardTab('storm-leads')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
+                dashboardTab === 'storm-leads'
+                  ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                  : 'glass text-gray-300 hover:text-white'
+              }`}
+            >
+              Storm Damage Leads
+            </button>
+            <button
+              onClick={() => setDashboardTab('michael-leads')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
+                dashboardTab === 'michael-leads'
+                  ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                  : 'glass text-gray-300 hover:text-white'
+              }`}
+            >
+              Michael AI Leads
+            </button>
+            <button
+              onClick={() => setDashboardTab('historical')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
+                dashboardTab === 'historical'
+                  ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                  : 'glass text-gray-300 hover:text-white'
+              }`}
+            >
+              Historical Weather
+            </button>
+          </div>
+
+          {/* OVERVIEW TAB */}
+          {dashboardTab === 'overview' && (
+            <>
+              {/* Left Panel */}
+              <div className="absolute left-4 top-56 bottom-16 w-80 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
+                {/* Lead Pipeline Card */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Lead Pipeline</h3>
+                    <div className="flex items-center gap-1 bg-green/20 px-2 py-1 rounded-full">
+                      <div className="w-1.5 h-1.5 bg-green rounded-full" />
+                      <span className="text-xs text-green font-semibold">Live</span>
+                    </div>
+                  </div>
+
+                  <p className="text-4xl font-bold text-cyan">{properties.length}</p>
+
+                  <p className="text-xs text-gray-400">
+                    Active leads across {
+                      Array.from(
+                        new Set(properties.map((p) => p.address.split(',').pop()?.trim() || 'Unknown'))
+                      ).length
+                    } territories
+                  </p>
+
+                  {/* Mini Sparkline */}
+                  <svg className="w-full h-12" viewBox="0 0 300 40" preserveAspectRatio="none">
+                    <polyline
+                      points="0,30 50,28 100,25 150,22 200,20 250,18 300,15"
+                      fill="none"
+                      stroke="rgb(34, 211, 238)"
+                      strokeWidth="2"
+                    />
+                  </svg>
+
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>+0% vs last month</span>
+                    <span>0 New this week</span>
+                  </div>
+                </div>
+
+                <div className="border-t border-white/5" />
+
+                {/* Source Distribution Card */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Source Distribution</h3>
+                    <span className="text-xs bg-dark-700/50 px-2 py-1 rounded text-gray-400">Q2 2026</span>
+                  </div>
+
+                  {/* Donut Chart */}
+                  <div className="flex justify-center mb-2">
+                    <svg width="100" height="100" viewBox="0 0 100 100">
+                      <circle cx="50" cy="50" r="40" fill="none" stroke="rgb(55, 65, 81)" strokeWidth="8" />
+                    </svg>
+                  </div>
+
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-white">{properties.length}</p>
+                    <p className="text-xs text-gray-400">Total</p>
+                  </div>
+
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between text-gray-400">
+                      <span>GPS Sweep</span>
+                      <span>0%</span>
+                    </div>
+                    <div className="flex justify-between text-gray-400">
+                      <span>Storm Alerts</span>
+                      <span>0%</span>
+                    </div>
+                    <div className="flex justify-between text-gray-400">
+                      <span>Referrals</span>
+                      <span>0%</span>
+                    </div>
+                    <div className="flex justify-between text-gray-400">
+                      <span>Door Knocks</span>
+                      <span>0%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-white/5" />
+
+                {/* Roof Age Engine Card */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Roof Age Engine</h3>
+                    <span className="text-xs bg-cyan/20 text-cyan px-2 py-1 rounded font-semibold">AI</span>
+                  </div>
+
+                  {/* Circular Gauge */}
+                  <div className="flex justify-center mb-2">
+                    <svg width="120" height="80" viewBox="0 0 120 80">
+                      <defs>
+                        <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                          <stop offset="0%" stopColor="rgb(34, 211, 238)" />
+                          <stop offset="50%" stopColor="rgb(251, 191, 36)" />
+                          <stop offset="100%" stopColor="rgb(239, 68, 68)" />
+                        </linearGradient>
+                      </defs>
+                      <path
+                        d="M 10 70 A 50 50 0 0 1 110 70"
+                        fill="none"
+                        stroke="url(#gaugeGrad)"
+                        strokeWidth="4"
+                        strokeLinecap="round"
+                      />
+                      <circle
+                        cx={
+                          properties.length > 0
+                            ? 10 + ((properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length / 30) * 100)
+                            : 10
+                        }
+                        cy="70"
+                        r="5"
+                        fill="rgb(148, 163, 184)"
+                      />
+                    </svg>
+                  </div>
+
+                  <p className="text-2xl font-bold text-center text-white">
+                    {properties.length > 0
+                      ? (
+                        properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length
+                      ).toFixed(1)
+                      : '—'}
+                  </p>
+                  <p className="text-xs text-gray-400 text-center">Avg roof age (territory)</p>
                 </div>
               </div>
 
-              <p className="text-4xl font-bold text-cyan">{properties.length}</p>
-
-              <p className="text-xs text-gray-400">
-                Active leads across {
-                  Array.from(
-                    new Set(properties.map((p) => p.address.split(',').pop()?.trim() || 'Unknown'))
-                  ).length
-                } territories
-              </p>
-
-              {/* Mini Sparkline */}
-              <svg className="w-full h-12" viewBox="0 0 300 40" preserveAspectRatio="none">
-                <polyline
-                  points="0,30 50,28 100,25 150,22 200,20 250,18 300,15"
-                  fill="none"
-                  stroke="rgb(34, 211, 238)"
-                  strokeWidth="2"
-                />
-              </svg>
-
-              <div className="flex justify-between text-xs text-gray-400">
-                <span>+0% vs last month</span>
-                <span>0 New this week</span>
-              </div>
-            </div>
-
-            <div className="border-t border-white/5" />
-
-            {/* Source Distribution Card */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Source Distribution</h3>
-                <span className="text-xs bg-dark-700/50 px-2 py-1 rounded text-gray-400">Q2 2026</span>
+              {/* Center Panel: PropertyGraph */}
+              <div className="absolute left-96 right-96 top-56 h-80 z-30">
+                <PropertyGraph properties={properties} center={mapCenter} />
               </div>
 
-              {/* Donut Chart */}
-              <div className="flex justify-center mb-2">
-                <svg width="100" height="100" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="40" fill="none" stroke="rgb(55, 65, 81)" strokeWidth="8" />
-                </svg>
-              </div>
-
-              <div className="text-center">
-                <p className="text-2xl font-bold text-white">{properties.length}</p>
-                <p className="text-xs text-gray-400">Total</p>
-              </div>
-
-              <div className="space-y-1 text-xs">
-                <div className="flex justify-between text-gray-400">
-                  <span>GPS Sweep</span>
-                  <span>0%</span>
+              {/* Right Panel */}
+              <div className="absolute right-4 top-56 bottom-16 w-72 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
+                {/* Search Toggle */}
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => setDashboardSearchMode('zip')}
+                    className={`flex-1 text-xs font-semibold uppercase px-3 py-2 rounded-lg transition-all ${
+                      dashboardSearchMode === 'zip'
+                        ? 'bg-cyan text-dark'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    By ZIP Code
+                  </button>
+                  <button
+                    onClick={() => setDashboardSearchMode('address')}
+                    className={`flex-1 text-xs font-semibold uppercase px-3 py-2 rounded-lg transition-all ${
+                      dashboardSearchMode === 'address'
+                        ? 'bg-cyan text-dark'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    By Address
+                  </button>
                 </div>
-                <div className="flex justify-between text-gray-400">
-                  <span>Storm Alerts</span>
-                  <span>0%</span>
-                </div>
-                <div className="flex justify-between text-gray-400">
-                  <span>Referrals</span>
-                  <span>0%</span>
-                </div>
-                <div className="flex justify-between text-gray-400">
-                  <span>Door Knocks</span>
-                  <span>0%</span>
-                </div>
-              </div>
-            </div>
 
-            <div className="border-t border-white/5" />
-
-            {/* Roof Age Engine Card */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Roof Age Engine</h3>
-                <span className="text-xs bg-cyan/20 text-cyan px-2 py-1 rounded font-semibold">AI</span>
-              </div>
-
-              {/* Circular Gauge */}
-              <div className="flex justify-center mb-2">
-                <svg width="120" height="80" viewBox="0 0 120 80">
-                  <defs>
-                    <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="rgb(34, 211, 238)" />
-                      <stop offset="50%" stopColor="rgb(251, 191, 36)" />
-                      <stop offset="100%" stopColor="rgb(239, 68, 68)" />
-                    </linearGradient>
-                  </defs>
-                  <path
-                    d="M 10 70 A 50 50 0 0 1 110 70"
-                    fill="none"
-                    stroke="url(#gaugeGrad)"
-                    strokeWidth="4"
-                    strokeLinecap="round"
-                  />
-                  <circle
-                    cx={
-                      properties.length > 0
-                        ? 10 + ((properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length / 30) * 100)
-                        : 10
+                {/* Search Input */}
+                <input
+                  type="text"
+                  placeholder={dashboardSearchMode === 'zip' ? 'Enter ZIP code...' : 'Enter address...'}
+                  value={dashboardSearchQuery}
+                  onChange={(e) => setDashboardSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && dashboardSearchQuery.trim()) {
+                      if (dashboardSearchMode === 'zip') {
+                        setActiveScreen('territory')
+                        setTerritoryFilter('all')
+                      } else {
+                        setSweepAddress(dashboardSearchQuery)
+                        setActiveScreen('sweep')
+                      }
                     }
-                    cy="70"
-                    r="5"
-                    fill="rgb(148, 163, 184)"
-                  />
-                </svg>
+                  }}
+                  className="w-full bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 mb-3"
+                />
+
+                {/* Weather by ZIP Section */}
+                <div className="border-t border-white/5 pt-3">
+                  <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wide mb-2">Weather Lookup</h3>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      placeholder="Enter ZIP code..."
+                      value={weatherZip}
+                      onChange={(e) => setWeatherZip(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleWeatherZipLookup()}
+                      className="flex-1 bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                    />
+                    <button
+                      onClick={handleWeatherZipLookup}
+                      className="bg-cyan/20 hover:bg-cyan/30 text-cyan px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+                    >
+                      Update
+                    </button>
+                  </div>
+
+                  {/* Current Weather Display */}
+                  {dashWeather && (
+                    <div className="bg-dark-700/50 rounded-lg p-3 mb-3">
+                      <p className="text-xs font-semibold text-white">{dashWeather.temperature_f}°F</p>
+                      <p className="text-xs text-gray-400">{dashWeather.conditions}</p>
+                    </div>
+                  )}
+
+                  {/* Severe Weather Alerts */}
+                  {dashAlerts.length > 0 && (
+                    <div className="mb-3">
+                      <h4 className="text-xs font-semibold text-red mb-2">ACTIVE ALERTS</h4>
+                      {dashAlerts.slice(0, 3).map((alert, idx) => (
+                        <div key={idx} className="bg-red/10 border border-red/30 rounded-lg p-2 mb-2 text-xs">
+                          <p className="text-red font-semibold">{alert.event}</p>
+                          <p className="text-gray-400 text-[10px]">{alert.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="text-xs text-gray-500 text-center py-2">Powered by StormScope</div>
+                </div>
+
+                {/* Territory List */}
+                <div className="space-y-2">
+                  {properties.length === 0 ? (
+                    <p className="text-sm text-gray-400">No territories yet</p>
+                  ) : (
+                    Array.from(
+                      properties.reduce((acc, p) => {
+                        const zip = p.address.split(',').pop()?.trim() || 'Unknown'
+                        const count = (acc.get(zip) || 0) + 1
+                        acc.set(zip, count)
+                        return acc
+                      }, new Map<string, number>())
+                    )
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([zip, count]) => {
+                        const status = count >= 100 ? 'Hot Zone' : count >= 50 ? 'Warm' : 'Developing'
+                        const statusColor = count >= 100 ? 'text-red' : count >= 50 ? 'text-amber' : 'text-gray-400'
+                        return (
+                          <div key={zip} className="bg-dark-700/50 rounded-lg p-3 text-sm">
+                            <p className="font-semibold text-white">{zip}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">Huntsville area</p>
+                            <div className="flex justify-between items-center mt-2">
+                              <span className="text-xs text-gray-400">{count} leads</span>
+                              <span className={`text-xs font-semibold ${statusColor}`}>{status}</span>
+                            </div>
+                          </div>
+                        )
+                      })
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* STORM DAMAGE LEADS TAB */}
+          {dashboardTab === 'storm-leads' && (
+            <div className="absolute left-4 right-4 top-56 bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+              <h2 className="text-lg font-semibold text-cyan mb-4">Storm Damage Leads</h2>
+              <div className="space-y-3">
+                {properties
+                  .filter(p =>
+                    p.storm_history?.stormRiskLevel === 'high' ||
+                    p.storm_history?.stormRiskLevel === 'moderate' ||
+                    (p.storm_history?.severeHailCount || 0) >= 2
+                  )
+                  .map(p => (
+                    <div
+                      key={p.id}
+                      onClick={() => {
+                        setSelectedProperty(p)
+                      }}
+                      className="bg-dark-700/50 hover:bg-dark-700/80 rounded-lg p-4 cursor-pointer transition-all border border-white/5 hover:border-cyan/30"
+                    >
+                      <p className="font-semibold text-white mb-2">{p.address}</p>
+                      <div className="flex gap-2 flex-wrap mb-2">
+                        {p.storm_history?.stormRiskLevel && (
+                          <span className={`text-xs px-2 py-1 rounded font-semibold ${
+                            p.storm_history.stormRiskLevel === 'high' ? 'bg-red/20 text-red' : 'bg-amber/20 text-amber'
+                          }`}>
+                            {p.storm_history.stormRiskLevel.toUpperCase()}
+                          </span>
+                        )}
+                        {p.storm_history?.severeHailCount && p.storm_history.severeHailCount > 0 && (
+                          <span className="text-xs bg-blue/20 text-blue px-2 py-1 rounded font-semibold">
+                            {p.storm_history.severeHailCount} HAIL EVENTS
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400 space-y-1">
+                        {p.storm_history?.maxHailSize && (
+                          <p>Max Hail: {p.storm_history.maxHailSize}</p>
+                        )}
+                        {p.storm_history?.totalTornadoEvents && p.storm_history.totalTornadoEvents > 0 && (
+                          <p>Tornado Events: {p.storm_history.totalTornadoEvents}</p>
+                        )}
+                        {p.storm_history?.totalWindEvents && p.storm_history.totalWindEvents > 0 && (
+                          <p>Wind Events: {p.storm_history.totalWindEvents}</p>
+                        )}
+                      </div>
+                      <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/5">
+                        <span className="text-xs text-gray-400">Lead Score</span>
+                        <span className={`text-sm font-bold ${calculateLeadScore(p) >= 70 ? 'text-green' : calculateLeadScore(p) >= 50 ? 'text-amber' : 'text-gray-400'}`}>
+                          {calculateLeadScore(p)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              <div className="text-xs text-gray-500 text-center mt-6 pt-4 border-t border-white/5">Powered by StormScope</div>
+            </div>
+          )}
+
+          {/* MICHAEL AI LEADS TAB */}
+          {dashboardTab === 'michael-leads' && (
+            <div className="absolute left-4 right-4 top-56 bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-cyan">Michael's Daily Picks</h2>
+                <button
+                  onClick={runMichaelLeadEngine}
+                  disabled={michaelLeadsLoading}
+                  className="bg-cyan/20 hover:bg-cyan/30 disabled:bg-gray-700 text-cyan disabled:text-gray-400 px-3 py-1 rounded-lg text-xs font-semibold transition-all"
+                >
+                  {michaelLeadsLoading ? 'Analyzing...' : 'Refresh'}
+                </button>
               </div>
 
-              <p className="text-2xl font-bold text-center text-white">
-                {properties.length > 0
-                  ? (
-                    properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length
-                  ).toFixed(1)
-                  : '—'}
+              <p className="text-sm text-gray-400 mb-4">
+                Michael analyzes storm damage zones, roof age, property values, recent weather events, and market conditions to identify the highest-probability leads each day.
               </p>
-              <p className="text-xs text-gray-400 text-center">Avg roof age (territory)</p>
-            </div>
-          </div>
 
-          {/* Center Panel: PropertyGraph */}
-          <div className="absolute left-96 right-96 top-56 h-80 z-30">
-            <PropertyGraph properties={properties} center={mapCenter} />
-          </div>
-
-          {/* Right Panel */}
-          <div className="absolute right-4 top-56 bottom-16 w-72 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
-            {/* Search Toggle */}
-            <div className="flex gap-2 mb-4">
-              <button
-                onClick={() => setDashboardSearchMode('zip')}
-                className={`flex-1 text-xs font-semibold uppercase px-3 py-2 rounded-lg transition-all ${
-                  dashboardSearchMode === 'zip'
-                    ? 'bg-cyan text-dark'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                By ZIP Code
-              </button>
-              <button
-                onClick={() => setDashboardSearchMode('address')}
-                className={`flex-1 text-xs font-semibold uppercase px-3 py-2 rounded-lg transition-all ${
-                  dashboardSearchMode === 'address'
-                    ? 'bg-cyan text-dark'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                By Address
-              </button>
-            </div>
-
-            {/* Search Input */}
-            <input
-              type="text"
-              placeholder={dashboardSearchMode === 'zip' ? 'Enter ZIP code...' : 'Enter address...'}
-              value={dashboardSearchQuery}
-              onChange={(e) => setDashboardSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && dashboardSearchQuery.trim()) {
-                  if (dashboardSearchMode === 'zip') {
-                    setActiveScreen('territory')
-                    setTerritoryFilter('all')
-                  } else {
-                    setSweepAddress(dashboardSearchQuery)
-                    setActiveScreen('sweep')
-                  }
-                }
-              }}
-              className="w-full bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 mb-3"
-            />
-
-            {/* Weather Widget */}
-            <div className="border-t border-white/5 pt-3">
-              <WeatherWidget lat={HQ_LAT} lng={HQ_LNG} compact={false} />
-            </div>
-
-            {/* Territory List */}
-            <div className="space-y-2">
-              {properties.length === 0 ? (
-                <p className="text-sm text-gray-400">No territories yet</p>
-              ) : (
-                Array.from(
-                  properties.reduce((acc, p) => {
-                    const zip = p.address.split(',').pop()?.trim() || 'Unknown'
-                    const count = (acc.get(zip) || 0) + 1
-                    acc.set(zip, count)
-                    return acc
-                  }, new Map<string, number>())
-                )
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([zip, count]) => {
-                    const status = count >= 100 ? 'Hot Zone' : count >= 50 ? 'Warm' : 'Developing'
-                    const statusColor = count >= 100 ? 'text-red' : count >= 50 ? 'text-amber' : 'text-gray-400'
-                    return (
-                      <div key={zip} className="bg-dark-700/50 rounded-lg p-3 text-sm">
-                        <p className="font-semibold text-white">{zip}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">Huntsville area</p>
-                        <div className="flex justify-between items-center mt-2">
-                          <span className="text-xs text-gray-400">{count} leads</span>
-                          <span className={`text-xs font-semibold ${statusColor}`}>{status}</span>
-                        </div>
-                      </div>
-                    )
-                  })
-              )}
-            </div>
-          </div>
-
-          {/* Bottom Activity Timeline */}
-          <div className="absolute bottom-4 left-4 right-4 z-30 glass px-6 py-3 rounded-lg flex items-center justify-between h-14">
-            <span className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Activity Timeline</span>
-
-            {/* Month Track */}
-            <div className="flex-1 mx-6 relative h-6 flex items-center">
-              {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((month, idx) => (
-                <div
-                  key={month}
-                  className="flex-1 flex flex-col items-center justify-center"
-                  style={{ position: 'relative' }}
+              {michaelLeads.length === 0 ? (
+                <button
+                  onClick={runMichaelLeadEngine}
+                  className="w-full bg-cyan/20 hover:bg-cyan/30 text-cyan px-4 py-2 rounded-lg font-semibold transition-all"
                 >
-                  {idx === 3 && (
-                    <div className="w-2 h-2 bg-cyan rounded-full mb-1" />
-                  )}
-                  <span className="text-xs text-gray-500">{month}</span>
+                  Generate Leads
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  {michaelLeads.map((lead, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => {
+                        setSweepAddress(lead.address)
+                        setActiveScreen('sweep')
+                      }}
+                      className="bg-dark-700/50 hover:bg-dark-700/80 rounded-lg p-4 cursor-pointer transition-all border border-white/5 hover:border-cyan/30"
+                    >
+                      <p className="font-semibold text-white mb-2">{lead.address}</p>
+                      <p className="text-xs text-gray-400 mb-3">{lead.reason}</p>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs bg-cyan/20 text-cyan px-2 py-1 rounded font-semibold">
+                          SCORE: {lead.score}
+                        </span>
+                        <span className="text-xs bg-dark-700 text-gray-400 px-2 py-1 rounded">
+                          {lead.source}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-              {/* Scrubber dot at April */}
-              <div
-                className="absolute w-3 h-3 bg-cyan rounded-full"
-                style={{ left: 'calc(33.33% + 16.66%)' }}
-              />
+              )}
+
+              <div className="text-xs text-gray-500 text-center mt-6 pt-4 border-t border-white/5">Powered by Michael AI</div>
             </div>
+          )}
+
+          {/* HISTORICAL WEATHER TAB */}
+          {dashboardTab === 'historical' && (
+            <div className="absolute left-4 right-4 top-56 bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+              <h2 className="text-lg font-semibold text-cyan mb-4">Historical Hail Events (Past Year)</h2>
+
+              {hailEvents.length === 0 ? (
+                <p className="text-gray-400">No hail events recorded</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-4 mb-6">
+                    <div className="bg-dark-700/50 rounded-lg p-3">
+                      <p className="text-xs text-gray-400">Total Events</p>
+                      <p className="text-2xl font-bold text-cyan">{hailEvents.length}</p>
+                    </div>
+                    <div className="bg-dark-700/50 rounded-lg p-3">
+                      <p className="text-xs text-gray-400">Max Hail Size</p>
+                      <p className="text-2xl font-bold text-amber">
+                        {Math.max(...hailEvents.map(e => parseFloat(e.hail_size) || 0)).toFixed(1)}"
+                      </p>
+                    </div>
+                    <div className="bg-dark-700/50 rounded-lg p-3">
+                      <p className="text-xs text-gray-400">Avg Hail Size</p>
+                      <p className="text-2xl font-bold text-green">
+                        {(hailEvents.reduce((sum, e) => sum + (parseFloat(e.hail_size) || 0), 0) / hailEvents.length).toFixed(2)}"
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {hailEvents.slice(0, 20).map((event, idx) => (
+                      <div key={idx} className="bg-dark-700/50 rounded-lg p-3 text-sm">
+                        <div className="flex justify-between items-start mb-1">
+                          <p className="font-semibold text-white">{event.event_date || event.date || 'Unknown Date'}</p>
+                          <span className="text-xs bg-red/20 text-red px-2 py-1 rounded font-semibold">
+                            {event.hail_size || '?'}"
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400">{event.location || 'Location unknown'}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div className="text-xs text-gray-500 text-center mt-6 pt-4 border-t border-white/5">Powered by StormScope</div>
+            </div>
+          )}
+
+          {/* Bottom Control Timeline */}
+          <div className="absolute bottom-4 left-4 right-4 z-30 glass px-6 py-3 rounded-lg flex items-center justify-between h-14">
+            <span className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Timeline View</span>
 
             {/* Control Icons */}
             <div className="flex gap-2 ml-4">
-              <button className="w-6 h-6 rounded-lg bg-dark-700/50 flex items-center justify-center hover:bg-dark-700 transition-all">
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full" />
+              <button
+                onClick={() => {
+                  const views: Array<'month' | 'week' | 'day'> = ['month', 'week', 'day']
+                  const current = views.indexOf(timelineView)
+                  setTimelineView(views[(current + 1) % views.length])
+                }}
+                className="w-8 h-8 rounded-lg bg-dark-700/50 hover:bg-dark-700 flex items-center justify-center transition-all"
+                title="Cycle timeline view"
+              >
+                <Clock className="w-4 h-4 text-gray-400" />
               </button>
-              <button className="w-6 h-6 rounded-lg bg-dark-700/50 flex items-center justify-center hover:bg-dark-700 transition-all">
-                <div className="w-1.5 h-1.5 bg-gray-400" />
+              <button
+                onClick={() => setTimelinePlaying(!timelinePlaying)}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                  timelinePlaying ? 'bg-cyan/20 text-cyan' : 'bg-dark-700/50 text-gray-400 hover:bg-dark-700'
+                }`}
+                title="Toggle auto-play animation"
+              >
+                {timelinePlaying ? (
+                  <div className="w-1 h-1 bg-cyan rounded-full" />
+                ) : (
+                  <div className="w-1.5 h-1.5 bg-gray-400" />
+                )}
               </button>
-              <button className="w-6 h-6 rounded-lg bg-dark-700/50 flex items-center justify-center hover:bg-dark-700 transition-all">
+              <button
+                onClick={() => {
+                  /* Jump to today logic */
+                }}
+                className="w-8 h-8 rounded-lg bg-dark-700/50 hover:bg-dark-700 flex items-center justify-center transition-all"
+                title="Jump to today"
+              >
                 <div className="w-1.5 h-1.5 bg-gray-400" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }} />
               </button>
-              <button className="w-6 h-6 rounded-lg bg-cyan/20 flex items-center justify-center hover:bg-cyan/30 transition-all">
-                <Zap className="w-3.5 h-3.5 text-cyan" />
+              <button
+                onClick={() => {
+                  handleWeatherZipLookup()
+                  runMichaelLeadEngine()
+                }}
+                className="w-8 h-8 rounded-lg bg-cyan/20 hover:bg-cyan/30 flex items-center justify-center transition-all"
+                title="Quick refresh all dashboard data"
+              >
+                <Zap className="w-4 h-4 text-cyan" />
               </button>
             </div>
           </div>
+
+          {/* PropertyCard Modal */}
+          {selectedProperty && (
+            <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm">
+              <div className="bg-dark-700 rounded-lg p-8 max-w-md w-full max-h-96 overflow-y-auto">
+                <div className="flex justify-between items-start mb-4">
+                  <h2 className="text-xl font-bold text-white">{selectedProperty.address}</h2>
+                  <button
+                    onClick={() => setSelectedProperty(null)}
+                    className="text-gray-400 hover:text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Lead Score</span>
+                    <span className="font-bold text-cyan">{calculateLeadScore(selectedProperty)}</span>
+                  </div>
+                  {selectedProperty.roof_age_years && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Roof Age</span>
+                      <span className="font-bold text-amber">{selectedProperty.roof_age_years} years</span>
+                    </div>
+                  )}
+                  {selectedProperty.market_value && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Market Value</span>
+                      <span className="font-bold text-green">${(selectedProperty.market_value / 1000).toFixed(0)}k</span>
+                    </div>
+                  )}
+                  {selectedProperty.storm_history?.stormRiskLevel && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Storm Risk</span>
+                      <span className={`font-bold ${selectedProperty.storm_history.stormRiskLevel === 'high' ? 'text-red' : 'text-amber'}`}>
+                        {selectedProperty.storm_history.stormRiskLevel.toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setSweepAddress(selectedProperty.address)
+                    setSelectedProperty(null)
+                    setActiveScreen('sweep')
+                  }}
+                  className="w-full mt-6 bg-cyan/20 hover:bg-cyan/30 text-cyan px-4 py-2 rounded-lg font-semibold transition-all"
+                >
+                  View Details
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -2956,39 +3378,96 @@ export default function Dashboard() {
         <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)] gap-4">
           {/* Roof Calculator */}
           <div className="glass rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Roof Area Calculator</h3>
-            <div className="grid grid-cols-4 gap-4 items-end">
-              <div>
-                <label className="text-xs text-gray-400 uppercase tracking-wide">Width (ft)</label>
-                <input
-                  type="number"
-                  value={roofWidth}
-                  onChange={(e) => setRoofWidth(e.target.value)}
-                  className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 uppercase tracking-wide">Length (ft)</label>
-                <input
-                  type="number"
-                  value={roofLength}
-                  onChange={(e) => setRoofLength(e.target.value)}
-                  className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white"
-                />
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wide">Sq Ft</p>
-                <p className="mt-1 text-2xl font-bold text-cyan">
-                  {roofWidth && roofLength ? (parseFloat(roofWidth) * parseFloat(roofLength)).toLocaleString() : '—'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wide">Squares</p>
-                <p className="mt-1 text-2xl font-bold text-green">
-                  {roofWidth && roofLength ? ((parseFloat(roofWidth) * parseFloat(roofLength)) / 100).toFixed(1) : '—'}
-                </p>
-              </div>
+            <div className="flex items-center gap-2 mb-4">
+              <Calculator className="w-5 h-5 text-cyan" />
+              <h3 className="text-lg font-semibold text-white">Roof Area Calculator</h3>
             </div>
+            {(() => {
+              const PITCH_MULTIPLIERS: Record<string, number> = {
+                '4/12': 1.054, '5/12': 1.083, '6/12': 1.118, '7/12': 1.158,
+                '8/12': 1.202, '9/12': 1.250, '10/12': 1.302, '12/12': 1.414
+              }
+              const baseSqft = roofWidth && roofLength ? parseFloat(roofWidth) * parseFloat(roofLength) : 0
+              const multiplier = PITCH_MULTIPLIERS[roofPitch] || 1.118
+              const dormer = parseFloat(dormerSqft) || 0
+              const valley = parseFloat(valleyDeductSqft) || 0
+              const adjusted = baseSqft * multiplier * (1 + wastePercent / 100) + dormer - valley
+              const squares = adjusted / 100
+              return (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-400 uppercase tracking-wide">Width (ft)</label>
+                      <input type="number" value={roofWidth} onChange={(e) => setRoofWidth(e.target.value)}
+                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 uppercase tracking-wide">Length (ft)</label>
+                      <input type="number" value={roofLength} onChange={(e) => setRoofLength(e.target.value)}
+                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 uppercase tracking-wide">Pitch</label>
+                      <select value={roofPitch} onChange={(e) => setRoofPitch(e.target.value)}
+                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50">
+                        {Object.keys(PITCH_MULTIPLIERS).map(p => (
+                          <option key={p} value={p}>{p} (×{PITCH_MULTIPLIERS[p]})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 uppercase tracking-wide">Waste %</label>
+                      <input type="number" value={wastePercent} onChange={(e) => setWastePercent(parseFloat(e.target.value) || 0)}
+                        min="0" max="50" step="1"
+                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-400 uppercase tracking-wide">Dormer Add (sqft)</label>
+                      <input type="number" value={dormerSqft} onChange={(e) => setDormerSqft(e.target.value)}
+                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 uppercase tracking-wide">Valley Deduct (sqft)</label>
+                      <input type="number" value={valleyDeductSqft} onChange={(e) => setValleyDeductSqft(e.target.value)}
+                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 uppercase tracking-wide">Roof Type</label>
+                      <select value={roofType} onChange={(e) => setRoofType(e.target.value as 'gable' | 'hip')}
+                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50">
+                        <option value="gable">Gable</option>
+                        <option value="hip">Hip</option>
+                      </select>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wide">Base Sq Ft</p>
+                      <p className="mt-1 text-xl font-bold text-gray-300">{baseSqft > 0 ? baseSqft.toLocaleString() : '—'}</p>
+                    </div>
+                  </div>
+                  {baseSqft > 0 && (
+                    <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/10">
+                      <div className="bg-dark-700/50 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Adjusted Sq Ft</p>
+                        <p className="text-2xl font-bold text-cyan">{Math.round(adjusted).toLocaleString()}</p>
+                        <p className="text-xs text-gray-500 mt-1">pitch + waste + dormers</p>
+                      </div>
+                      <div className="bg-dark-700/50 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Squares Needed</p>
+                        <p className="text-2xl font-bold text-green">{squares > 0 ? squares.toFixed(1) : '—'}</p>
+                        <p className="text-xs text-gray-500 mt-1">order this amount</p>
+                      </div>
+                      <div className="bg-dark-700/50 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Pitch Multiplier</p>
+                        <p className="text-2xl font-bold text-purple-400">×{multiplier.toFixed(3)}</p>
+                        <p className="text-xs text-gray-500 mt-1">{roofPitch} pitch</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </div>
 
           {/* Materials Catalog */}
@@ -3245,6 +3724,551 @@ export default function Dashboard() {
               >
                 <Send className="w-4 h-4" />
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SCREEN 10: JOBS */}
+      {activeScreen === 'jobs' && (
+        <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)] gap-4">
+
+          {/* Header row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Briefcase className="w-5 h-5 text-cyan" />
+              <h2 className="text-xl font-bold text-white">Production Jobs</h2>
+              <span className="ml-2 px-2 py-0.5 rounded-full bg-cyan/20 text-cyan text-xs font-semibold">
+                {jobs.length} total
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={jobStageFilter}
+                onChange={(e) => setJobStageFilter(e.target.value as JobStage | 'all')}
+                className="bg-dark-700 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cyan/50"
+              >
+                <option value="all">All Stages</option>
+                {JOB_STAGES.map(s => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => { setSelectedJob(null); setAddingJob(true); setJobTab('pipeline') }}
+                className="flex items-center gap-1.5 bg-cyan text-dark px-3 py-1.5 rounded-lg text-sm font-semibold hover:bg-cyan/90"
+              >
+                <Plus className="w-4 h-4" /> New Job
+              </button>
+            </div>
+          </div>
+
+          {/* Add Job Form */}
+          {addingJob && (
+            <div className="glass rounded-lg p-4 border border-cyan/30">
+              <h4 className="text-sm font-semibold text-white mb-3">New Job</h4>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">Job Title</label>
+                  <input type="text" value={newJobTitle} onChange={(e) => setNewJobTitle(e.target.value)}
+                    placeholder="e.g. Full Roof Replacement"
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">Address</label>
+                  <input type="text" value={newJobAddress} onChange={(e) => setNewJobAddress(e.target.value)}
+                    placeholder="Property address"
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">Owner Name</label>
+                  <input type="text" value={newJobOwner} onChange={(e) => setNewJobOwner(e.target.value)}
+                    placeholder="Homeowner name"
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">Contract Amount ($)</label>
+                  <input type="number" value={newJobAmount} onChange={(e) => setNewJobAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50" />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    if (!newJobTitle.trim() || !newJobAddress.trim()) return
+                    const newJob: Job = {
+                      id: Math.random().toString(36).substr(2, 9),
+                      property_id: null, client_id: null, proposal_id: null,
+                      stage: 'sold',
+                      title: newJobTitle.trim(),
+                      address: newJobAddress.trim(),
+                      owner_name: newJobOwner.trim() || null,
+                      contract_amount: parseFloat(newJobAmount) || null,
+                      contract_signed_at: new Date().toISOString(),
+                      permit_number: null, permit_applied_at: null, permit_approved_at: null,
+                      scheduled_date: null, crew_lead: null, crew_members: [],
+                      started_at: null, completed_at: null,
+                      invoice_number: null, invoice_sent_at: null,
+                      amount_collected: null, collected_at: null,
+                      insurance: null, photos: [],
+                      notes: '',
+                      created_at: new Date().toISOString()
+                    }
+                    const updated = [newJob, ...jobs]
+                    setJobs(updated)
+                    await saveJob(newJob)
+                    setNewJobTitle(''); setNewJobAddress(''); setNewJobOwner(''); setNewJobAmount('')
+                    setAddingJob(false)
+                    setSelectedJob(newJob)
+                    setJobTab('pipeline')
+                  }}
+                  className="bg-cyan text-dark px-4 py-2 rounded-lg text-sm font-semibold hover:bg-cyan/90"
+                >Save Job</button>
+                <button onClick={() => setAddingJob(false)}
+                  className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-dark-700">Cancel</button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex-1 flex gap-4 min-h-0">
+            {/* Pipeline list */}
+            <div className="w-72 flex-shrink-0 glass rounded-lg p-4 overflow-y-auto flex flex-col gap-2">
+              <h4 className="text-xs text-gray-400 uppercase tracking-wide mb-1">
+                {jobStageFilter === 'all' ? 'All Jobs' : JOB_STAGES.find(s => s.key === jobStageFilter)?.label}
+                {' '}({jobs.filter(j => jobStageFilter === 'all' || j.stage === jobStageFilter).length})
+              </h4>
+              {jobs
+                .filter(j => jobStageFilter === 'all' || j.stage === jobStageFilter)
+                .map(job => {
+                  const stage = JOB_STAGES.find(s => s.key === job.stage)
+                  return (
+                    <button
+                      key={job.id}
+                      onClick={() => { setSelectedJob(job); setJobTab('pipeline') }}
+                      className={`w-full text-left p-3 rounded-lg border transition-all ${selectedJob?.id === job.id ? 'border-cyan/50 bg-cyan/10' : 'border-white/5 bg-dark-700/50 hover:border-white/20'}`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-sm font-semibold text-white truncate pr-2">{job.title}</p>
+                        <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-xs font-medium"
+                          style={{ backgroundColor: (stage?.color || '#666') + '33', color: stage?.color || '#999' }}>
+                          {stage?.label}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400 truncate">{job.address}</p>
+                      {job.contract_amount && (
+                        <p className="text-xs text-green mt-1">${job.contract_amount.toLocaleString()}</p>
+                      )}
+                    </button>
+                  )
+                })}
+              {jobs.filter(j => jobStageFilter === 'all' || j.stage === jobStageFilter).length === 0 && (
+                <p className="text-xs text-gray-500 text-center py-4">No jobs in this stage</p>
+              )}
+            </div>
+
+            {/* Job detail panel */}
+            {selectedJob ? (
+              <div className="flex-1 glass rounded-lg flex flex-col overflow-hidden">
+                {/* Job detail header */}
+                <div className="p-4 border-b border-white/10">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">{selectedJob.title}</h3>
+                      <p className="text-sm text-gray-400">{selectedJob.address}</p>
+                      {selectedJob.owner_name && <p className="text-xs text-gray-500 mt-0.5">{selectedJob.owner_name}</p>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedJob.stage}
+                        onChange={async (e) => {
+                          const newStage = e.target.value as JobStage
+                          const updated = { ...selectedJob, stage: newStage }
+                          setSelectedJob(updated)
+                          setJobs(jobs.map(j => j.id === updated.id ? updated : j))
+                          await saveJob(updated)
+                        }}
+                        className="bg-dark-700 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cyan/50"
+                      >
+                        {JOB_STAGES.map(s => (
+                          <option key={s.key} value={s.key}>{s.label}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={async () => {
+                          const stages = JOB_STAGES.map(s => s.key)
+                          const idx = stages.indexOf(selectedJob.stage)
+                          if (idx < stages.length - 1) {
+                            const nextStage = stages[idx + 1]
+                            const updated = { ...selectedJob, stage: nextStage }
+                            setSelectedJob(updated)
+                            setJobs(jobs.map(j => j.id === updated.id ? updated : j))
+                            await saveJob(updated)
+                          }
+                        }}
+                        className="flex items-center gap-1 bg-cyan/20 text-cyan px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-cyan/30"
+                      >
+                        Advance <ChevronDown className="w-3 h-3 rotate-[-90deg]" />
+                      </button>
+                    </div>
+                  </div>
+                  {/* Stage progress bar */}
+                  <div className="flex gap-1 mt-3">
+                    {JOB_STAGES.map((s, idx) => {
+                      const currentIdx = JOB_STAGES.findIndex(x => x.key === selectedJob.stage)
+                      const done = idx <= currentIdx
+                      return (
+                        <div key={s.key} className="flex-1 h-1.5 rounded-full transition-all"
+                          style={{ backgroundColor: done ? s.color : '#374151' }}
+                          title={s.label} />
+                      )
+                    })}
+                  </div>
+                  {/* Sub-tabs */}
+                  <div className="flex gap-1 mt-3">
+                    {(['pipeline', 'insurance', 'photos'] as const).map(tab => (
+                      <button key={tab} onClick={() => setJobTab(tab)}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${jobTab === tab ? 'bg-cyan/20 text-cyan' : 'text-gray-400 hover:text-white'}`}>
+                        {tab === 'pipeline' ? '📋 Details' : tab === 'insurance' ? '🛡️ Insurance' : '📷 Photos'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Details tab */}
+                {jobTab === 'pipeline' && (
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs text-gray-400 uppercase tracking-wide">Contract Amount</label>
+                        <input type="number" defaultValue={selectedJob.contract_amount || ''}
+                          onBlur={async (e) => {
+                            const updated = { ...selectedJob, contract_amount: parseFloat(e.target.value) || null }
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                          }}
+                          className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="$0.00" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 uppercase tracking-wide">Permit Number</label>
+                        <input type="text" defaultValue={selectedJob.permit_number || ''}
+                          onBlur={async (e) => {
+                            const updated = { ...selectedJob, permit_number: e.target.value || null }
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                          }}
+                          className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="Permit #" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 uppercase tracking-wide">Scheduled Date</label>
+                        <input type="date" defaultValue={selectedJob.scheduled_date || ''}
+                          onBlur={async (e) => {
+                            const updated = { ...selectedJob, scheduled_date: e.target.value || null }
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                          }}
+                          className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 uppercase tracking-wide">Crew Lead</label>
+                        <input type="text" defaultValue={selectedJob.crew_lead || ''}
+                          onBlur={async (e) => {
+                            const updated = { ...selectedJob, crew_lead: e.target.value || null }
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                          }}
+                          className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="Lead name" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 uppercase tracking-wide">Invoice Number</label>
+                        <input type="text" defaultValue={selectedJob.invoice_number || ''}
+                          onBlur={async (e) => {
+                            const updated = { ...selectedJob, invoice_number: e.target.value || null }
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                          }}
+                          className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="INV-001" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 uppercase tracking-wide">Amount Collected</label>
+                        <input type="number" defaultValue={selectedJob.amount_collected || ''}
+                          onBlur={async (e) => {
+                            const updated = { ...selectedJob, amount_collected: parseFloat(e.target.value) || null }
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                          }}
+                          className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="$0.00" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 uppercase tracking-wide">Notes</label>
+                      <textarea defaultValue={selectedJob.notes}
+                        onBlur={async (e) => {
+                          const updated = { ...selectedJob, notes: e.target.value }
+                          setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                        }}
+                        rows={3}
+                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 resize-none"
+                        placeholder="Job notes..." />
+                    </div>
+                    <div className="pt-2 border-t border-white/10">
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Delete this job?')) return
+                          await deleteJob(selectedJob.id)
+                          setJobs(jobs.filter(j => j.id !== selectedJob.id))
+                          setSelectedJob(null)
+                        }}
+                        className="text-xs text-red-400 hover:text-red-300 hover:underline"
+                      >Delete job</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Insurance tab */}
+                {jobTab === 'insurance' && (
+                  <div className="flex-1 overflow-y-auto p-4">
+                    {!selectedJob.insurance ? (
+                      <div className="text-center py-8">
+                        <ShieldCheck className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+                        <p className="text-gray-400 text-sm mb-4">No insurance claim tracked yet</p>
+                        <button
+                          onClick={async () => {
+                            const claim: InsuranceClaim = {
+                              id: Math.random().toString(36).substr(2, 9),
+                              job_id: selectedJob.id,
+                              insurance_company: '',
+                              claim_number: '',
+                              adjuster_name: null, adjuster_phone: null, adjuster_email: null,
+                              deductible: null, initial_payout: null, supplement_amount: null, final_payout: null,
+                              status: 'pending',
+                              notes: '',
+                              created_at: new Date().toISOString()
+                            }
+                            const updated = { ...selectedJob, insurance: claim }
+                            setSelectedJob(updated)
+                            setJobs(jobs.map(j => j.id === updated.id ? updated : j))
+                            await saveJob(updated)
+                          }}
+                          className="bg-cyan/20 text-cyan px-4 py-2 rounded-lg text-sm font-medium hover:bg-cyan/30"
+                        >+ Add Insurance Claim</button>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-cyan" /> Insurance Supplement Tracker
+                          </h4>
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            selectedJob.insurance.status === 'paid' ? 'bg-green/20 text-green' :
+                            selectedJob.insurance.status === 'supplement_approved' ? 'bg-cyan/20 text-cyan' :
+                            'bg-yellow-500/20 text-yellow-400'
+                          }`}>
+                            {selectedJob.insurance.status.replace(/_/g, ' ').toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-gray-400 uppercase tracking-wide">Insurance Company</label>
+                            <input type="text" defaultValue={selectedJob.insurance.insurance_company}
+                              onBlur={async (e) => {
+                                const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, insurance_company: e.target.value } }
+                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                              }}
+                              className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="State Farm" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-400 uppercase tracking-wide">Claim Number</label>
+                            <input type="text" defaultValue={selectedJob.insurance.claim_number}
+                              onBlur={async (e) => {
+                                const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, claim_number: e.target.value } }
+                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                              }}
+                              className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="CLM-12345" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-400 uppercase tracking-wide">Adjuster Name</label>
+                            <input type="text" defaultValue={selectedJob.insurance.adjuster_name || ''}
+                              onBlur={async (e) => {
+                                const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, adjuster_name: e.target.value || null } }
+                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                              }}
+                              className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="Adjuster name" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-400 uppercase tracking-wide">Adjuster Phone</label>
+                            <input type="text" defaultValue={selectedJob.insurance.adjuster_phone || ''}
+                              onBlur={async (e) => {
+                                const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, adjuster_phone: e.target.value || null } }
+                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                              }}
+                              className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="Phone" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 pt-3 border-t border-white/10">
+                          {[
+                            { label: 'Deductible', field: 'deductible' },
+                            { label: 'Initial Payout', field: 'initial_payout' },
+                            { label: 'Supplement Amount', field: 'supplement_amount' },
+                            { label: 'Final Payout', field: 'final_payout' },
+                          ].map(({ label, field }) => (
+                            <div key={field}>
+                              <label className="text-xs text-gray-400 uppercase tracking-wide">{label}</label>
+                              <input type="number" step="0.01"
+                                defaultValue={(selectedJob.insurance as unknown as Record<string, unknown>)[field] as number || ''}
+                                onBlur={async (e) => {
+                                  const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, [field]: parseFloat(e.target.value) || null } }
+                                  setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                                }}
+                                className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="$0.00" />
+                            </div>
+                          ))}
+                        </div>
+                        {(selectedJob.insurance.initial_payout || selectedJob.insurance.supplement_amount) && (
+                          <div className="bg-dark-700/50 rounded-lg p-3 flex items-center justify-between">
+                            <span className="text-sm text-gray-400">Total Expected</span>
+                            <span className="text-lg font-bold text-green">
+                              ${((selectedJob.insurance.initial_payout || 0) + (selectedJob.insurance.supplement_amount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        )}
+                        <div>
+                          <label className="text-xs text-gray-400 uppercase tracking-wide">Claim Status</label>
+                          <select defaultValue={selectedJob.insurance.status}
+                            onChange={async (e) => {
+                              const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, status: e.target.value as InsuranceClaim['status'] } }
+                              setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                            }}
+                            className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50">
+                            <option value="pending">Pending</option>
+                            <option value="adjuster_scheduled">Adjuster Scheduled</option>
+                            <option value="inspection_done">Inspection Done</option>
+                            <option value="supplement_submitted">Supplement Submitted</option>
+                            <option value="supplement_approved">Supplement Approved</option>
+                            <option value="paid">Paid</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-400 uppercase tracking-wide">Claim Notes</label>
+                          <textarea defaultValue={selectedJob.insurance.notes} rows={3}
+                            onBlur={async (e) => {
+                              const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, notes: e.target.value } }
+                              setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                            }}
+                            className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 resize-none"
+                            placeholder="Adjuster notes, supplement strategy..." />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Photos tab */}
+                {jobTab === 'photos' && (
+                  <div className="flex-1 overflow-y-auto p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                        <Camera className="w-4 h-4 text-cyan" /> Photo Documentation
+                      </h4>
+                      <div className="flex items-center gap-2">
+                        <select value={photoCategory} onChange={(e) => setPhotoCategory(e.target.value as PhotoCategory)}
+                          className="bg-dark-700 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-cyan/50">
+                          <option value="overall_roof">Overall Roof</option>
+                          <option value="ridge">Ridge</option>
+                          <option value="valleys">Valleys</option>
+                          <option value="gutters">Gutters</option>
+                          <option value="downspouts">Downspouts</option>
+                          <option value="skylights">Skylights</option>
+                          <option value="interior_damage">Interior Damage</option>
+                          <option value="before">Before</option>
+                          <option value="after">After</option>
+                          <option value="other">Other</option>
+                        </select>
+                        <button
+                          onClick={() => photoInputRef.current?.click()}
+                          className="flex items-center gap-1.5 bg-cyan/20 text-cyan px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-cyan/30"
+                        >
+                          <Camera className="w-3 h-3" /> Add Photo
+                        </button>
+                        <input ref={photoInputRef} type="file" accept="image/*" className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            const reader = new FileReader()
+                            reader.onload = async (ev) => {
+                              const dataUrl = ev.target?.result as string
+                              const newPhoto: JobPhoto = {
+                                id: Math.random().toString(36).substr(2, 9),
+                                job_id: selectedJob.id,
+                                category: photoCategory,
+                                data_url: dataUrl,
+                                caption: '',
+                                taken_at: new Date().toISOString()
+                              }
+                              const updated = { ...selectedJob, photos: [...selectedJob.photos, newPhoto] }
+                              setSelectedJob(updated)
+                              setJobs(jobs.map(j => j.id === updated.id ? updated : j))
+                              await saveJob(updated)
+                            }
+                            reader.readAsDataURL(file)
+                            e.target.value = ''
+                          }}
+                        />
+                      </div>
+                    </div>
+                    {selectedJob.photos.length === 0 ? (
+                      <div className="text-center py-10">
+                        <Camera className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+                        <p className="text-gray-400 text-sm">No photos yet</p>
+                        <p className="text-gray-500 text-xs mt-1">Select a category and tap Add Photo</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-3">
+                        {selectedJob.photos.map(photo => (
+                          <div key={photo.id} className="relative group rounded-lg overflow-hidden border border-white/10">
+                            <img src={photo.data_url} alt={photo.caption || photo.category}
+                              className="w-full h-28 object-cover" />
+                            <div className="absolute bottom-0 left-0 right-0 bg-dark/80 px-2 py-1">
+                              <p className="text-xs text-gray-300">{photo.category.replace(/_/g, ' ')}</p>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                const updated = { ...selectedJob, photos: selectedJob.photos.filter(p => p.id !== photo.id) }
+                                setSelectedJob(updated)
+                                setJobs(jobs.map(j => j.id === updated.id ? updated : j))
+                                await saveJob(updated)
+                              }}
+                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500/80 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            >×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex-1 glass rounded-lg flex items-center justify-center">
+                <div className="text-center">
+                  <Briefcase className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                  <p className="text-gray-400 text-sm">Select a job to view details</p>
+                  <p className="text-gray-500 text-xs mt-1">or create a new job to get started</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Stage summary strip */}
+          <div className="glass rounded-lg p-3">
+            <div className="flex gap-2 overflow-x-auto">
+              {JOB_STAGES.map(stage => {
+                const count = jobs.filter(j => j.stage === stage.key).length
+                const value = jobs.filter(j => j.stage === stage.key).reduce((sum, j) => sum + (j.contract_amount || 0), 0)
+                return (
+                  <button key={stage.key}
+                    onClick={() => setJobStageFilter(jobStageFilter === stage.key ? 'all' : stage.key)}
+                    className={`flex-shrink-0 px-3 py-2 rounded-lg text-center transition-all border ${jobStageFilter === stage.key ? 'border-cyan/50 bg-cyan/10' : 'border-white/5 bg-dark-700/30 hover:border-white/20'}`}
+                  >
+                    <div className="w-2 h-2 rounded-full mx-auto mb-1" style={{ backgroundColor: stage.color }} />
+                    <p className="text-xs font-semibold text-white">{count}</p>
+                    <p className="text-xs text-gray-500 whitespace-nowrap">{stage.label}</p>
+                    {value > 0 && <p className="text-xs text-green mt-0.5">${(value / 1000).toFixed(0)}k</p>}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>

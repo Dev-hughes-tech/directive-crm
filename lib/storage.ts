@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Property, Client, Proposal, ProposalLineItem, Material, ChatMessage } from './types'
+import type { Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job } from './types'
 
 // ── PROPERTIES ──────────────────────────────────────────────────────────────
 
@@ -153,4 +153,54 @@ export async function markMessagesRead(channel: string, role: string): Promise<v
   } catch {
     // Fail silently
   }
+}
+
+// ── JOBS ─────────────────────────────────────────────────────────────────────
+
+export async function getJobs(): Promise<Job[]> {
+  try {
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('*')
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    return (data || []).map((j: Record<string, unknown>) => ({
+      ...j,
+      crew_members: (j.crew_members as string[]) || [],
+      photos: (j.photos as Job['photos']) || [],
+      insurance: (j.insurance as Job['insurance']) || null,
+    })) as Job[]
+  } catch {
+    // Fallback to localStorage for offline support
+    try {
+      const stored = localStorage.getItem('directive_jobs')
+      return stored ? JSON.parse(stored) : []
+    } catch {
+      return []
+    }
+  }
+}
+
+export async function saveJob(job: Job): Promise<void> {
+  // Always save to localStorage for offline resilience
+  try {
+    const existing = JSON.parse(localStorage.getItem('directive_jobs') || '[]') as Job[]
+    const updated = existing.filter((j: Job) => j.id !== job.id)
+    updated.unshift(job)
+    localStorage.setItem('directive_jobs', JSON.stringify(updated))
+  } catch { /* ignore */ }
+
+  try {
+    await supabase.from('jobs').upsert(job)
+  } catch { /* fail silently */ }
+}
+
+export async function deleteJob(id: string): Promise<void> {
+  try {
+    const existing = JSON.parse(localStorage.getItem('directive_jobs') || '[]') as Job[]
+    localStorage.setItem('directive_jobs', JSON.stringify(existing.filter((j: Job) => j.id !== id)))
+  } catch { /* ignore */ }
+  try {
+    await supabase.from('jobs').delete().eq('id', id)
+  } catch { /* fail silently */ }
 }
