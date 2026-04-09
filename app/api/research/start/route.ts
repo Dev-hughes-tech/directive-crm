@@ -58,31 +58,39 @@ export async function POST(request: NextRequest) {
 
   const client = new Anthropic({ apiKey: anthropicKey })
 
-  const prompt = `You are a property intelligence researcher for a roofing sales CRM. Research this address and return structured JSON data. Be efficient — you have 4 targeted searches.
+  const prompt = `You are a property intelligence researcher for a roofing sales CRM. Research this address using 4 targeted searches and return ALL available data.
 
 TARGET ADDRESS: ${address}
 
-Parse the address to extract: street number, street name, city, state, zip.
+SEARCH 1 — FASTPEOPLESEARCH (primary — do this first)
+Search exactly: site:fastpeoplesearch.com "${address}"
+OR navigate to: https://www.fastpeoplesearch.com/address/[street-number]-[street-name-hyphenated]_[city]-[state]
+Example for "3519 Bermuda Rd SW Huntsville AL": https://www.fastpeoplesearch.com/address/3519-bermuda-rd-sw_huntsville-al
 
-SEARCH 1 — QPUBLIC / COUNTY TAX ASSESSOR (highest priority)
-Primary search: site:qpublic.net "${address}"
-Fallback search: "[city] [state] county tax assessor property search [street number] [street name]"
-Goal: Open the actual property detail page. Extract: legal owner name (GRANTEE or OWNER field), parcel ID, assessed value, county, year built, last sale date, last sale price.
-Alabama counties on qPublic: madison, jefferson, shelby, baldwin, montgomery, etc.
+From the FastPeopleSearch page extract ALL of these fields:
+- ownerName: The FIRST person listed under "People Living at" (most recent resident/tenant)
+- marketValue: The "Estimated Value" dollar amount (e.g. $151,000 → 151000)
+- lastSalePrice: "Last Sale Amount" (e.g. $16,000 → 16000)
+- lastSaleDate: "Last Sale Date" in YYYY-MM-DD format
+- yearBuilt: "Year Built" integer
+- sqft: "Square Feet" integer (store in notes, not a top-level field — but use for flags)
+- beds/baths: note for flags
+- occupancyType: if "Owner Occupied" set flag accordingly
 
-SEARCH 2 — ZILLOW / REALTOR / REDFIN
-Search: "${address}" home value owner
-Try zillow.com, realtor.com, redfin.com — whichever returns results first.
-Extract: market value (Zestimate or estimate), last sale date, last sale price, year built (fill any gaps from Search 1).
+SEARCH 2 — COUNTY TAX ASSESSOR / QPUBLIC
+Search: site:qpublic.net "${address}"
+OR: "[city] [state] county tax assessor parcel [street number] [street name]"
+Extract: parcelId, assessedValue, legal owner name (use if different/better than Search 1), county name.
+Alabama: Madison County uses https://www.qpublic.net/al/madison/
 
 SEARCH 3 — ROOFING PERMITS
-Search: "[city] [state] building permit [street number] [street name] roof"
-Also try: "[county] county permit search [address]"
-Extract: most recent roof permit date. roofAgeYears = 2026 minus permit year. null if no permit found.
+Search: "[city] [state] building permit roof [street number] [street name]"
+Extract: most recent roofing permit date. roofAgeYears = 2026 minus that year. null if not found.
 
-SEARCH 4 — OWNER CONTACT
-If owner name found: search "[owner name] [city] [state]" on fastpeoplesearch.com OR whitepages.com
-Extract: phone in XXX-XXX-XXXX format, email if listed. null if not found.
+SEARCH 4 — OWNER PHONE
+Search: "[ownerName from Search 1]" "[city]" "[state]" phone site:fastpeoplesearch.com
+OR: "[ownerName]" "[city] [state]" whitepages
+Extract: phone XXX-XXX-XXXX format. null if uncertain.
 
 OUTPUT RULES — STRICT:
 - null for any value not explicitly found. Never guess or estimate.
