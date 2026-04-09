@@ -205,6 +205,12 @@ export default function Dashboard() {
   }>>([])
   const [commercialLoading, setCommercialLoading] = useState(false)
   const [commercialRadius, setCommercialRadius] = useState(1000)
+  const [residentialResults, setResidentialResults] = useState<Array<{
+    id: string; name: string | null; address: string | null;
+    lat: number | null; lng: number | null; types: string[]; phone: string | null
+  }>>([])
+  const [residentialLoading, setResidentialLoading] = useState(false)
+  const [residentialRadius, setResidentialRadius] = useState(1609)
   const [sweepUserLocation, setSweepUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [sweepLocationAccuracy, setSweepLocationAccuracy] = useState<number | null>(null)
 
@@ -449,6 +455,71 @@ export default function Dashboard() {
     setProperties(updated)
     await saveProperty(newProperty)
     setCommercialResults(commercialResults.filter(p => p.id !== place.id))
+  }
+
+  // Handle residential property search
+  const handleSearchResidential = async () => {
+    if (!sweepUserLocation) {
+      const loc = await getAccurateLocation()
+      if (!loc) {
+        console.error('Could not determine location')
+        return
+      }
+      setSweepUserLocation(loc)
+      setSweepLocationAccuracy(loc.accuracy || null)
+    }
+
+    const loc = sweepUserLocation || await getAccurateLocation()
+    if (!loc) return
+
+    setResidentialLoading(true)
+    try {
+      const res = await fetch('/api/places-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius: residentialRadius, type: 'residential' })
+      })
+      const data = await res.json()
+      setResidentialResults(data.places || [])
+    } catch (error) {
+      console.error('Residential search error:', error)
+      setResidentialResults([])
+    } finally {
+      setResidentialLoading(false)
+    }
+  }
+
+  // Add residential place as lead
+  const handleAddResidentialLead = async (place: { id: string; name: string | null; address: string | null; lat: number | null; lng: number | null; phone: string | null }) => {
+    if (!place.lat || !place.lng) return
+
+    const newProperty: Property = {
+      id: `prop_${Date.now()}`,
+      address: place.address || '',
+      lat: place.lat,
+      lng: place.lng,
+      owner_name: null,
+      owner_phone: place.phone || null,
+      owner_email: null,
+      year_built: null,
+      roof_age_years: null,
+      market_value: null,
+      assessed_value: null,
+      last_sale_date: null,
+      last_sale_price: null,
+      county: null,
+      parcel_id: null,
+      permit_count: 0,
+      flags: ['residential'],
+      sources: { 'Google Places': place.name || 'Residential Property' },
+      score: 50,
+      created_at: new Date().toISOString()
+    }
+
+    const updated = [...properties, newProperty]
+    setProperties(updated)
+    await saveProperty(newProperty)
+    setResidentialResults(residentialResults.filter(p => p.id !== place.id))
   }
 
   // Handle sort by distance
@@ -1545,6 +1616,69 @@ export default function Dashboard() {
                         <button
                           onClick={() => handleAddCommercialLead(place)}
                           className="w-full bg-green/20 hover:bg-green/30 text-green border border-green/30 text-xs px-2 py-1.5 rounded transition-all"
+                        >
+                          Add as Lead
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Residential Search */}
+            <div className="glass p-6 rounded-xl">
+              <div className="flex items-center gap-2 mb-4">
+                <MapPin className="w-5 h-5 text-cyan" />
+                <h2 className="text-lg font-heading font-semibold">Residential Search</h2>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-gray-400 block mb-2">Radius</label>
+                  <div className="flex gap-2">
+                    {[
+                      { label: '0.25mi', value: 402 },
+                      { label: '0.5mi', value: 804 },
+                      { label: '1mi', value: 1609 },
+                      { label: '2mi', value: 3218 }
+                    ].map(r => (
+                      <button
+                        key={r.value}
+                        onClick={() => setResidentialRadius(r.value)}
+                        className={`flex-1 text-xs px-2 py-1.5 rounded transition-all ${
+                          residentialRadius === r.value
+                            ? 'bg-cyan text-dark font-medium'
+                            : 'bg-dark-700 text-gray-300 hover:text-white'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSearchResidential}
+                  disabled={residentialLoading}
+                  className="w-full bg-cyan text-dark font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50"
+                >
+                  {residentialLoading ? 'Searching...' : 'Find Residential Leads'}
+                </button>
+
+                {residentialResults.length > 0 && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    <p className="text-xs text-gray-400 font-semibold">Results: {residentialResults.length}</p>
+                    {residentialResults.map(place => (
+                      <div key={place.id} className="bg-dark-700/50 rounded-lg p-3 text-sm space-y-2">
+                        <p className="text-white font-medium truncate">{place.name || 'Residential Property'}</p>
+                        <p className="text-xs text-gray-400 truncate">{place.address || '—'}</p>
+                        {place.phone && (
+                          <p className="text-xs text-cyan">{place.phone}</p>
+                        )}
+                        <button
+                          onClick={() => handleAddResidentialLead(place)}
+                          className="w-full bg-cyan/20 hover:bg-cyan/30 text-cyan border border-cyan/30 text-xs px-2 py-1.5 rounded transition-all"
                         >
                           Add as Lead
                         </button>
