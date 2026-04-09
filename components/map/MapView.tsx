@@ -73,13 +73,12 @@ function MapInner({
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'directive-crm-map',
     googleMapsApiKey: apiKey,
+    version: 'beta', // Required for WebGL 3D globe rendering
   })
 
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null)
-  const [viewMode, setViewMode] = useState<MapViewMode | 'globe'>(
-    mode === 'satellite' ? 'satellite' : 'night-terrain'
-  )
-  const [tilt, setTilt] = useState(0)
+  const [viewMode, setViewMode] = useState<MapViewMode | 'globe'>('globe')
+  const [tilt, setTilt] = useState(45)
   const [photoTileSession, setPhotoTileSession] = useState<string | null>(null)
   const [loadingPhotoTiles, setLoadingPhotoTiles] = useState(false)
   const [showViewPicker, setShowViewPicker] = useState(false)
@@ -88,7 +87,8 @@ function MapInner({
   const center = { lat, lng }
 
   // Map the viewMode to Google's mapTypeId
-  const googleMapType = viewMode === 'night' ? 'roadmap' : viewMode === 'night-terrain' ? 'terrain' : viewMode === 'globe' ? 'satellite' : (viewMode as MapViewMode)
+  // Globe uses hybrid for labels + satellite imagery with 3D globe curvature
+  const googleMapType = viewMode === 'night' ? 'roadmap' : viewMode === 'night-terrain' ? 'terrain' : viewMode === 'globe' ? 'hybrid' : (viewMode as MapViewMode)
 
   useEffect(() => {
     if (mode === 'satellite' && viewMode !== 'satellite') {
@@ -229,6 +229,10 @@ function MapInner({
 
   const handleMapLoad = (map: google.maps.Map) => {
     mapRef.current = map
+    // Set initial 3D tilt for globe mode (Google Earth feel)
+    if (viewMode === 'globe') {
+      map.setTilt(45)
+    }
     // Add photo tiles if session exists
     if (photoTileSession) {
       const imageMapType = new google.maps.ImageMapType({
@@ -291,7 +295,7 @@ function MapInner({
                   if (v.key === 'globe') {
                     setViewMode('globe')
                     setTilt(45)
-                    mapRef.current?.setZoom(5)
+                    mapRef.current?.setTilt(45)
                     onModeChange?.('satellite')
                   } else {
                     setViewMode(v.key as MapViewMode)
@@ -379,6 +383,9 @@ function MapInner({
           styles: (viewMode === 'night' || viewMode === 'night-terrain') ? nightStyle : [],
           tilt: (viewMode as MapViewMode | 'globe') === 'globe' ? 45 : tilt,
           heading: 0,
+          // Enable WebGL vector rendering for 3D globe (Google Earth-style)
+          mapId: 'DEMO_MAP_ID',
+          isFractionalZoomEnabled: true,
         }}
       >
         {markers?.map((marker) => (

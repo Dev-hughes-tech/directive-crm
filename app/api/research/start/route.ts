@@ -58,48 +58,91 @@ export async function POST(request: NextRequest) {
 
   const client = new Anthropic({ apiKey: anthropicKey })
 
-  const prompt = `You are a property intelligence researcher for a roofing sales CRM. Research this address using 4 targeted searches and return ALL available data.
+  const prompt = `You are a property intelligence researcher for a roofing sales CRM. Research this address comprehensively using 6 targeted searches in order and return ALL available data.
 
 TARGET ADDRESS: ${address}
 
-SEARCH 1 — FASTPEOPLESEARCH (primary — do this first)
+SEARCH 1 — FASTPEOPLESEARCH (primary data source)
 Search exactly: site:fastpeoplesearch.com "${address}"
 OR navigate to: https://www.fastpeoplesearch.com/address/[street-number]-[street-name-hyphenated]_[city]-[state]
 Example for "3519 Bermuda Rd SW Huntsville AL": https://www.fastpeoplesearch.com/address/3519-bermuda-rd-sw_huntsville-al
 
-From the FastPeopleSearch page extract ALL of these fields:
+From the FastPeopleSearch page extract:
 - ownerName: The FIRST person listed under "People Living at" (most recent resident/tenant)
 - marketValue: The "Estimated Value" dollar amount (e.g. $151,000 → 151000)
 - lastSalePrice: "Last Sale Amount" (e.g. $16,000 → 16000)
 - lastSaleDate: "Last Sale Date" in YYYY-MM-DD format
 - yearBuilt: "Year Built" integer
-- sqft: "Square Feet" integer (store in notes, not a top-level field — but use for flags)
-- beds/baths: note for flags
-- occupancyType: if "Owner Occupied" set flag accordingly
+- sqft: "Square Feet" integer
+- bedrooms: integer
+- bathrooms: integer
+- lotSqft: "Lot Size" integer
+- occupancyType: "Owner Occupied" or "Rental" or null
+- propertyClass: property classification if visible
+- subdivision: subdivision name if visible
 
-SEARCH 2 — COUNTY TAX ASSESSOR / QPUBLIC
-Search: site:qpublic.net "${address}"
-OR: "[city] [state] county tax assessor parcel [street number] [street name]"
-Extract: parcelId, assessedValue, legal owner name (use if different/better than Search 1), county name.
-Alabama: Madison County uses https://www.qpublic.net/al/madison/
+SEARCH 2 — COUNTY TAX ASSESSOR / GIS (authoritative owner data)
+For North Alabama, search these county assessor sites IN ORDER:
+- Madison County: site:qpublic.net/al/madison "[street number] [street name]" OR "madison county alabama tax assessor [address]"
+- Limestone County: "limestone county alabama tax assessor [address]" OR site:qpublic.net/al/limestone "[address]"
+- Morgan County: "morgan county alabama tax assessor [address]" OR site:qpublic.net/al/morgan "[address]"
 
-SEARCH 3 — ROOFING PERMITS
-Search: "[city] [state] building permit roof [street number] [street name]"
-Extract: most recent roofing permit date. roofAgeYears = 2026 minus that year. null if not found.
+Extract (overrides FPS if different — tax record is authoritative):
+- ownerName: legal owner name (use if different from FPS)
+- county: county name
+- parcelId: parcel ID number
+- assessedValue: assessed/appraised value
+- appraisedValue: appraised value if different
+- taxAnnual: annual property tax amount
+- deedBook: deed book reference
+- deedPage: deed page reference
+- propertyClass: property class code
+- landUse: land use type
 
-SEARCH 4 — OWNER PHONE
-Search: "[ownerName from Search 1]" "[city]" "[state]" phone site:fastpeoplesearch.com
-OR: "[ownerName]" "[city] [state]" whitepages
-Extract: phone XXX-XXX-XXXX format. null if uncertain.
+SEARCH 3 — ZILLOW / REALTOR / REDFIN (market data)
+Search: "[full address]" zillow OR realtor.com OR redfin
+Extract:
+- marketValue: Zestimate or estimated value (prefer over FPS if available)
+- listingStatus: "for sale" / "listed" / "not listed" / null
+- listingPrice: current listing price if for sale
+- hoaMonthly: HOA monthly fee if applicable
+- neighborhood: neighborhood name
+- daysOnMarket: if listed
+
+SEARCH 4 — PROPERTY DEEDS / PROBATE RECORDS
+Search: "[county] county alabama deed records [owner name]" OR "[county] probate court property records"
+Extract:
+- deedDate: date of most recent deed in YYYY-MM-DD format
+- deedType: warranty deed / quit-claim / other type
+- grantor: grantor name from deed
+- grantee: grantee name from deed
+
+SEARCH 5 — BUILDING/ROOFING PERMITS (critical for roof age)
+Search: "[city] [state] building permit [street number] [street name]" OR "[county] county building permits [address]"
+Extract:
+- permitCount: total number of permits on record
+- permitLastDate: date of most recent ROOF permit specifically in YYYY-MM-DD format
+- roofAgeYears: 2026 minus the year from permitLastDate (e.g. roof permit 2010 = roofAgeYears 16)
+- roofAgeEstimated: false if permit found, true if estimated from yearBuilt
+- NOTE: if no roof permit found, set roofAgeEstimated=true and roofAgeYears=(2026-yearBuilt) only if yearBuilt exists
+
+SEARCH 6 — OWNER CONTACT INFO (phone & email)
+Search: "[ownerName]" "[city]" "[state]" site:fastpeoplesearch.com OR whitepages.com
+Also try: "[ownerName]" "[city]" "[state]" phone OR email
+Extract:
+- ownerPhone: XXX-XXX-XXXX format only, null if uncertain
+- ownerEmail: valid email address, null if uncertain
+- ownerAge: age if available, null otherwise
 
 OUTPUT RULES — STRICT:
-- null for any value not explicitly found. Never guess or estimate.
+- null for any value not explicitly found. Never guess or estimate (except roof age when properly flagged).
 - ownerPhone: XXX-XXX-XXXX format only, null if uncertain
-- roofAgeYears: integer from permit date ONLY. Never derive from yearBuilt.
-- marketValue / assessedValue / lastSalePrice: plain integer (no $ or commas)
+- roofAgeYears: integer from permit date ONLY, OR (2026 - yearBuilt) if roofAgeEstimated=true
+- roofAgeEstimated: false if permit-derived, true if derived from yearBuilt
+- marketValue / assessedValue / lastSalePrice / listingPrice / appraisedValue / taxAnnual / hoaMonthly: plain integers (no $ or commas)
 - yearBuilt: 4-digit integer 1800–2026 only
-- flags array options: "old-roof" "high-value" "investor-owned" "vacant" "rental" "cash-buyer"
-- sources: record the URL/site for every non-null field
+- flags array: may include "old-roof" "high-value" "investor-owned" "owner-occupied" "rental" "vacant" "cash-buyer" "recently-sold" "listed-for-sale" "estimated-roof-age"
+- sources: record the URL/site for every non-null field extracted
 
 Return ONLY this JSON inside <json> tags, nothing else after the closing tag:
 
@@ -108,16 +151,35 @@ Return ONLY this JSON inside <json> tags, nothing else after the closing tag:
   "ownerName": null,
   "ownerPhone": null,
   "ownerEmail": null,
+  "ownerAge": null,
   "yearBuilt": null,
+  "sqft": null,
+  "lotSqft": null,
+  "bedrooms": null,
+  "bathrooms": null,
   "marketValue": null,
   "assessedValue": null,
+  "appraisedValue": null,
   "lastSaleDate": null,
   "lastSalePrice": null,
+  "listingStatus": null,
+  "listingPrice": null,
+  "hoaMonthly": null,
+  "subdivision": null,
+  "occupancyType": null,
+  "propertyClass": null,
+  "landUse": null,
+  "deedDate": null,
+  "deedType": null,
+  "deedBook": null,
   "permitCount": null,
   "permitLastDate": null,
   "roofAgeYears": null,
+  "roofAgeEstimated": false,
   "county": null,
   "parcelId": null,
+  "taxAnnual": null,
+  "neighborhood": null,
   "flags": [],
   "sources": {}
 }
@@ -205,13 +267,43 @@ Return ONLY this JSON inside <json> tags, nothing else after the closing tag:
   const toNum = (v: unknown, min: number) => { const n = typeof v === 'string' ? parseFloat((v as string).replace(/[$,]/g, '')) : Number(v); return (!isNaN(n) && n >= min) ? Math.round(n) : null }
   data.marketValue   = toNum(data.marketValue, 5000)
   data.assessedValue = toNum(data.assessedValue, 1000)
+  data.appraisedValue = toNum(data.appraisedValue, 1000)
   data.lastSalePrice = toNum(data.lastSalePrice, 100)
+  data.listingPrice = toNum(data.listingPrice, 100)
+  data.taxAnnual = toNum(data.taxAnnual, 0)
+  data.hoaMonthly = toNum(data.hoaMonthly, 0)
+
+  // Integer fields with range validation
+  const toInt = (v: unknown, min: number, max: number) => { const n = parseInt(String(v)); return (!isNaN(n) && n >= min && n <= max) ? n : null }
+  data.sqft = toInt(data.sqft, 100, 50000)
+  data.lotSqft = toInt(data.lotSqft, 100, 500000)
+  data.bedrooms = toInt(data.bedrooms, 0, 20)
+  data.bathrooms = toInt(data.bathrooms, 0, 20)
+  data.ownerAge = toInt(data.ownerAge, 18, 120)
+
   if (data.roofAgeYears !== null) {
     const r = Math.round(parseFloat(data.roofAgeYears))
     data.roofAgeYears = (!isNaN(r) && r >= 1 && r <= 60) ? r : null
   }
   if (data.permitCount !== null) {
     const p = parseInt(data.permitCount); data.permitCount = (!isNaN(p) && p >= 0) ? p : null
+  }
+
+  // String fields - just trim
+  const toStr = (v: unknown) => typeof v === 'string' ? v.trim() || null : null
+  data.deedDate = toStr(data.deedDate)
+  data.listingStatus = toStr(data.listingStatus)
+  data.occupancyType = toStr(data.occupancyType)
+  data.propertyClass = toStr(data.propertyClass)
+  data.landUse = toStr(data.landUse)
+  data.deedType = toStr(data.deedType)
+  data.deedBook = toStr(data.deedBook)
+  data.subdivision = toStr(data.subdivision)
+  data.neighborhood = toStr(data.neighborhood)
+
+  // Boolean field
+  if (typeof data.roofAgeEstimated !== 'boolean') {
+    data.roofAgeEstimated = false
   }
 
   // Geocode for lat/lng

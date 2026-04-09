@@ -21,6 +21,25 @@ export interface Property {
   sources: Record<string, string>
   score: number | null
   created_at: string
+  sqft: number | null
+  lot_sqft: number | null
+  bedrooms: number | null
+  bathrooms: number | null
+  appraised_value: number | null
+  listing_status: string | null
+  listing_price: number | null
+  hoa_monthly: number | null
+  subdivision: string | null
+  occupancy_type: string | null
+  property_class: string | null
+  land_use: string | null
+  deed_date: string | null
+  deed_type: string | null
+  deed_book: string | null
+  tax_annual: number | null
+  neighborhood: string | null
+  owner_age: number | null
+  roof_age_estimated: boolean
 }
 
 export interface Territory {

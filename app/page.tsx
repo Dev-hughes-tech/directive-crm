@@ -53,18 +53,51 @@ const HQ_CITY = 'Huntsville, AL'
 
 // Lead scoring function
 function calculateLeadScore(property: Property): number {
-  let score = 50
+  let score = 30
 
+  // Roof age scoring
   if (property.roof_age_years !== null) {
-    if (property.roof_age_years >= 20) score += 35
-    else if (property.roof_age_years >= 15) score += 20
+    if (property.roof_age_years >= 20) score += 25
+    else if (property.roof_age_years >= 15) score += 15
+    else if (property.roof_age_years >= 10) score += 5
   }
 
-  if (property.owner_phone !== null) score += 15
+  // Estimated roof age bonus for old houses
+  if (property.roof_age_estimated && property.year_built && property.year_built < 2005) {
+    score += 10
+  }
 
-  if (property.market_value !== null && property.market_value > 200000) score += 10
+  // Contact info scoring
+  if (property.owner_phone !== null) score += 10
+  if (property.owner_email !== null) score += 5
 
-  if (property.permit_count !== null && property.permit_count > 0) score -= 10
+  // Property value scoring
+  if (property.market_value !== null) {
+    if (property.market_value > 300000) score += 10
+    else if (property.market_value > 150000) score += 5
+  }
+
+  // Occupancy type scoring
+  if (property.occupancy_type === 'Owner Occupied') score += 10
+
+  // Listing penalty (sellers won't invest in roof)
+  if (property.listing_status && (property.listing_status.toLowerCase().includes('for sale') || property.listing_status.toLowerCase().includes('listed'))) {
+    score -= 15
+  }
+
+  // Recent roof permit penalty
+  if (property.permit_count !== null && property.permit_count > 0 && property.roof_age_years !== null && property.roof_age_years < 5) {
+    score -= 20
+  }
+
+  // Recently sold bonus
+  if (property.last_sale_date) {
+    const lastSaleYear = parseInt(property.last_sale_date.split('-')[0])
+    if (2026 - lastSaleYear <= 2) score += 5
+  }
+
+  // High value flag bonus
+  if (property.flags && property.flags.includes('high-value')) score += 5
 
   return Math.max(10, Math.min(99, score))
 }
@@ -85,24 +118,48 @@ interface PropertyCardProps {
 function PropertyCard({ property }: PropertyCardProps) {
   const score = calculateLeadScore(property)
 
+  const getFlagColor = (flag: string): string => {
+    if (flag === 'old-roof' || flag === 'estimated-roof-age') return 'bg-amber/10 text-amber border border-amber/30'
+    if (flag === 'high-value') return 'bg-green/10 text-green border border-green/30'
+    if (flag === 'investor-owned' || flag === 'rental') return 'bg-purple/10 text-purple border border-purple/30'
+    if (flag === 'listed-for-sale') return 'bg-red/10 text-red border border-red/30'
+    if (flag === 'owner-occupied') return 'bg-cyan/10 text-cyan border border-cyan/30'
+    if (flag === 'recently-sold') return 'bg-blue/10 text-blue border border-blue/30'
+    return 'bg-gray/10 text-gray border border-gray/30'
+  }
+
   return (
     <div className="glass p-6 rounded-lg space-y-4">
-      <div>
-        <h3 className="text-lg font-semibold text-white">{property.address}</h3>
-        <p className="text-xs text-gray-400 mt-1">
-          {property.county || '—'} • {property.sources && Object.keys(property.sources)[0] ? 'County Assessor / Claude' : '—'}
-        </p>
-      </div>
-
-      <div className="border-t border-white/5 pt-4">
-        <div className="flex items-baseline gap-2">
-          <span className="text-3xl font-bold text-cyan">{score}</span>
-          <span className="text-sm text-gray-400">/100 LEAD SCORE</span>
+      {/* Header: Address + County + Source + Score */}
+      <div className="space-y-3">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white">{property.address}</h3>
+            <p className="text-xs text-gray-400 mt-1">
+              {property.county || '—'} • {property.sources && Object.keys(property.sources).length > 0 ? Object.keys(property.sources).join(', ') : '—'}
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold text-cyan">{score}</span>
+              <span className="text-xs text-gray-400">/100</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">LEAD SCORE</p>
+          </div>
         </div>
       </div>
 
+      {/* Street View + Aerial View Side by Side */}
+      <div className="border-t border-white/5 pt-4">
+        <div className="grid grid-cols-2 gap-2">
+          <StreetView lat={property.lat} lng={property.lng} address={property.address} className="h-40 w-full rounded" />
+          <AerialView lat={property.lat} lng={property.lng} address={property.address} className="h-40 w-full rounded" />
+        </div>
+      </div>
+
+      {/* OWNER Section */}
       <div className="border-t border-white/5 pt-4 space-y-2">
-        <h4 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Owner</h4>
+        <h4 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Owner</h4>
         <div className="space-y-1 text-sm">
           <div className="flex justify-between">
             <span className="text-gray-400">Name:</span>
@@ -112,7 +169,7 @@ function PropertyCard({ property }: PropertyCardProps) {
             <span className="text-gray-400">Phone:</span>
             {property.owner_phone ? (
               <a href={`tel:${property.owner_phone}`} className="text-cyan hover:text-cyan/80 flex items-center gap-1">
-                <Phone className="w-3 h-3" />
+                <Phone className="w-4 h-4" />
                 {property.owner_phone}
               </a>
             ) : (
@@ -123,52 +180,222 @@ function PropertyCard({ property }: PropertyCardProps) {
             <span className="text-gray-400">Email:</span>
             {property.owner_email ? (
               <a href={`mailto:${property.owner_email}`} className="text-cyan hover:text-cyan/80 flex items-center gap-1">
-                <Mail className="w-3 h-3" />
-                {property.owner_email}
+                <Mail className="w-4 h-4" />
+                <span className="truncate">{property.owner_email}</span>
               </a>
             ) : (
               <span className="text-gray-500">—</span>
             )}
           </div>
+          {property.owner_age && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Age:</span>
+              <span className="text-white">{property.owner_age}</span>
+            </div>
+          )}
+          {property.occupancy_type && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Occupancy:</span>
+              <span className="text-white">{property.occupancy_type}</span>
+            </div>
+          )}
         </div>
       </div>
 
+      {/* PROPERTY Section */}
       <div className="border-t border-white/5 pt-4 space-y-2">
-        <h4 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Property</h4>
+        <h4 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Property</h4>
+        <div className="space-y-1 text-sm">
+          {property.year_built && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Year Built:</span>
+              <span className="text-white">{property.year_built}</span>
+            </div>
+          )}
+          {property.sqft && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Sqft:</span>
+              <span className="text-white">{property.sqft.toLocaleString()}</span>
+            </div>
+          )}
+          {property.lot_sqft && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Lot Size:</span>
+              <span className="text-white">{property.lot_sqft.toLocaleString()} sqft</span>
+            </div>
+          )}
+          {(property.bedrooms !== null || property.bathrooms !== null) && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Beds/Baths:</span>
+              <span className="text-white">
+                {property.bedrooms || '—'} bd / {property.bathrooms || '—'} ba
+              </span>
+            </div>
+          )}
+          {property.property_class && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Property Class:</span>
+              <span className="text-white">{property.property_class}</span>
+            </div>
+          )}
+          {property.land_use && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Land Use:</span>
+              <span className="text-white">{property.land_use}</span>
+            </div>
+          )}
+          {property.subdivision && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Subdivision:</span>
+              <span className="text-white">{property.subdivision}</span>
+            </div>
+          )}
+          {property.neighborhood && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Neighborhood:</span>
+              <span className="text-white">{property.neighborhood}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* VALUATION Section */}
+      <div className="border-t border-white/5 pt-4 space-y-2">
+        <h4 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Valuation</h4>
+        <div className="space-y-1 text-sm">
+          {property.market_value && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Market Value:</span>
+              <span className="text-white">${property.market_value.toLocaleString()}</span>
+            </div>
+          )}
+          {property.assessed_value && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Assessed Value:</span>
+              <span className="text-white">${property.assessed_value.toLocaleString()}</span>
+            </div>
+          )}
+          {property.appraised_value && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Appraised Value:</span>
+              <span className="text-white">${property.appraised_value.toLocaleString()}</span>
+            </div>
+          )}
+          {(property.last_sale_date || property.last_sale_price) && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Last Sale:</span>
+              <span className="text-white">
+                {property.last_sale_date ? property.last_sale_date : '—'}
+                {property.last_sale_price ? ` @ $${property.last_sale_price.toLocaleString()}` : ''}
+              </span>
+            </div>
+          )}
+          {property.listing_status && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Status:</span>
+              <span className="text-white">{property.listing_status}</span>
+            </div>
+          )}
+          {property.listing_price && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Listing Price:</span>
+              <span className="text-white">${property.listing_price.toLocaleString()}</span>
+            </div>
+          )}
+          {property.hoa_monthly && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">HOA Monthly:</span>
+              <span className="text-white">${property.hoa_monthly.toLocaleString()}</span>
+            </div>
+          )}
+          {property.tax_annual && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Annual Tax:</span>
+              <span className="text-white">${property.tax_annual.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ROOF Section */}
+      <div className="border-t border-white/5 pt-4 space-y-2">
+        <h4 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Roof</h4>
         <div className="space-y-1 text-sm">
           <div className="flex justify-between">
-            <span className="text-gray-400">Year Built:</span>
-            <span className="text-white">{property.year_built || '—'}</span>
-          </div>
-          <div className="flex justify-between">
             <span className="text-gray-400">Roof Age:</span>
-            <span className="text-white">{property.roof_age_years !== null ? `${property.roof_age_years} years` : '—'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-400">Market Value:</span>
             <span className="text-white">
-              {property.market_value ? `$${property.market_value.toLocaleString()}` : '—'}
+              {property.roof_age_years !== null
+                ? `${property.roof_age_years} years${property.roof_age_estimated ? ' (est)' : ''}`
+                : '—'
+              }
             </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-400">Last Sale:</span>
-            <span className="text-white">{property.last_sale_date || '—'}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-400">Permits:</span>
             <span className="text-white">{property.permit_count || 0} on record</span>
           </div>
+          {property.permit_count && property.permit_count > 0 && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Last Permit:</span>
+              <span className="text-white">{property.permit_last_date || '—'}</span>
+            </div>
+          )}
         </div>
       </div>
 
+      {/* DEED Section - only show if any deed data exists */}
+      {(property.deed_date || property.deed_type || property.deed_book) && (
+        <div className="border-t border-white/5 pt-4 space-y-2">
+          <h4 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Deed</h4>
+          <div className="space-y-1 text-sm">
+            {property.deed_date && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Date:</span>
+                <span className="text-white">{property.deed_date}</span>
+              </div>
+            )}
+            {property.deed_type && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Type:</span>
+                <span className="text-white">{property.deed_type}</span>
+              </div>
+            )}
+            {property.deed_book && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Book/Page:</span>
+                <span className="text-white">{property.deed_book}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* FLAGS Section */}
       {property.flags && property.flags.length > 0 && (
         <div className="border-t border-white/5 pt-4 space-y-2">
-          <h4 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Flags</h4>
+          <h4 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Flags</h4>
           <div className="flex flex-wrap gap-2">
             {property.flags.map((flag) => (
-              <span key={flag} className="text-xs bg-amber/10 text-amber border border-amber/30 px-2 py-1 rounded">
+              <span key={flag} className={`text-xs ${getFlagColor(flag)} px-2 py-1 rounded`}>
                 {flag}
               </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* SOURCES Section */}
+      {property.sources && Object.keys(property.sources).length > 0 && (
+        <div className="border-t border-white/5 pt-4 space-y-2">
+          <h4 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Sources</h4>
+          <div className="space-y-1 text-xs">
+            {Object.entries(property.sources).map(([key, url]) => (
+              <div key={key} className="flex justify-between items-center gap-2">
+                <span className="text-gray-400">{key}:</span>
+                <a href={url} target="_blank" rel="noopener noreferrer" className="text-cyan hover:text-cyan/80 truncate">
+                  {url.replace(/^https?:\/\//, '').slice(0, 40)}...
+                </a>
+              </div>
             ))}
           </div>
         </div>
@@ -653,6 +880,25 @@ export default function Dashboard() {
         sources: (data.sources as Record<string, string>) || {},
         score: null,
         created_at: new Date().toISOString(),
+        sqft: (data.sqft as number) || null,
+        lot_sqft: (data.lotSqft as number) || null,
+        bedrooms: (data.bedrooms as number) || null,
+        bathrooms: (data.bathrooms as number) || null,
+        appraised_value: (data.appraisedValue as number) || null,
+        listing_status: (data.listingStatus as string) || null,
+        listing_price: (data.listingPrice as number) || null,
+        hoa_monthly: (data.hoaMonthly as number) || null,
+        subdivision: (data.subdivision as string) || null,
+        occupancy_type: (data.occupancyType as string) || null,
+        property_class: (data.propertyClass as string) || null,
+        land_use: (data.landUse as string) || null,
+        deed_date: (data.deedDate as string) || null,
+        deed_type: (data.deedType as string) || null,
+        deed_book: (data.deedBook as string) || null,
+        tax_annual: (data.taxAnnual as number) || null,
+        neighborhood: (data.neighborhood as string) || null,
+        owner_age: (data.ownerAge as number) || null,
+        roof_age_estimated: (data.roofAgeEstimated as boolean) || false,
       }
 
       setSweepResult(newProperty)
