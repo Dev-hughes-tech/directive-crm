@@ -24,7 +24,7 @@ interface MapViewProps {
   geoJsonData?: object | null
 }
 
-const containerStyle = { width: '100%', height: '100%' }
+const containerStyle = { width: '100%', height: '100vh' }
 
 const colorMap = {
   green: '#22c55e',
@@ -116,7 +116,7 @@ function MapInner({
 
   if (loadError) {
     return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-red-400 text-sm h-full w-full ${className}`}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0d1117', color: '#f87171', fontSize: '14px' }}>
         Map failed to load — check API key
       </div>
     )
@@ -124,7 +124,7 @@ function MapInner({
 
   if (!isLoaded) {
     return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-cyan-400 text-sm h-full w-full ${className}`}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0d1117', color: '#22d3ee', fontSize: '14px' }}>
         <div className="animate-pulse">Loading map...</div>
       </div>
     )
@@ -172,7 +172,7 @@ function MapInner({
   })
 
   return (
-    <div className={`relative h-full w-full ${className}`}>
+    <div style={{ position: 'absolute', inset: 0 }}>
       {/* Map controls — bottom right, clear of nav */}
       <div className="absolute bottom-6 right-4 z-10 flex gap-2">
         <button
@@ -296,7 +296,7 @@ export default function MapView(props: MapViewProps) {
 
   if (keyError) {
     return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-red-400 text-sm h-full w-full ${props.className}`}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0d1117', color: '#f87171', fontSize: '14px' }}>
         Maps API key not configured
       </div>
     )
@@ -304,7 +304,7 @@ export default function MapView(props: MapViewProps) {
 
   if (!apiKey) {
     return (
-      <div className={`flex items-center justify-center bg-[#0d1117] text-cyan-400 text-sm h-full w-full ${props.className}`}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0d1117', color: '#22d3ee', fontSize: '14px' }}>
         <div className="animate-pulse">Connecting to maps...</div>
       </div>
     )
