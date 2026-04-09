@@ -99,6 +99,14 @@ function calculateLeadScore(property: Property): number {
   // High value flag bonus
   if (property.flags && property.flags.includes('high-value')) score += 5
 
+  // Storm history bonus — properties in storm-hit areas are prime roof leads
+  if (property.storm_history) {
+    if (property.storm_history.stormRiskLevel === 'high') score += 20
+    else if (property.storm_history.stormRiskLevel === 'moderate') score += 10
+    if (property.storm_history.severeHailCount >= 3) score += 10
+    if (property.storm_history.totalTornadoEvents > 0) score += 5
+  }
+
   return Math.max(10, Math.min(99, score))
 }
 
@@ -147,6 +155,30 @@ function PropertyCard({ property }: PropertyCardProps) {
             <p className="text-xs text-gray-500 mt-1">LEAD SCORE</p>
           </div>
         </div>
+      </div>
+
+      {/* Navigation Button */}
+      <div className="flex gap-2">
+        <a
+          href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(property.address)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex-1 flex items-center justify-center gap-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 border border-cyan-500/30 text-xs px-3 py-2 rounded-lg transition-all"
+        >
+          <Navigation className="w-3.5 h-3.5" />
+          Navigate to Property
+        </a>
+        <a
+          href={`tel:${property.owner_phone}`}
+          className={`flex items-center justify-center gap-2 text-xs px-3 py-2 rounded-lg transition-all ${
+            property.owner_phone
+              ? 'bg-green-500/20 hover:bg-green-500/30 text-green-400 border border-green-500/30'
+              : 'bg-gray-800 text-gray-600 border border-gray-700 pointer-events-none'
+          }`}
+        >
+          <Phone className="w-3.5 h-3.5" />
+          Call
+        </a>
       </div>
 
       {/* Street View + Aerial View Side by Side */}
@@ -342,6 +374,63 @@ function PropertyCard({ property }: PropertyCardProps) {
           )}
         </div>
       </div>
+
+      {/* STORM HISTORY */}
+      {property.storm_history && (
+        <div className="border-t border-white/5 pt-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Storm History (5yr)</h4>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+              property.storm_history.stormRiskLevel === 'high' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+              property.storm_history.stormRiskLevel === 'moderate' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+              property.storm_history.stormRiskLevel === 'low' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+              'bg-gray-700 text-gray-400'
+            }`}>
+              {property.storm_history.stormRiskLevel.toUpperCase()} RISK
+            </span>
+          </div>
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Hail Events:</span>
+              <span className="text-white">{property.storm_history.totalHailEvents} ({property.storm_history.severeHailCount} severe)</span>
+            </div>
+            {property.storm_history.maxHailSize && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Max Hail Size:</span>
+                <span className="text-white">{property.storm_history.maxHailSize}" diameter</span>
+              </div>
+            )}
+            {property.storm_history.lastHailDate && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Last Hail:</span>
+                <span className="text-white">{property.storm_history.lastHailDate}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-gray-400">Tornadoes:</span>
+              <span className={`${property.storm_history.totalTornadoEvents > 0 ? 'text-red-400 font-medium' : 'text-white'}`}>
+                {property.storm_history.totalTornadoEvents} events
+              </span>
+            </div>
+            {property.storm_history.lastTornadoDate && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Last Tornado:</span>
+                <span className="text-red-400">{property.storm_history.lastTornadoDate}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-gray-400">High Wind Events:</span>
+              <span className="text-white">{property.storm_history.totalWindEvents}</span>
+            </div>
+            {property.storm_history.maxWindSpeed && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Max Wind Speed:</span>
+                <span className="text-white">{property.storm_history.maxWindSpeed} mph</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* DEED Section - only show if any deed data exists */}
       {(property.deed_date || property.deed_type || property.deed_book) && (
@@ -692,6 +781,7 @@ export default function Dashboard() {
       property_class: null, land_use: null, deed_date: null,
       deed_type: null, deed_book: null, tax_annual: null,
       neighborhood: null, owner_age: null, roof_age_estimated: false,
+      storm_history: null,
     }
 
     const updated = [...properties, newProperty]
@@ -764,6 +854,7 @@ export default function Dashboard() {
       property_class: null, land_use: null, deed_date: null,
       deed_type: null, deed_book: null, tax_annual: null,
       neighborhood: null, owner_age: null, roof_age_estimated: false,
+      storm_history: null,
     }
 
     const updated = [...properties, newProperty]
@@ -914,6 +1005,7 @@ export default function Dashboard() {
         neighborhood: (data.neighborhood as string) || null,
         owner_age: (data.ownerAge as number) || null,
         roof_age_estimated: (data.roofAgeEstimated as boolean) || false,
+        storm_history: (data.stormHistory as Property['storm_history']) || null,
       }
 
       setSweepResult(newProperty)

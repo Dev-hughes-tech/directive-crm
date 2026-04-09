@@ -41,6 +41,21 @@ export interface Property {
   neighborhood: string | null
   owner_age: number | null
   roof_age_estimated: boolean
+  storm_history: {
+    hailEvents: Array<{ date: string | null; size: number | null; severity: string }>
+    totalHailEvents: number
+    maxHailSize: number | null
+    lastHailDate: string | null
+    severeHailCount: number
+    tornadoEvents: Array<{ date: string | null; magnitude: string | null }>
+    totalTornadoEvents: number
+    lastTornadoDate: string | null
+    windEvents: Array<{ date: string | null; speed: number | null }>
+    totalWindEvents: number
+    maxWindSpeed: number | null
+    lastWindDate: string | null
+    stormRiskLevel: string
+  } | null
 }
 
 export interface Territory {
