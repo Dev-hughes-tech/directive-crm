@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-// This endpoint returns IMMEDIATELY with a jobId.
-// The actual research runs in /api/research/process (fire-and-forget).
-export const maxDuration = 10
+// Returns immediately with jobId. Research runs via after() which Vercel
+// keeps alive even after the response is sent (no premature kill).
+export const maxDuration = 60
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,13 +29,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Could not start research' }, { status: 500 })
   }
 
-  // Fire off the process endpoint — do NOT await it
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `https://www.directivecrm.com`
-  fetch(`${baseUrl}/api/research/process`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jobId: job.id, address }),
-  }).catch(() => {/* fire and forget */})
+  const jobId = job.id
 
-  return NextResponse.json({ jobId: job.id, status: 'pending' })
+  // Use after() so Vercel keeps this function alive until research completes.
+  // This avoids the fire-and-forget kill problem on serverless.
+  after(async () => {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.directivecrm.com'
+    try {
+      await fetch(`${baseUrl}/api/research/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, address }),
+      })
+    } catch (err) {
+      console.error('Process fetch error:', err)
+      // Mark job as error so frontend stops polling
+      await supabase
+        .from('research_jobs')
+        .update({ status: 'error', error_message: 'Failed to reach process worker', updated_at: new Date().toISOString() })
+        .eq('id', jobId)
+    }
+  })
+
+  // Return immediately — frontend can start polling
+  return NextResponse.json({ jobId, status: 'pending' })
 }
