@@ -153,7 +153,7 @@ function PropertyCard({ property }: PropertyCardProps) {
       <div className="border-t border-white/5 pt-4">
         <div className="grid grid-cols-2 gap-2">
           <StreetView lat={property.lat} lng={property.lng} address={property.address} className="h-40 w-full rounded" />
-          <AerialView lat={property.lat} lng={property.lng} address={property.address} className="h-40 w-full rounded" />
+          <AerialView address={property.address} className="h-40 w-full rounded" />
         </div>
       </div>
 
@@ -681,10 +681,17 @@ export default function Dashboard() {
       county: null,
       parcel_id: null,
       permit_count: 0,
+      permit_last_date: null,
       flags: ['commercial'],
       sources: { 'Google Places': place.name || 'Commercial Property' },
       score: 50,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      sqft: null, lot_sqft: null, bedrooms: null, bathrooms: null,
+      appraised_value: null, listing_status: null, listing_price: null,
+      hoa_monthly: null, subdivision: null, occupancy_type: null,
+      property_class: null, land_use: null, deed_date: null,
+      deed_type: null, deed_book: null, tax_annual: null,
+      neighborhood: null, owner_age: null, roof_age_estimated: false,
     }
 
     const updated = [...properties, newProperty]
@@ -746,10 +753,17 @@ export default function Dashboard() {
       county: null,
       parcel_id: null,
       permit_count: 0,
+      permit_last_date: null,
       flags: ['residential'],
       sources: { 'Google Places': place.name || 'Residential Property' },
       score: 50,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      sqft: null, lot_sqft: null, bedrooms: null, bathrooms: null,
+      appraised_value: null, listing_status: null, listing_price: null,
+      hoa_monthly: null, subdivision: null, occupancy_type: null,
+      property_class: null, land_use: null, deed_date: null,
+      deed_type: null, deed_book: null, tax_annual: null,
+      neighborhood: null, owner_age: null, roof_age_estimated: false,
     }
 
     const updated = [...properties, newProperty]
@@ -876,6 +890,7 @@ export default function Dashboard() {
         county: (data.county as string) || null,
         parcel_id: (data.parcelId as string) || null,
         permit_count: (data.permitCount as number) || null,
+        permit_last_date: (data.permitLastDate as string) || null,
         flags: (data.flags as string[]) || [],
         sources: (data.sources as Record<string, string>) || {},
         score: null,

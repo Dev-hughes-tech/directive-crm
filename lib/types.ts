@@ -17,6 +17,7 @@ export interface Property {
   county: string | null
   parcel_id: string | null
   permit_count: number | null
+  permit_last_date: string | null
   flags: string[]
   sources: Record<string, string>
   score: number | null
