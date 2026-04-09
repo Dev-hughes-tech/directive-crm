@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   if (!address) return NextResponse.json({ valid: false, error: 'No address' })
 
   const apiKey = process.env.MAPS_API_KEY
-  if (!apiKey) return NextResponse.json({ valid: true }) // Don't block if no key
+  if (!apiKey) return NextResponse.json({ valid: false, error: 'Validation unavailable' })
 
   try {
     const res = await fetch(
@@ -38,6 +38,6 @@ export async function POST(request: NextRequest) {
       dpvConfirmation: verdict?.dpvConfirmation,
     })
   } catch {
-    return NextResponse.json({ valid: true }) // Don't block on error
+    return NextResponse.json({ valid: false, error: 'Validation failed' })
   }
 }

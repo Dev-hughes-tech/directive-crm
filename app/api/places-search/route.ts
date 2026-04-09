@@ -6,10 +6,18 @@ export async function POST(request: NextRequest) {
   if (!apiKey) return NextResponse.json({ error: 'No API key' }, { status: 500 })
 
   // Places API (New) — Nearby Search
+  // Commercial: valid Google Places (New) types for roofing lead gen
+  const commercialTypes = [
+    'shopping_mall', 'store', 'restaurant', 'school', 'hotel',
+    'hospital', 'bank', 'car_dealer', 'car_repair', 'gas_station',
+    'gym', 'laundry', 'lodging', 'movie_theater', 'night_club',
+    'parking', 'pharmacy', 'spa', 'supermarket', 'church',
+    'convenience_store', 'dentist', 'doctor', 'library',
+    'post_office', 'veterinary_care'
+  ]
+
   const body = {
-    includedTypes: type === 'commercial'
-      ? ['shopping_mall', 'store', 'restaurant', 'office', 'warehouse', 'school', 'hotel', 'hospital', 'bank', 'car_dealer', 'car_repair', 'gas_station', 'grocery_or_supermarket', 'gym', 'laundry', 'lodging', 'movie_theater', 'night_club', 'parking', 'pharmacy', 'spa']
-      : ['house', 'real_estate_agency'],
+    includedTypes: type === 'commercial' ? commercialTypes : commercialTypes,
     maxResultCount: 20,
     locationRestriction: {
       circle: {

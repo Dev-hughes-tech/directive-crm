@@ -374,21 +374,25 @@ export default function Dashboard() {
 
   // Get accurate location from Google Geolocation API or browser GPS
   const getAccurateLocation = async (): Promise<{ lat: number; lng: number; accuracy?: number } | null> => {
-    try {
-      // Try Google Geolocation API first (more accurate, works indoors)
-      const res = await fetch('/api/geolocate', { method: 'POST' })
-      const data = await res.json()
-      if (data.lat && data.lng) return data
-    } catch { /* fall through */ }
-
-    // Fallback: browser GPS
-    return new Promise((resolve) => {
+    // Browser GPS first — returns the USER's actual location
+    const browserLoc = await new Promise<{ lat: number; lng: number; accuracy: number } | null>((resolve) => {
+      if (!navigator.geolocation) { resolve(null); return }
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
         () => resolve(null),
         { enableHighAccuracy: true, timeout: 10000 }
       )
     })
+    if (browserLoc) return browserLoc
+
+    // Fallback: Google Geolocation API (IP-based, less accurate)
+    try {
+      const res = await fetch('/api/geolocate', { method: 'POST' })
+      const data = await res.json()
+      if (data.lat && data.lng) return data
+    } catch { /* fall through */ }
+
+    return null
   }
 
   // Handle commercial building search
@@ -474,10 +478,10 @@ export default function Dashboard() {
 
     setResidentialLoading(true)
     try {
-      const res = await fetch('/api/places-search', {
+      const res = await fetch('/api/residential-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius: residentialRadius, type: 'residential' })
+        body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius: residentialRadius })
       })
       const data = await res.json()
       setResidentialResults(data.places || [])
