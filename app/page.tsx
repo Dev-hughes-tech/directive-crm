@@ -1450,24 +1450,27 @@ Only respond with the JSON array, no other text.` }
       </div>
 
       {/* Top Navigation Bar */}
-      <nav className="absolute top-0 left-0 right-0 z-40 glass m-4 rounded-lg">
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3 flex-shrink-0">
+      <nav className="absolute top-0 left-0 right-0 z-40 glass m-2 md:m-4 rounded-lg">
+        <div className="flex items-center justify-between px-2 md:px-4 py-2 md:py-3 gap-2">
+
+          {/* Logo */}
+          <div className="flex items-center flex-shrink-0">
             <Image
               src="/directive-wordmark.png"
               alt="Directive"
               width={200}
               height={48}
-              className="h-10 w-auto"
+              className="h-7 md:h-10 w-auto"
             />
           </div>
 
-          <div className="flex gap-1 overflow-x-auto scrollbar-hide">
+          {/* Nav Tabs */}
+          <div className="flex gap-0.5 md:gap-1 overflow-x-auto scrollbar-hide flex-1 justify-center">
             {[
               { id: 'dashboard' as Screen, label: 'Dashboard', icon: BarChart3 },
               { id: 'territory' as Screen, label: 'Territory', icon: MapPin },
               { id: 'sweep' as Screen, label: 'Sweep', icon: Navigation },
-              { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio },
+              { id: 'stormscope' as Screen, label: 'Storm', icon: Radio },
               { id: 'michael' as Screen, label: 'Michael', icon: Brain },
               { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase },
               { id: 'clients' as Screen, label: 'Clients', icon: Users },
@@ -1477,6 +1480,7 @@ Only respond with the JSON array, no other text.` }
             ].map((tab) => {
               const Icon = tab.icon
               const hasUnread = tab.id === 'team' && unreadCount > 0
+              const isActive = activeScreen === tab.id
               return (
                 <button
                   key={tab.id}
@@ -1484,14 +1488,15 @@ Only respond with the JSON array, no other text.` }
                     setActiveScreen(tab.id)
                     if (tab.id === 'team') setUnreadCount(0)
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all relative whitespace-nowrap flex-shrink-0 ${
-                    activeScreen === tab.id
+                  title={tab.label}
+                  className={`flex items-center gap-1 px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-xs font-medium transition-all relative flex-shrink-0 ${
+                    isActive
                       ? 'bg-cyan text-dark'
                       : 'text-gray-400 hover:text-white hover:bg-dark-700/50'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5" />
-                  {tab.label}
+                  <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="hidden 2xl:inline whitespace-nowrap">{tab.label}</span>
                   {hasUnread && (
                     <span className="absolute top-1 right-1 w-2 h-2 bg-red rounded-full" />
                   )}
@@ -1500,16 +1505,18 @@ Only respond with the JSON array, no other text.` }
             })}
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 bg-green rounded-full animate-pulse" />
-              <span className="text-xs font-semibold text-green uppercase tracking-wide">Live</span>
+          {/* Right side */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 bg-green rounded-full animate-pulse" />
+              <span className="hidden md:inline text-xs font-semibold text-green uppercase tracking-wide">Live</span>
             </div>
-            <div className="flex items-center gap-2 bg-dark-700/50 rounded-full px-3 py-1.5">
-              <MapPin className="w-3 h-3 text-gray-400" />
-              <span className="text-xs text-gray-300">{HQ_CITY}</span>
+            <div className="hidden md:flex items-center gap-1.5 bg-dark-700/50 rounded-full px-2.5 py-1.5">
+              <MapPin className="w-3 h-3 text-gray-400 flex-shrink-0" />
+              <span className="text-xs text-gray-300 whitespace-nowrap">{HQ_CITY}</span>
             </div>
           </div>
+
         </div>
       </nav>
 
@@ -1517,7 +1524,7 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'dashboard' && (
         <>
           {/* Stats Bar */}
-          <div className="absolute left-4 right-4 top-24 z-30 glass rounded-lg px-6 py-4 flex gap-6">
+          <div className="absolute left-2 right-2 md:left-4 md:right-4 top-20 md:top-24 z-30 glass rounded-lg px-4 md:px-6 py-3 md:py-4 flex gap-4 md:gap-6 overflow-x-auto">
             {/* Properties Scanned */}
             <div className="text-center">
               <p className="text-3xl font-bold text-cyan">{properties.length}</p>
@@ -1554,7 +1561,7 @@ Only respond with the JSON array, no other text.` }
           </div>
 
           {/* Dashboard Tab Bar */}
-          <div className="absolute left-4 right-4 top-40 z-30 flex gap-2">
+          <div className="absolute left-2 right-2 md:left-4 md:right-4 top-36 md:top-40 z-30 flex gap-1 md:gap-2 overflow-x-auto">
             <button
               onClick={() => setDashboardTab('overview')}
               className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
@@ -1601,7 +1608,7 @@ Only respond with the JSON array, no other text.` }
           {dashboardTab === 'overview' && (
             <>
               {/* Left Panel */}
-              <div className="absolute left-4 top-56 bottom-16 w-80 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
+              <div className="absolute left-2 md:left-4 top-52 md:top-56 bottom-14 md:bottom-16 w-[280px] md:w-80 glass rounded-lg p-4 md:p-6 overflow-y-auto space-y-3 z-30">
                 {/* Lead Pipeline Card */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -1729,13 +1736,13 @@ Only respond with the JSON array, no other text.` }
                 </div>
               </div>
 
-              {/* Center Panel: PropertyGraph */}
-              <div className="absolute left-96 right-96 top-56 h-80 z-30">
+              {/* Center Panel: PropertyGraph — hidden on tablet, visible on desktop */}
+              <div className="hidden xl:block absolute left-[300px] right-[300px] top-56 h-80 z-30">
                 <PropertyGraph properties={properties} center={mapCenter} />
               </div>
 
               {/* Right Panel */}
-              <div className="absolute right-4 top-56 bottom-16 w-72 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
+              <div className="absolute right-2 md:right-4 top-52 md:top-56 bottom-14 md:bottom-16 w-[260px] md:w-72 glass rounded-lg p-4 md:p-6 overflow-y-auto space-y-3 z-30">
                 {/* Search Toggle */}
                 <div className="flex gap-2 mb-4">
                   <button
@@ -2351,7 +2358,7 @@ Only respond with the JSON array, no other text.` }
 
           {/* Selected Property Detail */}
           {selectedProperty && (
-            <div className="absolute inset-4 top-20 z-30 flex items-center justify-center">
+            <div className="absolute inset-2 md:inset-4 top-16 md:top-20 z-30 flex items-center justify-center">
               <div className="max-w-2xl w-full relative">
                 <button
                   onClick={() => setSelectedProperty(null)}
@@ -2847,7 +2854,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 5: MICHAEL AI */}
       {activeScreen === 'michael' && (
-        <div className="absolute inset-4 top-20 z-30 flex items-center justify-center">
+        <div className="absolute inset-2 md:inset-4 top-16 md:top-20 z-30 flex items-center justify-center">
           <div className="glass p-6 rounded-xl w-full max-w-2xl h-[calc(100vh-180px)] flex flex-col">
             {/* Header */}
             <div className="flex items-center gap-3 mb-6">
@@ -2937,7 +2944,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 6: CLIENTS */}
       {activeScreen === 'clients' && (
-        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+        <div className="absolute inset-2 md:inset-4 top-16 md:top-20 z-30 flex gap-4 h-[calc(100vh-100px)] md:h-[calc(100vh-120px)]">
           {/* Left Panel: Client List */}
           <div className="w-1/3 glass rounded-lg p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
@@ -3180,7 +3187,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 7: PROPOSALS */}
       {activeScreen === 'proposals' && (
-        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+        <div className="absolute inset-2 md:inset-4 top-16 md:top-20 z-30 flex gap-4 h-[calc(100vh-100px)] md:h-[calc(100vh-120px)]">
           {/* Left Panel: Proposal List */}
           <div className="w-1/3 glass rounded-lg p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
@@ -3457,7 +3464,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 8: MATERIALS */}
       {activeScreen === 'materials' && (
-        <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)] gap-4">
+        <div className="absolute inset-2 md:inset-4 top-16 md:top-20 z-30 flex flex-col h-[calc(100vh-100px)] md:h-[calc(100vh-120px)] gap-4">
           {/* Roof Calculator */}
           <div className="glass rounded-lg p-6">
             <div className="flex items-center gap-2 mb-4">
@@ -3692,7 +3699,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 9: TEAM CHAT */}
       {activeScreen === 'team' && (
-        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+        <div className="absolute inset-2 md:inset-4 top-16 md:top-20 z-30 flex gap-4 h-[calc(100vh-100px)] md:h-[calc(100vh-120px)]">
           {/* Left Panel: Channels & User Role */}
           <div className="w-48 glass rounded-lg p-6 flex flex-col">
             <div className="mb-6">
@@ -3813,7 +3820,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 10: JOBS */}
       {activeScreen === 'jobs' && (
-        <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)] gap-4">
+        <div className="absolute inset-2 md:inset-4 top-16 md:top-20 z-30 flex flex-col h-[calc(100vh-100px)] md:h-[calc(100vh-120px)] gap-4">
 
           {/* Header row */}
           <div className="flex items-center justify-between">
