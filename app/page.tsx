@@ -1016,44 +1016,53 @@ export default function Dashboard() {
         body: JSON.stringify({ address: addressToResearch }),
       })
       if (!startRes.ok) throw new Error('Could not start research job')
-      const { jobId } = await startRes.json()
+      const startJson = await startRes.json()
 
-      // Phase 3: Poll for results every 3 seconds (research runs in background)
+      // Phase 3: Use direct response if available, otherwise poll
       let data: Record<string, unknown> = {}
-      let attempts = 0
-      const maxAttempts = 30 // 30 × 3s = 90 seconds max wait
 
-      await new Promise<void>((resolve) => {
-        const poll = async () => {
-          attempts++
-          try {
-            const statusRes = await fetch(`/api/research/status?jobId=${jobId}`)
-            const status = await statusRes.json()
+      if (startJson.status === 'done' && startJson.data) {
+        // New path: research completed synchronously, data returned directly
+        data = startJson.data || {}
+        setSweepPhase('scoring')
+      } else if (startJson.jobId) {
+        // Legacy path: poll for results every 3 seconds
+        const jobId = startJson.jobId
+        let attempts = 0
+        const maxAttempts = 30 // 30 × 3s = 90 seconds max wait
 
-            if (status.status === 'done') {
-              data = status.data || {}
-              setSweepPhase('scoring')
+        await new Promise<void>((resolve) => {
+          const poll = async () => {
+            attempts++
+            try {
+              const statusRes = await fetch(`/api/research/status?jobId=${jobId}`)
+              const status = await statusRes.json()
+
+              if (status.status === 'done') {
+                data = status.data || {}
+                setSweepPhase('scoring')
+                resolve()
+                return
+              }
+              if (status.status === 'error') {
+                console.error('Research job error:', status.error)
+                resolve()
+                return
+              }
+            } catch (e) {
+              console.error('Poll error:', e)
+            }
+
+            if (attempts >= maxAttempts) {
+              console.warn('Research timed out after 90s')
               resolve()
               return
             }
-            if (status.status === 'error') {
-              console.error('Research job error:', status.error)
-              resolve()
-              return
-            }
-          } catch (e) {
-            console.error('Poll error:', e)
-          }
-
-          if (attempts >= maxAttempts) {
-            console.warn('Research timed out after 90s')
-            resolve()
-            return
+            setTimeout(poll, 3000)
           }
           setTimeout(poll, 3000)
-        }
-        setTimeout(poll, 3000)
-      })
+        })
+      }
 
       // Phase 4: Build property from whatever research returned
       const newProperty: Property = {
