@@ -1524,47 +1524,45 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'dashboard' && (
         <>
           {/* Stats Bar */}
-          <div className="absolute left-2 right-2 md:left-4 md:right-4 top-20 md:top-24 z-30 glass rounded-lg px-4 md:px-6 py-3 md:py-4 flex gap-4 md:gap-6 overflow-x-auto">
+          <div className="absolute left-2 right-2 md:left-4 md:right-4 top-20 md:top-24 z-30 glass rounded-lg px-4 py-2 flex gap-4 md:gap-8 overflow-x-auto">
             {/* Properties Scanned */}
-            <div className="text-center">
-              <p className="text-3xl font-bold text-cyan">{properties.length}</p>
-              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Properties Scanned</p>
+            <div className="text-center flex-shrink-0">
+              <p className="text-xl md:text-3xl font-bold text-cyan leading-tight">{properties.length}</p>
+              <p className="text-[10px] md:text-xs text-gray-400 uppercase tracking-wide">Scanned</p>
             </div>
 
             {/* Qualifying Roofs */}
-            <div className="text-center">
-              <p className="text-3xl font-bold text-green">
+            <div className="text-center flex-shrink-0">
+              <p className="text-xl md:text-3xl font-bold text-green leading-tight">
                 {properties.filter((p) => p.roof_age_years !== null && p.roof_age_years >= 15).length}
               </p>
-              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Qualifying Roofs</p>
+              <p className="text-[10px] md:text-xs text-gray-400 uppercase tracking-wide">Qualifying</p>
             </div>
 
             {/* Avg Roof Age */}
-            <div className="text-center">
-              <p className="text-3xl font-bold text-amber">
+            <div className="text-center flex-shrink-0">
+              <p className="text-xl md:text-3xl font-bold text-amber leading-tight">
                 {properties.length > 0
-                  ? (
-                    properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length
-                  ).toFixed(1)
+                  ? (properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length).toFixed(1)
                   : '—'}
               </p>
-              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Avg Roof Age (yr)</p>
+              <p className="text-[10px] md:text-xs text-gray-400 uppercase tracking-wide">Avg Age (yr)</p>
             </div>
 
             {/* Critical 20+ YR */}
-            <div className="text-center">
-              <p className="text-3xl font-bold text-red">
+            <div className="text-center flex-shrink-0">
+              <p className="text-xl md:text-3xl font-bold text-red leading-tight">
                 {properties.filter((p) => p.roof_age_years !== null && p.roof_age_years >= 20).length}
               </p>
-              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Critical (20+ yr)</p>
+              <p className="text-[10px] md:text-xs text-gray-400 uppercase tracking-wide">Critical 20+</p>
             </div>
           </div>
 
           {/* Dashboard Tab Bar */}
-          <div className="absolute left-2 right-2 md:left-4 md:right-4 top-36 md:top-40 z-30 flex gap-1 md:gap-2 overflow-x-auto">
+          <div className="absolute left-2 right-2 md:left-4 md:right-4 top-[136px] md:top-[148px] z-30 flex gap-1 overflow-x-auto">
             <button
               onClick={() => setDashboardTab('overview')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
+              className={`px-2 md:px-4 py-1 md:py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide transition-all whitespace-nowrap flex-shrink-0 ${
                 dashboardTab === 'overview'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
@@ -1574,7 +1572,7 @@ Only respond with the JSON array, no other text.` }
             </button>
             <button
               onClick={() => setDashboardTab('storm-leads')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
+              className={`px-2 md:px-4 py-1 md:py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide transition-all whitespace-nowrap flex-shrink-0 ${
                 dashboardTab === 'storm-leads'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
@@ -1584,7 +1582,7 @@ Only respond with the JSON array, no other text.` }
             </button>
             <button
               onClick={() => setDashboardTab('michael-leads')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
+              className={`px-2 md:px-4 py-1 md:py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide transition-all whitespace-nowrap flex-shrink-0 ${
                 dashboardTab === 'michael-leads'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
@@ -1594,7 +1592,7 @@ Only respond with the JSON array, no other text.` }
             </button>
             <button
               onClick={() => setDashboardTab('historical')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
+              className={`px-2 md:px-4 py-1 md:py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide transition-all whitespace-nowrap flex-shrink-0 ${
                 dashboardTab === 'historical'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
@@ -1608,7 +1606,7 @@ Only respond with the JSON array, no other text.` }
           {dashboardTab === 'overview' && (
             <>
               {/* Left Panel */}
-              <div className="absolute left-2 md:left-4 top-52 md:top-56 bottom-14 md:bottom-16 w-[280px] md:w-80 glass rounded-lg p-4 md:p-6 overflow-y-auto space-y-3 z-30">
+              <div className="absolute left-2 md:left-4 top-[172px] md:top-[188px] bottom-4 w-[280px] md:w-80 glass rounded-lg p-4 overflow-y-auto space-y-3 z-30">
                 {/* Lead Pipeline Card */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -1737,12 +1735,12 @@ Only respond with the JSON array, no other text.` }
               </div>
 
               {/* Center Panel: PropertyGraph — hidden on tablet, visible on desktop */}
-              <div className="hidden xl:block absolute left-[300px] right-[300px] top-56 h-80 z-30">
+              <div className="hidden xl:block absolute left-[300px] right-[300px] top-[188px] h-72 z-30">
                 <PropertyGraph properties={properties} center={mapCenter} />
               </div>
 
               {/* Right Panel */}
-              <div className="absolute right-2 md:right-4 top-52 md:top-56 bottom-14 md:bottom-16 w-[260px] md:w-72 glass rounded-lg p-4 md:p-6 overflow-y-auto space-y-3 z-30">
+              <div className="absolute right-2 md:right-4 top-[172px] md:top-[188px] bottom-4 w-[260px] md:w-72 glass rounded-lg p-4 overflow-y-auto space-y-3 z-30">
                 {/* Search Toggle */}
                 <div className="flex gap-2 mb-4">
                   <button
