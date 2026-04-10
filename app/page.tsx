@@ -501,6 +501,10 @@ function PropertyCard({ property }: PropertyCardProps) {
 }
 
 export default function Dashboard() {
+  const [isOnline, setIsOnline] = useState(true)
+  const [syncPending, setSyncPending] = useState(0)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>('idle')
+
   const [activeScreen, setActiveScreen] = useState<Screen>('dashboard')
   const [weather, setWeather] = useState<WeatherCurrent | null>(null)
   const [alerts, setAlerts] = useState<WeatherAlert[]>([])
@@ -650,6 +654,55 @@ export default function Dashboard() {
       setJobs(jobsData)
     }
     loadData()
+  }, [])
+
+  // Online / offline detection + sync queue
+  useEffect(() => {
+    // Set initial state
+    setIsOnline(navigator.onLine)
+
+    // Count pending items in localStorage sync queue
+    const countPending = () => {
+      try {
+        const queue = JSON.parse(localStorage.getItem('directive_sync_queue') || '[]')
+        setSyncPending(queue.length)
+      } catch { setSyncPending(0) }
+    }
+    countPending()
+
+    const handleOnline = async () => {
+      setIsOnline(true)
+      setSyncStatus('syncing')
+
+      // Drain the sync queue
+      try {
+        const queue: Array<{ type: string; data: unknown }> = JSON.parse(localStorage.getItem('directive_sync_queue') || '[]')
+        if (queue.length > 0) {
+          for (const item of queue) {
+            try {
+              if (item.type === 'job') await saveJob(item.data as Parameters<typeof saveJob>[0])
+            } catch { /* item stays in queue if still failing */ }
+          }
+          localStorage.removeItem('directive_sync_queue')
+          setSyncPending(0)
+        }
+      } catch { /* ignore */ }
+
+      setSyncStatus('synced')
+      setTimeout(() => setSyncStatus('idle'), 3000)
+    }
+
+    const handleOffline = () => {
+      setIsOnline(false)
+      setSyncStatus('idle')
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
   }, [])
 
   // Fetch weather data on mount
@@ -1327,6 +1380,35 @@ Only respond with the JSON array, no other text.` }
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-dark">
+
+      {/* Offline / Sync Banner */}
+      {(!isOnline || syncStatus === 'syncing' || syncStatus === 'synced') && (
+        <div className={`fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2 py-1.5 text-xs font-semibold transition-all ${
+          !isOnline
+            ? 'bg-red-500/90 text-white'
+            : syncStatus === 'syncing'
+            ? 'bg-amber-500/90 text-dark'
+            : 'bg-green/90 text-dark'
+        }`}>
+          {!isOnline ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              OFFLINE — changes are saved locally{syncPending > 0 ? ` · ${syncPending} pending sync` : ''}
+            </>
+          ) : syncStatus === 'syncing' ? (
+            <>
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Back online — syncing {syncPending} item{syncPending !== 1 ? 's' : ''}...
+            </>
+          ) : (
+            <>
+              <CheckCircle2 className="w-3 h-3" />
+              All changes synced
+            </>
+          )}
+        </div>
+      )}
+
       {/* Background */}
       <div className="absolute inset-0 z-0" style={{ isolation: 'isolate' }}>
         {activeScreen === 'dashboard' ? (
