@@ -1474,7 +1474,7 @@ Only respond with the JSON array, no other text.` }
           </div>
 
           {/* Dashboard Tab Bar */}
-          <div className="absolute left-4 right-4 top-40 z-30 flex gap-2">
+          <div className="absolute left-4 right-4 top-[188px] z-30 flex gap-2">
             <button
               onClick={() => setDashboardTab('overview')}
               className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
@@ -1521,7 +1521,7 @@ Only respond with the JSON array, no other text.` }
           {dashboardTab === 'overview' && (
             <>
               {/* Left Panel */}
-              <div className="absolute left-4 top-56 bottom-16 w-80 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
+              <div className="absolute left-4 top-[236px] bottom-16 w-80 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
                 {/* Lead Pipeline Card */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -1650,12 +1650,12 @@ Only respond with the JSON array, no other text.` }
               </div>
 
               {/* Center Panel: PropertyGraph */}
-              <div className="absolute left-96 right-96 top-56 h-80 z-30">
+              <div className="absolute left-96 right-96 top-[236px] h-80 z-30">
                 <PropertyGraph properties={properties} center={mapCenter} />
               </div>
 
               {/* Right Panel */}
-              <div className="absolute right-4 top-56 bottom-16 w-72 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
+              <div className="absolute right-4 top-[236px] bottom-16 w-72 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
                 {/* Search Toggle */}
                 <div className="flex gap-2 mb-4">
                   <button
@@ -1780,7 +1780,7 @@ Only respond with the JSON array, no other text.` }
 
           {/* STORM DAMAGE LEADS TAB */}
           {dashboardTab === 'storm-leads' && (
-            <div className="absolute left-4 right-4 top-56 bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+            <div className="absolute left-4 right-4 top-[236px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
               <h2 className="text-lg font-semibold text-cyan mb-4">Storm Damage Leads</h2>
               <div className="space-y-3">
                 {properties
@@ -1838,7 +1838,7 @@ Only respond with the JSON array, no other text.` }
 
           {/* MICHAEL AI LEADS TAB */}
           {dashboardTab === 'michael-leads' && (
-            <div className="absolute left-4 right-4 top-56 bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+            <div className="absolute left-4 right-4 top-[236px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-cyan">Michael's Daily Picks</h2>
                 <button
@@ -1893,7 +1893,7 @@ Only respond with the JSON array, no other text.` }
 
           {/* HISTORICAL WEATHER TAB */}
           {dashboardTab === 'historical' && (
-            <div className="absolute left-4 right-4 top-56 bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+            <div className="absolute left-4 right-4 top-[236px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
               <h2 className="text-lg font-semibold text-cyan mb-4">Historical Hail Events (Past Year)</h2>
 
               {hailEvents.length === 0 ? (
