@@ -77,9 +77,7 @@ function MapInner({
   })
 
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null)
-  const initialView: MapViewMode | 'globe' =
-    mode === 'dark' ? 'night' : mode === 'satellite' ? 'satellite' : 'globe'
-  const [viewMode, setViewMode] = useState<MapViewMode | 'globe'>(initialView)
+  const [viewMode, setViewMode] = useState<MapViewMode | 'globe'>('globe')
   const [tilt, setTilt] = useState(45)
   const [photoTileSession, setPhotoTileSession] = useState<string | null>(null)
   const [loadingPhotoTiles, setLoadingPhotoTiles] = useState(false)
@@ -93,11 +91,9 @@ function MapInner({
   const googleMapType = viewMode === 'night' ? 'roadmap' : viewMode === 'night-terrain' ? 'terrain' : viewMode === 'globe' ? 'hybrid' : (viewMode as MapViewMode)
 
   useEffect(() => {
-    if (mode === 'satellite' && viewMode !== 'satellite' && viewMode !== 'hybrid' && viewMode !== 'globe') {
+    if (mode === 'satellite' && viewMode !== 'satellite') {
       setViewMode('satellite')
       onModeChange?.('satellite')
-    } else if (mode === 'dark' && viewMode !== 'night' && viewMode !== 'night-terrain') {
-      setViewMode('night')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
@@ -384,15 +380,12 @@ function MapInner({
           zoomControlOptions: {
             position: google.maps.ControlPosition.RIGHT_BOTTOM,
           },
-          // styles ONLY works when mapId is absent — night mode requires this
           styles: (viewMode === 'night' || viewMode === 'night-terrain') ? nightStyle : [],
           tilt: (viewMode as MapViewMode | 'globe') === 'globe' ? 45 : tilt,
           heading: 0,
-          // mapId enables WebGL/vector rendering for 3D — ONLY use for 3D-capable modes
-          // When mapId is present, custom styles are IGNORED by Google Maps
-          ...(viewMode === 'satellite' || viewMode === 'hybrid' || viewMode === 'globe'
-            ? { mapId: 'DEMO_MAP_ID', isFractionalZoomEnabled: true }
-            : {}),
+          // Enable WebGL vector rendering for 3D globe (Google Earth-style)
+          mapId: 'DEMO_MAP_ID',
+          isFractionalZoomEnabled: true,
         }}
       >
         {markers?.map((marker) => (

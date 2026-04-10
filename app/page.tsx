@@ -501,10 +501,6 @@ function PropertyCard({ property }: PropertyCardProps) {
 }
 
 export default function Dashboard() {
-  const [isOnline, setIsOnline] = useState(true)
-  const [syncPending, setSyncPending] = useState(0)
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>('idle')
-
   const [activeScreen, setActiveScreen] = useState<Screen>('dashboard')
   const [weather, setWeather] = useState<WeatherCurrent | null>(null)
   const [alerts, setAlerts] = useState<WeatherAlert[]>([])
@@ -580,8 +576,6 @@ export default function Dashboard() {
   // Pin drop state (GPS Sweep)
   const [pinDropLat, setPinDropLat] = useState<number | null>(null)
   const [pinDropLng, setPinDropLng] = useState<number | null>(null)
-  // GPS Sweep error state
-  const [sweepError, setSweepError] = useState<string | null>(null)
 
   // Clients screen state
   const [clients, setClients] = useState<Client[]>([])
@@ -618,9 +612,6 @@ export default function Dashboard() {
   const [addingSupplementNote, setAddingSupplementNote] = useState(false)
   const [photoCategory, setPhotoCategory] = useState<PhotoCategory>('overall_roof')
   const photoInputRef = useRef<HTMLInputElement>(null)
-
-  // Account dropdown state
-  const [showAccountMenu, setShowAccountMenu] = useState(false)
 
   // Team chat state
   const [teamMessages, setTeamMessages] = useState<ChatMessage[]>([])
@@ -659,55 +650,6 @@ export default function Dashboard() {
       setJobs(jobsData)
     }
     loadData()
-  }, [])
-
-  // Online / offline detection + sync queue
-  useEffect(() => {
-    // Set initial state
-    setIsOnline(navigator.onLine)
-
-    // Count pending items in localStorage sync queue
-    const countPending = () => {
-      try {
-        const queue = JSON.parse(localStorage.getItem('directive_sync_queue') || '[]')
-        setSyncPending(queue.length)
-      } catch { setSyncPending(0) }
-    }
-    countPending()
-
-    const handleOnline = async () => {
-      setIsOnline(true)
-      setSyncStatus('syncing')
-
-      // Drain the sync queue
-      try {
-        const queue: Array<{ type: string; data: unknown }> = JSON.parse(localStorage.getItem('directive_sync_queue') || '[]')
-        if (queue.length > 0) {
-          for (const item of queue) {
-            try {
-              if (item.type === 'job') await saveJob(item.data as Parameters<typeof saveJob>[0])
-            } catch { /* item stays in queue if still failing */ }
-          }
-          localStorage.removeItem('directive_sync_queue')
-          setSyncPending(0)
-        }
-      } catch { /* ignore */ }
-
-      setSyncStatus('synced')
-      setTimeout(() => setSyncStatus('idle'), 3000)
-    }
-
-    const handleOffline = () => {
-      setIsOnline(false)
-      setSyncStatus('idle')
-    }
-
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-    }
   }, [])
 
   // Fetch weather data on mount
@@ -992,94 +934,75 @@ export default function Dashboard() {
 
     setSweepLoading(true)
     setSweepPhase('geocoding')
-    setSweepError(null)
-
-    // We'll build the property from whatever we get — even partial data is useful
-    let lat = 0, lng = 0, display_name = sweepAddress
-    let data: Record<string, unknown> = {}
 
     try {
       // Phase 0: Validate & normalize address
-      try {
-        const validateRes = await fetch('/api/validate-address', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address: sweepAddress })
-        })
-        const validation = await validateRes.json()
-        if (validation.canonical) display_name = validation.canonical
-      } catch { /* validation is optional */ }
+      const validateRes = await fetch('/api/validate-address', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: sweepAddress })
+      })
+      const validation = await validateRes.json()
+      const addressToResearch = validation.canonical || sweepAddress
 
-      const addressToResearch = display_name
-
-      // Phase 1: Geocode
+      // Phase 1: Geocode — get coordinates immediately so map can fly there
       const geocodeRes = await fetch(`/api/geocode?q=${encodeURIComponent(addressToResearch)}`)
-      if (geocodeRes.ok) {
-        const geo = await geocodeRes.json()
-        lat = geo.lat
-        lng = geo.lng
-        if (geo.display_name) display_name = geo.display_name
-        setMapCenter({ lat, lng })
-        setMapZoom(18)
-      } else {
-        setSweepError('Could not geocode address — check address and try again.')
-        setSweepPhase('idle')
-        setSweepLoading(false)
-        return
-      }
+      if (!geocodeRes.ok) throw new Error('Geocoding failed')
+      const { lat, lng, display_name } = await geocodeRes.json()
+
+      // Fly to property on map right away
+      setMapCenter({ lat, lng })
+      setMapZoom(18)
 
       setSweepPhase('researching')
 
-      // Phase 2: Research — handles timeout and partial failures gracefully
-      try {
-        const startRes = await fetch('/api/research/start', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address: addressToResearch }),
-        })
+      // Phase 2: Start async research job — returns jobId immediately (no timeout)
+      const startRes = await fetch('/api/research/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: addressToResearch }),
+      })
+      if (!startRes.ok) throw new Error('Could not start research job')
+      const { jobId } = await startRes.json()
 
-        if (startRes.ok) {
-          const startJson = await startRes.json()
-          if (startJson.status === 'done' && startJson.data) {
-            data = startJson.data || {}
-            setSweepPhase('scoring')
-          } else if (startJson.jobId) {
-            // Poll for results
-            const jobId = startJson.jobId
-            let attempts = 0
-            await new Promise<void>((resolve) => {
-              const poll = async () => {
-                attempts++
-                try {
-                  const statusRes = await fetch(`/api/research/status?jobId=${jobId}`)
-                  const status = await statusRes.json()
-                  if (status.status === 'done') { data = status.data || {}; setSweepPhase('scoring'); resolve(); return }
-                  if (status.status === 'error') { resolve(); return }
-                } catch { /* continue polling */ }
-                if (attempts >= 30) { resolve(); return }
-                setTimeout(poll, 3000)
-              }
-              setTimeout(poll, 3000)
-            })
-          } else if (startJson.status === 'error') {
-            // API returned error but still usable — we have geocode data
-            setSweepError(`Research note: ${startJson.error || 'Partial data returned'}. Property saved with available info.`)
+      // Phase 3: Poll for results every 3 seconds (research runs in background)
+      let data: Record<string, unknown> = {}
+      let attempts = 0
+      const maxAttempts = 30 // 30 × 3s = 90 seconds max wait
+
+      await new Promise<void>((resolve) => {
+        const poll = async () => {
+          attempts++
+          try {
+            const statusRes = await fetch(`/api/research/status?jobId=${jobId}`)
+            const status = await statusRes.json()
+
+            if (status.status === 'done') {
+              data = status.data || {}
+              setSweepPhase('scoring')
+              resolve()
+              return
+            }
+            if (status.status === 'error') {
+              console.error('Research job error:', status.error)
+              resolve()
+              return
+            }
+          } catch (e) {
+            console.error('Poll error:', e)
           }
-        } else if (startRes.status === 504) {
-          // Vercel timeout — property still saveable with geocode data
-          setSweepError('Research timed out — property saved with location data. You can re-research later.')
-        } else {
-          setSweepError('Research service unavailable — property saved with location only.')
+
+          if (attempts >= maxAttempts) {
+            console.warn('Research timed out after 90s')
+            resolve()
+            return
+          }
+          setTimeout(poll, 3000)
         }
-      } catch (researchErr) {
-        // Network error during research — still save with geocode
-        console.error('Research fetch error:', researchErr)
-        setSweepError('Research could not connect — property saved with location data only.')
-      }
+        setTimeout(poll, 3000)
+      })
 
-      setSweepPhase('scoring')
-
-      // Phase 3: Build property from whatever data we got
+      // Phase 4: Build property from whatever research returned
       const newProperty: Property = {
         id: `prop_${Date.now()}`,
         address: display_name || sweepAddress,
@@ -1126,28 +1049,12 @@ export default function Dashboard() {
 
       setSweepResult(newProperty)
       setMapZoom(19)
+      setSweepPhase('idle')
     } catch (error) {
       console.error('Sweep error:', error)
-      setSweepError('An unexpected error occurred. Please try again.')
-    } finally {
       setSweepPhase('idle')
+    } finally {
       setSweepLoading(false)
-    }
-  }
-
-  // Run All: fires address research + commercial + residential simultaneously
-  const handleRunFullSweep = async () => {
-    const loc = sweepUserLocation || await getAccurateLocation()
-    if (loc) {
-      setSweepUserLocation(loc)
-      setSweepLocationAccuracy((loc as { lat: number; lng: number; accuracy?: number }).accuracy || null)
-      // Fire commercial + residential in parallel
-      handleSearchCommercial()
-      handleSearchResidential()
-    }
-    // Also run address research if address is entered
-    if (sweepAddress.trim()) {
-      handleSweepResearch()
     }
   }
 
@@ -1420,35 +1327,6 @@ Only respond with the JSON array, no other text.` }
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-dark">
-
-      {/* Offline / Sync Banner */}
-      {(!isOnline || syncStatus === 'syncing' || syncStatus === 'synced') && (
-        <div className={`fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2 py-1.5 text-xs font-semibold transition-all ${
-          !isOnline
-            ? 'bg-red-500/90 text-white'
-            : syncStatus === 'syncing'
-            ? 'bg-amber-500/90 text-dark'
-            : 'bg-green/90 text-dark'
-        }`}>
-          {!isOnline ? (
-            <>
-              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-              OFFLINE — changes are saved locally{syncPending > 0 ? ` · ${syncPending} pending sync` : ''}
-            </>
-          ) : syncStatus === 'syncing' ? (
-            <>
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Back online — syncing {syncPending} item{syncPending !== 1 ? 's' : ''}...
-            </>
-          ) : (
-            <>
-              <CheckCircle2 className="w-3 h-3" />
-              All changes synced
-            </>
-          )}
-        </div>
-      )}
-
       {/* Background */}
       <div className="absolute inset-0 z-0" style={{ isolation: 'isolate' }}>
         {activeScreen === 'dashboard' ? (
@@ -1460,8 +1338,7 @@ Only respond with the JSON array, no other text.` }
               mode="dark"
               onModeChange={() => {}}
             />
-            {/* Light vignette — preserves map visibility while darkening edges */}
-            <div className="absolute inset-0 bg-[#0d1117]/20" style={{backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(6,182,212,0.04) 0%, transparent 60%)'}} />
+            <div className="absolute inset-0 bg-[#0d1117]/60" style={{backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(6,182,212,0.06) 0%, transparent 60%)'}} />
           </div>
         ) : (
           <>
@@ -1491,28 +1368,24 @@ Only respond with the JSON array, no other text.` }
       </div>
 
       {/* Top Navigation Bar */}
-      <nav className="absolute top-0 left-0 right-0 z-40 glass m-2 rounded-lg">
-        <div className="flex items-center justify-between px-3 py-2 gap-2">
-
-          {/* Logo + Brand */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+      <nav className="absolute top-0 left-0 right-0 z-40 glass m-4 rounded-lg">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-3 flex-shrink-0">
             <Image
               src="/directive-wordmark.png"
               alt="Directive"
-              width={240}
-              height={56}
-              className="h-9 md:h-11 w-auto"
+              width={200}
+              height={48}
+              className="h-10 w-auto"
             />
-            <span className="hidden sm:inline text-xs font-bold tracking-widest text-cyan/80 uppercase border border-cyan/30 rounded px-1.5 py-0.5">CRM</span>
           </div>
 
-          {/* Nav Tabs */}
-          <div className="flex gap-0.5 overflow-x-auto scrollbar-hide flex-1 justify-center">
+          <div className="flex gap-1 overflow-x-auto scrollbar-hide">
             {[
               { id: 'dashboard' as Screen, label: 'Dashboard', icon: BarChart3 },
               { id: 'territory' as Screen, label: 'Territory', icon: MapPin },
               { id: 'sweep' as Screen, label: 'Sweep', icon: Navigation },
-              { id: 'stormscope' as Screen, label: 'Storm', icon: Radio },
+              { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio },
               { id: 'michael' as Screen, label: 'Michael', icon: Brain },
               { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase },
               { id: 'clients' as Screen, label: 'Clients', icon: Users },
@@ -1522,7 +1395,6 @@ Only respond with the JSON array, no other text.` }
             ].map((tab) => {
               const Icon = tab.icon
               const hasUnread = tab.id === 'team' && unreadCount > 0
-              const isActive = activeScreen === tab.id
               return (
                 <button
                   key={tab.id}
@@ -1530,15 +1402,14 @@ Only respond with the JSON array, no other text.` }
                     setActiveScreen(tab.id)
                     if (tab.id === 'team') setUnreadCount(0)
                   }}
-                  title={tab.label}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-all relative flex-shrink-0 ${
-                    isActive
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all relative whitespace-nowrap flex-shrink-0 ${
+                    activeScreen === tab.id
                       ? 'bg-cyan text-dark'
                       : 'text-gray-400 hover:text-white hover:bg-dark-700/50'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="hidden md:inline whitespace-nowrap">{tab.label}</span>
+                  <Icon className="w-3.5 h-3.5" />
+                  {tab.label}
                   {hasUnread && (
                     <span className="absolute top-1 right-1 w-2 h-2 bg-red rounded-full" />
                   )}
@@ -1547,60 +1418,16 @@ Only respond with the JSON array, no other text.` }
             })}
           </div>
 
-          {/* Right side — Live status + Account */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 bg-green rounded-full animate-pulse" />
-              <span className="hidden lg:inline text-xs font-semibold text-green uppercase tracking-wide">Live</span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 bg-green rounded-full animate-pulse" />
+              <span className="text-xs font-semibold text-green uppercase tracking-wide">Live</span>
             </div>
-
-            {/* Account dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setShowAccountMenu(!showAccountMenu)}
-                className="flex items-center gap-1.5 bg-dark-700/60 hover:bg-dark-700/80 border border-white/10 rounded-lg px-2.5 py-1.5 transition-all"
-              >
-                <div className="w-6 h-6 rounded-full bg-cyan/20 border border-cyan/40 flex items-center justify-center">
-                  <span className="text-[10px] font-bold text-cyan">B</span>
-                </div>
-                <ChevronDown className="w-3 h-3 text-gray-400" />
-              </button>
-
-              {showAccountMenu && (
-                <div className="absolute right-0 top-full mt-1 w-52 bg-[#0d1117] border border-white/10 rounded-xl shadow-2xl z-50 py-1 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-white/5">
-                    <p className="text-sm font-semibold text-white">Brandon Hughes</p>
-                    <p className="text-xs text-gray-400 truncate">mazeratirecords@gmail.com</p>
-                  </div>
-                  {[
-                    { label: 'My Profile', icon: Users },
-                    { label: 'Settings', icon: Package },
-                    { label: 'Team Management', icon: MessageSquare },
-                    { label: 'Billing', icon: FileText },
-                  ].map(item => (
-                    <button
-                      key={item.label}
-                      onClick={() => setShowAccountMenu(false)}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-colors text-left"
-                    >
-                      <item.icon className="w-4 h-4 text-gray-500" />
-                      {item.label}
-                    </button>
-                  ))}
-                  <div className="border-t border-white/5 mt-1">
-                    <button
-                      onClick={() => setShowAccountMenu(false)}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/5 transition-colors text-left"
-                    >
-                      <X className="w-4 h-4" />
-                      Sign Out
-                    </button>
-                  </div>
-                </div>
-              )}
+            <div className="flex items-center gap-2 bg-dark-700/50 rounded-full px-3 py-1.5">
+              <MapPin className="w-3 h-3 text-gray-400" />
+              <span className="text-xs text-gray-300">{HQ_CITY}</span>
             </div>
           </div>
-
         </div>
       </nav>
 
@@ -1608,45 +1435,47 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'dashboard' && (
         <>
           {/* Stats Bar */}
-          <div className="absolute left-2 right-2 md:left-4 md:right-4 top-[72px] z-30 glass rounded-lg px-4 py-2 flex gap-4 md:gap-8 overflow-x-auto">
+          <div className="absolute left-4 right-4 top-24 z-30 glass rounded-lg px-6 py-4 flex gap-6">
             {/* Properties Scanned */}
-            <div className="text-center flex-shrink-0">
-              <p className="text-xl md:text-3xl font-bold text-cyan leading-tight">{properties.length}</p>
-              <p className="text-[10px] md:text-xs text-gray-400 uppercase tracking-wide">Scanned</p>
+            <div className="text-center">
+              <p className="text-3xl font-bold text-cyan">{properties.length}</p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Properties Scanned</p>
             </div>
 
             {/* Qualifying Roofs */}
-            <div className="text-center flex-shrink-0">
-              <p className="text-xl md:text-3xl font-bold text-green leading-tight">
+            <div className="text-center">
+              <p className="text-3xl font-bold text-green">
                 {properties.filter((p) => p.roof_age_years !== null && p.roof_age_years >= 15).length}
               </p>
-              <p className="text-[10px] md:text-xs text-gray-400 uppercase tracking-wide">Qualifying</p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Qualifying Roofs</p>
             </div>
 
             {/* Avg Roof Age */}
-            <div className="text-center flex-shrink-0">
-              <p className="text-xl md:text-3xl font-bold text-amber leading-tight">
+            <div className="text-center">
+              <p className="text-3xl font-bold text-amber">
                 {properties.length > 0
-                  ? (properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length).toFixed(1)
+                  ? (
+                    properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length
+                  ).toFixed(1)
                   : '—'}
               </p>
-              <p className="text-[10px] md:text-xs text-gray-400 uppercase tracking-wide">Avg Age (yr)</p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Avg Roof Age (yr)</p>
             </div>
 
             {/* Critical 20+ YR */}
-            <div className="text-center flex-shrink-0">
-              <p className="text-xl md:text-3xl font-bold text-red leading-tight">
+            <div className="text-center">
+              <p className="text-3xl font-bold text-red">
                 {properties.filter((p) => p.roof_age_years !== null && p.roof_age_years >= 20).length}
               </p>
-              <p className="text-[10px] md:text-xs text-gray-400 uppercase tracking-wide">Critical 20+</p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Critical (20+ yr)</p>
             </div>
           </div>
 
           {/* Dashboard Tab Bar */}
-          <div className="absolute left-2 right-2 md:left-4 md:right-4 top-[132px] z-30 flex gap-1 overflow-x-auto">
+          <div className="absolute left-4 right-4 top-40 z-30 flex gap-2">
             <button
               onClick={() => setDashboardTab('overview')}
-              className={`px-2 md:px-4 py-1 md:py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide transition-all whitespace-nowrap flex-shrink-0 ${
+              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
                 dashboardTab === 'overview'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
@@ -1656,7 +1485,7 @@ Only respond with the JSON array, no other text.` }
             </button>
             <button
               onClick={() => setDashboardTab('storm-leads')}
-              className={`px-2 md:px-4 py-1 md:py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide transition-all whitespace-nowrap flex-shrink-0 ${
+              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
                 dashboardTab === 'storm-leads'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
@@ -1666,7 +1495,7 @@ Only respond with the JSON array, no other text.` }
             </button>
             <button
               onClick={() => setDashboardTab('michael-leads')}
-              className={`px-2 md:px-4 py-1 md:py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide transition-all whitespace-nowrap flex-shrink-0 ${
+              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
                 dashboardTab === 'michael-leads'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
@@ -1676,7 +1505,7 @@ Only respond with the JSON array, no other text.` }
             </button>
             <button
               onClick={() => setDashboardTab('historical')}
-              className={`px-2 md:px-4 py-1 md:py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide transition-all whitespace-nowrap flex-shrink-0 ${
+              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
                 dashboardTab === 'historical'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
@@ -1690,7 +1519,7 @@ Only respond with the JSON array, no other text.` }
           {dashboardTab === 'overview' && (
             <>
               {/* Left Panel */}
-              <div className="absolute left-2 md:left-4 top-[170px] bottom-4 w-[280px] md:w-80 glass rounded-lg p-4 overflow-y-auto space-y-3 z-30">
+              <div className="absolute left-4 top-56 bottom-16 w-80 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
                 {/* Lead Pipeline Card */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -1818,13 +1647,13 @@ Only respond with the JSON array, no other text.` }
                 </div>
               </div>
 
-              {/* Center Panel: PropertyGraph — hidden on tablet, visible on desktop */}
-              <div className="hidden xl:block absolute left-[300px] right-[300px] top-[170px] h-72 z-30">
+              {/* Center Panel: PropertyGraph */}
+              <div className="absolute left-96 right-96 top-56 h-80 z-30">
                 <PropertyGraph properties={properties} center={mapCenter} />
               </div>
 
               {/* Right Panel */}
-              <div className="absolute right-2 md:right-4 top-[170px] bottom-4 w-[260px] md:w-72 glass rounded-lg p-4 overflow-y-auto space-y-3 z-30">
+              <div className="absolute right-4 top-56 bottom-16 w-72 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
                 {/* Search Toggle */}
                 <div className="flex gap-2 mb-4">
                   <button
@@ -2219,7 +2048,7 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'territory' && (
         <>
           {/* Left Panel */}
-          <div className="absolute left-4 top-[72px] bottom-4 w-80 overflow-y-auto space-y-3 z-30">
+          <div className="absolute left-4 top-20 bottom-4 w-80 overflow-y-auto space-y-3 z-30">
             {/* Territory Overview */}
             <div className="glass p-6 rounded-xl">
               <div className="flex items-center gap-2 mb-4">
@@ -2440,7 +2269,7 @@ Only respond with the JSON array, no other text.` }
 
           {/* Selected Property Detail */}
           {selectedProperty && (
-            <div className="absolute inset-2 top-[72px] z-30 flex items-center justify-center">
+            <div className="absolute inset-4 top-20 z-30 flex items-center justify-center">
               <div className="max-w-2xl w-full relative">
                 <button
                   onClick={() => setSelectedProperty(null)}
@@ -2496,7 +2325,7 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'sweep' && (
         <>
           {/* Left Panel */}
-          <div className="absolute left-4 top-[72px] bottom-4 w-96 overflow-y-auto space-y-3 z-30">
+          <div className="absolute left-4 top-20 bottom-4 w-96 overflow-y-auto space-y-3 z-30">
             {/* GPS Sweep Input */}
             <div className="glass p-6 rounded-xl">
               <div className="flex items-center gap-2 mb-4">
@@ -2505,22 +2334,6 @@ Only respond with the JSON array, no other text.` }
               </div>
 
               <div className="space-y-3">
-                {/* Run Full Sweep — fires all three at once */}
-                <button
-                  onClick={handleRunFullSweep}
-                  disabled={sweepLoading || commercialLoading || residentialLoading}
-                  className="w-full bg-gradient-to-r from-cyan to-green text-dark font-bold py-2.5 rounded-lg hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  <Zap className="w-4 h-4" />
-                  Run Full Area Sweep
-                </button>
-
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 border-t border-white/10" />
-                  <span className="text-xs text-gray-500">or research specific address</span>
-                  <div className="flex-1 border-t border-white/10" />
-                </div>
-
                 <input
                   type="text"
                   placeholder="Enter address..."
@@ -2535,16 +2348,8 @@ Only respond with the JSON array, no other text.` }
                   disabled={sweepLoading}
                   className="w-full bg-cyan text-dark font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50"
                 >
-                  {sweepLoading ? 'Researching...' : 'Research This Property'}
+                  {sweepLoading ? 'Researching...' : 'Research Property'}
                 </button>
-
-                {/* Error state — shown even when we have partial results */}
-                {sweepError && (
-                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-xs text-amber-300 flex items-start gap-2">
-                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                    <span>{sweepError}</span>
-                  </div>
-                )}
 
                 {sweepLocationAccuracy && (
                   <p className="text-xs text-gray-400 text-center">
@@ -2804,7 +2609,7 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'stormscope' && (
         <>
           {/* Left Panel */}
-          <div className="absolute left-4 top-[72px] bottom-4 w-80 overflow-y-auto space-y-3 z-30">
+          <div className="absolute left-4 top-20 bottom-4 w-80 overflow-y-auto space-y-3 z-30">
             {/* Current Conditions */}
             <div className="glass p-6 rounded-xl">
               <div className="flex items-center gap-2 mb-4">
@@ -2877,7 +2682,7 @@ Only respond with the JSON array, no other text.` }
           </div>
 
           {/* Right Panel */}
-          <div className="absolute right-4 top-[72px] bottom-4 w-72 overflow-y-auto space-y-3 z-30">
+          <div className="absolute right-4 top-20 bottom-4 w-72 overflow-y-auto space-y-3 z-30">
             {/* Live Radar Toggle */}
             <div className="glass p-4 rounded-xl">
               <div className="flex items-center justify-between">
@@ -2960,7 +2765,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 5: MICHAEL AI */}
       {activeScreen === 'michael' && (
-        <div className="absolute inset-2 top-[72px] z-30 flex items-center justify-center">
+        <div className="absolute inset-4 top-20 z-30 flex items-center justify-center">
           <div className="glass p-6 rounded-xl w-full max-w-2xl h-[calc(100vh-180px)] flex flex-col">
             {/* Header */}
             <div className="flex items-center gap-3 mb-6">
@@ -3050,7 +2855,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 6: CLIENTS */}
       {activeScreen === 'clients' && (
-        <div className="absolute inset-2 top-[72px] z-30 flex gap-4 h-[calc(100vh-84px)]">
+        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
           {/* Left Panel: Client List */}
           <div className="w-1/3 glass rounded-lg p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
@@ -3293,7 +3098,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 7: PROPOSALS */}
       {activeScreen === 'proposals' && (
-        <div className="absolute inset-2 top-[72px] z-30 flex gap-4 h-[calc(100vh-84px)]">
+        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
           {/* Left Panel: Proposal List */}
           <div className="w-1/3 glass rounded-lg p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
@@ -3570,7 +3375,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 8: MATERIALS */}
       {activeScreen === 'materials' && (
-        <div className="absolute inset-2 top-[72px] z-30 flex flex-col h-[calc(100vh-84px)] gap-4">
+        <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)] gap-4">
           {/* Roof Calculator */}
           <div className="glass rounded-lg p-6">
             <div className="flex items-center gap-2 mb-4">
@@ -3805,7 +3610,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 9: TEAM CHAT */}
       {activeScreen === 'team' && (
-        <div className="absolute inset-2 top-[72px] z-30 flex gap-4 h-[calc(100vh-84px)]">
+        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
           {/* Left Panel: Channels & User Role */}
           <div className="w-48 glass rounded-lg p-6 flex flex-col">
             <div className="mb-6">
@@ -3926,7 +3731,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 10: JOBS */}
       {activeScreen === 'jobs' && (
-        <div className="absolute inset-2 top-[72px] z-30 flex flex-col h-[calc(100vh-84px)] gap-4">
+        <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)] gap-4">
 
           {/* Header row */}
           <div className="flex items-center justify-between">
