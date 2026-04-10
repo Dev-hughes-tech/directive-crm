@@ -109,8 +109,9 @@ export async function POST(request: NextRequest) {
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (!anthropicKey) {
-    console.error('ANTHROPIC_API_KEY not set')
-    return NextResponse.json({ error: 'API not configured', status: 'error' }, { status: 500 })
+    // No API key — return minimal result so frontend can still save the property
+    console.warn('[research] ANTHROPIC_API_KEY not set — returning empty data')
+    return NextResponse.json({ jobId: null, status: 'done', data: {}, error: 'API key not configured' })
   }
 
   // Try to create Supabase job record (optional — research works without it)
@@ -168,29 +169,38 @@ Return ONLY this JSON inside <json> tags, no other text:
 }
 </json>`
 
-  // Run Michael AI + NOAA in parallel
+  // Run Michael AI + NOAA in parallel, with a 50s timeout on Claude
   const client = new Anthropic({ apiKey: anthropicKey })
 
+  const claudeTimeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Claude timeout after 50s')), 50000)
+  )
+
   const [claudeResult, stormResult] = await Promise.allSettled([
-    client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
-      tools: [{ type: 'web_search_20250305' as const, name: 'web_search' }],
-      messages: [{ role: 'user', content: prompt }],
-    }),
+    Promise.race([
+      client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+        tools: [{ type: 'web_search_20250305' as const, name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      claudeTimeout,
+    ]),
     geocoded ? fetchStormHistory(geocoded.lat, geocoded.lng) : Promise.resolve(null),
   ])
 
   console.log(`[research] Michael + NOAA done: ${Date.now() - startTime}ms`)
 
-  // Handle Claude failure
+  // Handle Claude failure — return done with empty data so property still gets created
   if (claudeResult.status === 'rejected') {
     const msg = claudeResult.reason?.message || String(claudeResult.reason)
-    console.error('[research] API error:', msg)
-    if (supabase && jobId) {
-      await supabase.from('research_jobs').update({ status: 'error', error_message: msg, updated_at: new Date().toISOString() }).eq('id', jobId)
-    }
-    return NextResponse.json({ jobId, status: 'error', error: msg })
+    console.error('[research] Claude failed:', msg)
+    // Include storm data if we have it
+    const partialData: Record<string, unknown> = {}
+    const stormFallback = stormResult.status === 'fulfilled' ? stormResult.value : null
+    if (stormFallback) partialData.stormHistory = stormFallback
+    if (geocoded) { partialData.geocoded_lat = geocoded.lat; partialData.geocoded_lng = geocoded.lng }
+    return NextResponse.json({ jobId, status: 'done', data: partialData, error: msg })
   }
 
   const response = claudeResult.value
@@ -203,13 +213,20 @@ Return ONLY this JSON inside <json> tags, no other text:
 
   console.log(`[research] Raw text length: ${fullText.length}, stop: ${response.stop_reason}`)
 
+  // Build partial data helper for graceful fallbacks
+  const buildPartialData = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d: any = {}
+    const storm = stormResult.status === 'fulfilled' ? stormResult.value : null
+    if (storm) d.stormHistory = storm
+    if (geocoded) { d.geocoded_lat = geocoded.lat; d.geocoded_lng = geocoded.lng }
+    return d
+  }
+
   if (!fullText.trim()) {
-    const msg = `No text output. Stop: ${response.stop_reason}. Blocks: ${response.content.map((b: { type: string }) => b.type).join(',')}`
+    const msg = `No text output. Stop: ${response.stop_reason}`
     console.error('[research]', msg)
-    if (supabase && jobId) {
-      await supabase.from('research_jobs').update({ status: 'error', error_message: msg, updated_at: new Date().toISOString() }).eq('id', jobId)
-    }
-    return NextResponse.json({ jobId, status: 'error', error: msg })
+    return NextResponse.json({ jobId, status: 'done', data: buildPartialData(), error: msg })
   }
 
   // Extract JSON
@@ -223,12 +240,9 @@ Return ONLY this JSON inside <json> tags, no other text:
   }
 
   if (!jsonStr) {
-    const msg = 'No JSON block found in response'
-    console.error('[research]', msg, '\nPreview:', fullText.slice(0, 600))
-    if (supabase && jobId) {
-      await supabase.from('research_jobs').update({ status: 'error', error_message: msg, updated_at: new Date().toISOString() }).eq('id', jobId)
-    }
-    return NextResponse.json({ jobId, status: 'error', error: msg })
+    const msg = 'No JSON block found — returning storm data only'
+    console.warn('[research]', msg, '\nPreview:', fullText.slice(0, 300))
+    return NextResponse.json({ jobId, status: 'done', data: buildPartialData(), error: msg })
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -239,12 +253,8 @@ Return ONLY this JSON inside <json> tags, no other text:
     try {
       data = JSON.parse(jsonStr.replace(/,(\s*[}\]])/g, '$1'))
     } catch (e) {
-      const msg = `JSON parse failed: ${e}`
-      console.error('[research]', msg)
-      if (supabase && jobId) {
-        await supabase.from('research_jobs').update({ status: 'error', error_message: msg, updated_at: new Date().toISOString() }).eq('id', jobId)
-      }
-      return NextResponse.json({ jobId, status: 'error', error: msg })
+      console.warn('[research] JSON parse failed, returning storm data only:', e)
+      return NextResponse.json({ jobId, status: 'done', data: buildPartialData(), error: `JSON parse failed: ${e}` })
     }
   }
 
