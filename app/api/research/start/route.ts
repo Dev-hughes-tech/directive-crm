@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 
 export const maxDuration = 60
 
-// Supabase is optional — used for caching only. Research works without it.
+// ─── Supabase (optional caching) ─────────────────────────────────────────────
 function getSupabase() {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -14,294 +14,344 @@ function getSupabase() {
   } catch { return null }
 }
 
-async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-  const apiKey = process.env.MAPS_API_KEY
-  if (!apiKey) return null
-  try {
-    const res = await fetch(
-      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`
-    )
-    const data = await res.json()
-    if (data.status === 'OK' && data.results[0]) {
-      return data.results[0].geometry.location
-    }
-  } catch { /* silent */ }
-  return null
+// ─── Google Geocoding → county, state, formatted address ──────────────────────
+interface GeoResult {
+  lat: number
+  lng: number
+  formattedAddress: string
+  county: string | null
+  state: string | null
+  city: string | null
+  zip: string | null
+  neighborhood: string | null
 }
 
+async function googleGeocode(address: string, apiKey: string): Promise<GeoResult | null> {
+  try {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`,
+      { signal: AbortSignal.timeout(8000) }
+    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json()
+    if (data.status !== 'OK' || !data.results[0]) return null
+    const r = data.results[0]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const get = (t: string) => r.address_components.find((c: any) => c.types.includes(t))?.long_name ?? null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const getS = (t: string) => r.address_components.find((c: any) => c.types.includes(t))?.short_name ?? null
+    return {
+      lat: r.geometry.location.lat,
+      lng: r.geometry.location.lng,
+      formattedAddress: r.formatted_address,
+      county: get('administrative_area_level_2'),
+      state: getS('administrative_area_level_1'),
+      city: get('locality') ?? get('sublocality_level_1'),
+      zip: get('postal_code'),
+      neighborhood: get('neighborhood'),
+    }
+  } catch { return null }
+}
+
+// ─── NOAA storm history ────────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchStormHistory(lat: number, lng: number): Promise<any> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stormData: any = {
+  const out: any = {
     hailEvents: [], totalHailEvents: 0, maxHailSize: null, lastHailDate: null, severeHailCount: 0,
     tornadoEvents: [], totalTornadoEvents: 0, lastTornadoDate: null,
     windEvents: [], totalWindEvents: 0, maxWindSpeed: null, lastWindDate: null,
     stormRiskLevel: 'unknown',
   }
+  const end = new Date().toISOString().split('T')[0]
+  const start = new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  const h = { 'User-Agent': 'DirectiveCRM/1.0 (mazeratirecords@gmail.com)' }
 
-  const endDate = new Date().toISOString().split('T')[0]
-  const startDate = new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  const headers = { 'User-Agent': 'DirectiveCRM/1.0 (mazeratirecords@gmail.com)' }
-
-  const [hailResult, tornadoResult, windResult] = await Promise.allSettled([
-    fetch(`https://www.ncdc.noaa.gov/swdi/stormEvents/geojson/hail/${startDate}:${endDate}?lat=${lat}&lon=${lng}&r=10`, { headers, signal: AbortSignal.timeout(8000) }).then(r => r.ok ? r.json() : null),
-    fetch(`https://www.ncdc.noaa.gov/swdi/stormEvents/geojson/torn/${startDate}:${endDate}?lat=${lat}&lon=${lng}&r=25`, { headers, signal: AbortSignal.timeout(8000) }).then(r => r.ok ? r.json() : null),
-    fetch(`https://www.ncdc.noaa.gov/swdi/stormEvents/geojson/wind/${startDate}:${endDate}?lat=${lat}&lon=${lng}&r=10`, { headers, signal: AbortSignal.timeout(8000) }).then(r => r.ok ? r.json() : null),
+  const [hailR, torR, windR] = await Promise.allSettled([
+    fetch(`https://www.ncdc.noaa.gov/swdi/stormEvents/geojson/hail/${start}:${end}?lat=${lat}&lon=${lng}&r=10`, { headers: h, signal: AbortSignal.timeout(7000) }).then(r => r.ok ? r.json() : null),
+    fetch(`https://www.ncdc.noaa.gov/swdi/stormEvents/geojson/torn/${start}:${end}?lat=${lat}&lon=${lng}&r=25`, { headers: h, signal: AbortSignal.timeout(7000) }).then(r => r.ok ? r.json() : null),
+    fetch(`https://www.ncdc.noaa.gov/swdi/stormEvents/geojson/wind/${start}:${end}?lat=${lat}&lon=${lng}&r=10`, { headers: h, signal: AbortSignal.timeout(7000) }).then(r => r.ok ? r.json() : null),
   ])
 
-  const hailData = hailResult.status === 'fulfilled' ? hailResult.value : null
+  const hailData = hailR.status === 'fulfilled' ? hailR.value : null
   if (hailData?.features?.length) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const features = hailData.features as any[]
+    const f = hailData.features as any[]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    stormData.hailEvents = features.slice(0, 20).map((f: any) => ({ date: f.properties?.EVENT_DATE || null, size: f.properties?.HAILSIZE || null, severity: (f.properties?.HAILSIZE || 0) >= 2 ? 'severe' : (f.properties?.HAILSIZE || 0) >= 1 ? 'moderate' : 'minor' }))
-    stormData.totalHailEvents = features.length
+    out.hailEvents = f.slice(0, 20).map((x: any) => ({ date: x.properties?.EVENT_DATE || null, size: x.properties?.HAILSIZE || null, severity: (x.properties?.HAILSIZE || 0) >= 2 ? 'severe' : 'moderate' }))
+    out.totalHailEvents = f.length
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    stormData.maxHailSize = Math.max(...features.map((f: any) => f.properties?.HAILSIZE || 0))
+    out.maxHailSize = Math.max(...f.map((x: any) => x.properties?.HAILSIZE || 0))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sorted = [...features].sort((a: any, b: any) => (b.properties?.EVENT_DATE || '').localeCompare(a.properties?.EVENT_DATE || ''))
-    stormData.lastHailDate = sorted[0]?.properties?.EVENT_DATE || null
+    out.lastHailDate = [...f].sort((a: any, b: any) => (b.properties?.EVENT_DATE || '').localeCompare(a.properties?.EVENT_DATE || ''))[0]?.properties?.EVENT_DATE || null
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    stormData.severeHailCount = features.filter((f: any) => (f.properties?.HAILSIZE || 0) >= 1).length
+    out.severeHailCount = f.filter((x: any) => (x.properties?.HAILSIZE || 0) >= 1).length
   }
-
-  const torData = tornadoResult.status === 'fulfilled' ? tornadoResult.value : null
+  const torData = torR.status === 'fulfilled' ? torR.value : null
   if (torData?.features?.length) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const features = torData.features as any[]
+    const f = torData.features as any[]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    stormData.tornadoEvents = features.slice(0, 10).map((f: any) => ({ date: f.properties?.EVENT_DATE || null, magnitude: f.properties?.TOR_F_SCALE || f.properties?.TOR_SCALE || null }))
-    stormData.totalTornadoEvents = features.length
+    out.tornadoEvents = f.slice(0, 10).map((x: any) => ({ date: x.properties?.EVENT_DATE || null, magnitude: x.properties?.TOR_F_SCALE || null }))
+    out.totalTornadoEvents = f.length
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sorted = [...features].sort((a: any, b: any) => (b.properties?.EVENT_DATE || '').localeCompare(a.properties?.EVENT_DATE || ''))
-    stormData.lastTornadoDate = sorted[0]?.properties?.EVENT_DATE || null
+    out.lastTornadoDate = [...f].sort((a: any, b: any) => (b.properties?.EVENT_DATE || '').localeCompare(a.properties?.EVENT_DATE || ''))[0]?.properties?.EVENT_DATE || null
   }
-
-  const windData = windResult.status === 'fulfilled' ? windResult.value : null
+  const windData = windR.status === 'fulfilled' ? windR.value : null
   if (windData?.features?.length) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const features = windData.features as any[]
+    const f = windData.features as any[]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    stormData.windEvents = features.slice(0, 20).map((f: any) => ({ date: f.properties?.EVENT_DATE || null, speed: f.properties?.WIND_SPEED || null }))
-    stormData.totalWindEvents = features.length
+    out.windEvents = f.slice(0, 20).map((x: any) => ({ date: x.properties?.EVENT_DATE || null, speed: x.properties?.WIND_SPEED || null }))
+    out.totalWindEvents = f.length
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    stormData.maxWindSpeed = Math.max(...features.map((f: any) => f.properties?.WIND_SPEED || 0))
+    out.maxWindSpeed = Math.max(...f.map((x: any) => x.properties?.WIND_SPEED || 0))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sorted = [...features].sort((a: any, b: any) => (b.properties?.EVENT_DATE || '').localeCompare(a.properties?.EVENT_DATE || ''))
-    stormData.lastWindDate = sorted[0]?.properties?.EVENT_DATE || null
+    out.lastWindDate = [...f].sort((a: any, b: any) => (b.properties?.EVENT_DATE || '').localeCompare(a.properties?.EVENT_DATE || ''))[0]?.properties?.EVENT_DATE || null
   }
-
-  const total = stormData.totalHailEvents + stormData.totalTornadoEvents + stormData.totalWindEvents
-  if (total >= 10 || stormData.totalTornadoEvents >= 2 || stormData.severeHailCount >= 5) stormData.stormRiskLevel = 'high'
-  else if (total >= 3 || stormData.severeHailCount >= 1) stormData.stormRiskLevel = 'moderate'
-  else if (total > 0) stormData.stormRiskLevel = 'low'
-  else stormData.stormRiskLevel = 'none'
-
-  return stormData
+  const total = out.totalHailEvents + out.totalTornadoEvents + out.totalWindEvents
+  if (total >= 10 || out.totalTornadoEvents >= 2 || out.severeHailCount >= 5) out.stormRiskLevel = 'high'
+  else if (total >= 3 || out.severeHailCount >= 1) out.stormRiskLevel = 'moderate'
+  else if (total > 0) out.stormRiskLevel = 'low'
+  else out.stormRiskLevel = 'none'
+  return out
 }
 
+// ─── Main handler ─────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
-  const startTime = Date.now()
+  const t0 = Date.now()
   const { address } = await request.json()
   if (!address?.trim()) {
     return NextResponse.json({ error: 'Address required' }, { status: 400 })
   }
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
+  const mapsKey = process.env.MAPS_API_KEY
+
   if (!anthropicKey) {
-    // No API key — return minimal result so frontend can still save the property
-    console.warn('[research] ANTHROPIC_API_KEY not set — returning empty data')
-    return NextResponse.json({ jobId: null, status: 'done', data: {}, error: 'API key not configured' })
+    console.warn('[research] ANTHROPIC_API_KEY not set')
+    return NextResponse.json({ jobId: null, status: 'done', data: {}, error: 'API key missing' })
   }
 
-  // Try to create Supabase job record (optional — research works without it)
-  const supabase = getSupabase()
-  let jobId: string | null = null
-  if (supabase) {
-    try {
-      const { data: job } = await supabase
-        .from('research_jobs')
-        .insert({ address, status: 'running' })
-        .select('id')
-        .single()
-      jobId = job?.id || null
-    } catch (e) {
-      console.warn('Supabase research_jobs unavailable, running in direct mode:', e)
-    }
-  }
+  // ─── Step 1: Google Geocoding (1-2s) ────────────────────────────────────
+  const geo = mapsKey ? await googleGeocode(address, mapsKey) : null
+  const lat = geo?.lat ?? null
+  const lng = geo?.lng ?? null
+  const formattedAddress = geo?.formattedAddress ?? address
+  console.log(`[research] Geocode: ${Date.now() - t0}ms — ${formattedAddress}`)
 
-  // Geocode
-  const geocoded = await geocodeAddress(address)
-  console.log(`[research] Geocode done: ${Date.now() - startTime}ms`)
-
-  // Build prompt
-  const prompt = `Research this property address. Do exactly 2 web searches. Return structured JSON.
-
-ADDRESS: ${address}
-
-SEARCH 1: FastPeopleSearch
-Search: site:fastpeoplesearch.com "${address}"
-Extract: ownerName, ownerPhone (XXX-XXX-XXXX), ownerEmail, ownerAge, marketValue (integer), lastSalePrice (integer), lastSaleDate (YYYY-MM-DD), yearBuilt (integer), sqft (integer), lotSqft (integer), bedrooms (integer), bathrooms (integer), occupancyType, subdivision, propertyClass
-
-SEARCH 2: County Tax Assessor
-Search: "${address}" county tax assessor property owner parcel
-Extract: ownerName (legal owner — use if different from above), county, parcelId, assessedValue (integer), appraisedValue (integer), taxAnnual (integer), landUse, deedBook
-
-After searches, compute:
-- roofAgeYears: (2026 - yearBuilt) if yearBuilt exists, else null
-- roofAgeEstimated: true if calculated from yearBuilt
-- flags: ["old-roof"] if roofAge>=20, ["estimated-roof-age"] always if estimated, ["high-value"] if market>250000, ["owner-occupied"] or ["rental"] based on occupancy, ["recently-sold"] if lastSale within 2 years of 2026
-
-Return ONLY this JSON inside <json> tags, no other text:
-<json>
-{
-  "ownerName": null, "ownerPhone": null, "ownerEmail": null, "ownerAge": null,
-  "yearBuilt": null, "sqft": null, "lotSqft": null, "bedrooms": null, "bathrooms": null,
-  "marketValue": null, "assessedValue": null, "appraisedValue": null,
-  "lastSaleDate": null, "lastSalePrice": null,
-  "listingStatus": null, "listingPrice": null, "hoaMonthly": null,
-  "subdivision": null, "occupancyType": null, "propertyClass": null, "landUse": null,
-  "deedDate": null, "deedType": null, "deedBook": null,
-  "permitCount": null, "permitLastDate": null,
-  "roofAgeYears": null, "roofAgeEstimated": false,
-  "county": null, "parcelId": null, "taxAnnual": null, "neighborhood": null,
-  "flags": [], "sources": {}
-}
-</json>`
-
-  // Run Michael AI + NOAA in parallel, with a 50s timeout on Claude
+  // ─── Step 2: Claude web search + NOAA storm (parallel) ──────────────────
   const client = new Anthropic({ apiKey: anthropicKey })
 
-  const claudeTimeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Claude timeout after 50s')), 50000)
-  )
+  const prompt = `You are researching a property for a roofing company CRM. Do EXACTLY 2 web searches and return all data you find.
+
+PROPERTY ADDRESS: ${formattedAddress}
+
+SEARCH 1 — Owner & property data:
+Search: site:fastpeoplesearch.com "${formattedAddress}"
+Extract: ownerName, ownerPhone (format XXX-XXX-XXXX), ownerEmail, ownerAge, yearBuilt, sqft, lotSqft, bedrooms, bathrooms, marketValue, lastSaleDate (YYYY-MM-DD), lastSalePrice, occupancyType, subdivision
+
+SEARCH 2 — County tax records:
+Search: "${formattedAddress}" county tax assessor parcel owner
+Extract: county, parcelId, assessedValue, appraisedValue, taxAnnual, landUse, propertyClass, deedBook
+
+After both searches, return ONLY this JSON in <json> tags:
+<json>
+{
+  "ownerName": null,
+  "ownerPhone": null,
+  "ownerEmail": null,
+  "ownerAge": null,
+  "yearBuilt": null,
+  "sqft": null,
+  "lotSqft": null,
+  "bedrooms": null,
+  "bathrooms": null,
+  "marketValue": null,
+  "assessedValue": null,
+  "appraisedValue": null,
+  "lastSaleDate": null,
+  "lastSalePrice": null,
+  "listingStatus": null,
+  "listingPrice": null,
+  "hoaMonthly": null,
+  "subdivision": null,
+  "occupancyType": null,
+  "propertyClass": null,
+  "landUse": null,
+  "deedDate": null,
+  "deedType": null,
+  "deedBook": null,
+  "permitCount": null,
+  "permitLastDate": null,
+  "roofAgeYears": null,
+  "roofAgeEstimated": false,
+  "county": null,
+  "parcelId": null,
+  "taxAnnual": null,
+  "neighborhood": null,
+  "flags": [],
+  "sources": {}
+}
+</json>
+Compute roofAgeYears = 2026 - yearBuilt if yearBuilt found. Set roofAgeEstimated = true.
+flags: include "old-roof" if roofAge>=20, "estimated-roof-age" if estimated, "high-value" if market>250000, "owner-occupied" or "rental" per occupancy.
+sources: {"ownerName": "FastPeopleSearch"} etc.`
 
   const [claudeResult, stormResult] = await Promise.allSettled([
-    Promise.race([
-      client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
-        tools: [{ type: 'web_search_20250305' as const, name: 'web_search' }],
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      claudeTimeout,
-    ]),
-    geocoded ? fetchStormHistory(geocoded.lat, geocoded.lng) : Promise.resolve(null),
+    client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 3000,
+      // web_search_20250305 requires name: 'web_search' per Anthropic SDK type definition
+      tools: [{ type: 'web_search_20250305' as const, name: 'web_search' as const }],
+      messages: [{ role: 'user', content: prompt }],
+    } as Parameters<typeof client.messages.create>[0]),
+    (lat && lng) ? fetchStormHistory(lat, lng) : Promise.resolve(null),
   ])
 
-  console.log(`[research] Michael + NOAA done: ${Date.now() - startTime}ms`)
+  console.log(`[research] Claude+NOAA done: ${Date.now() - t0}ms`)
 
-  // Handle Claude failure — return done with empty data so property still gets created
-  if (claudeResult.status === 'rejected') {
-    const msg = claudeResult.reason?.message || String(claudeResult.reason)
-    console.error('[research] Claude failed:', msg)
-    // Include storm data if we have it
-    const partialData: Record<string, unknown> = {}
-    const stormFallback = stormResult.status === 'fulfilled' ? stormResult.value : null
-    if (stormFallback) partialData.stormHistory = stormFallback
-    if (geocoded) { partialData.geocoded_lat = geocoded.lat; partialData.geocoded_lng = geocoded.lng }
-    return NextResponse.json({ jobId, status: 'done', data: partialData, error: msg })
-  }
+  const stormHistory = stormResult.status === 'fulfilled' ? stormResult.value : null
 
-  const response = claudeResult.value
-
-  // Collect text from all blocks
-  let fullText = ''
-  for (const block of response.content) {
-    if (block.type === 'text') fullText += block.text
-  }
-
-  console.log(`[research] Raw text length: ${fullText.length}, stop: ${response.stop_reason}`)
-
-  // Build partial data helper for graceful fallbacks
-  const buildPartialData = () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const d: any = {}
-    const storm = stormResult.status === 'fulfilled' ? stormResult.value : null
-    if (storm) d.stormHistory = storm
-    if (geocoded) { d.geocoded_lat = geocoded.lat; d.geocoded_lng = geocoded.lng }
-    return d
-  }
-
-  if (!fullText.trim()) {
-    const msg = `No text output. Stop: ${response.stop_reason}`
-    console.error('[research]', msg)
-    return NextResponse.json({ jobId, status: 'done', data: buildPartialData(), error: msg })
-  }
-
-  // Extract JSON
-  let jsonStr = ''
-  const tagMatch = fullText.match(/<json>\s*([\s\S]*?)\s*<\/json>/)
-  if (tagMatch) {
-    jsonStr = tagMatch[1]
-  } else {
-    const braceMatch = fullText.match(/\{[\s\S]*"ownerName"[\s\S]*\}/)
-    if (braceMatch) jsonStr = braceMatch[0]
-  }
-
-  if (!jsonStr) {
-    const msg = 'No JSON block found — returning storm data only'
-    console.warn('[research]', msg, '\nPreview:', fullText.slice(0, 300))
-    return NextResponse.json({ jobId, status: 'done', data: buildPartialData(), error: msg })
-  }
-
+  // ─── Step 3: Parse Claude response ──────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let data: any
-  try {
-    data = JSON.parse(jsonStr)
-  } catch {
-    try {
-      data = JSON.parse(jsonStr.replace(/,(\s*[}\]])/g, '$1'))
-    } catch (e) {
-      console.warn('[research] JSON parse failed, returning storm data only:', e)
-      return NextResponse.json({ jobId, status: 'done', data: buildPartialData(), error: `JSON parse failed: ${e}` })
+  let extracted: Record<string, any> = {}
+
+  if (claudeResult.status === 'rejected') {
+    const err = claudeResult.reason?.message || String(claudeResult.reason)
+    console.error('[research] Claude failed:', err)
+    // Don't return error — fall through with geocoded data + storm
+  } else {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = claudeResult.value as any as Anthropic.Message
+    // Collect all text blocks (Claude returns text after tool use)
+    const fullText = response.content
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((b: any) => b.type === 'text')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((b: any) => b.text as string)
+      .join('')
+
+    console.log(`[research] Response text: ${fullText.length} chars, stop_reason: ${response.stop_reason}`)
+
+    // Extract JSON from response
+    const tagMatch = fullText.match(/<json>\s*([\s\S]*?)\s*<\/json>/)
+    const braceMatch = fullText.match(/\{[\s\S]*?"ownerName"[\s\S]*?\}/)
+    const jsonStr = tagMatch?.[1] ?? braceMatch?.[0] ?? ''
+
+    if (jsonStr) {
+      try { extracted = JSON.parse(jsonStr) }
+      catch { try { extracted = JSON.parse(jsonStr.replace(/,(\s*[}\]])/g, '$1')) } catch { /* ignore */ } }
+    } else {
+      console.warn('[research] No JSON found in response. Preview:', fullText.slice(0, 400))
     }
   }
 
-  // Sanitize
-  if (data.ownerPhone) {
-    const d = String(data.ownerPhone).replace(/\D/g, '')
-    if (d.length === 10) data.ownerPhone = `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`
-    else if (d.length === 11 && d[0] === '1') data.ownerPhone = `${d.slice(1,4)}-${d.slice(4,7)}-${d.slice(7)}`
-    else data.ownerPhone = null
+  // ─── Step 4: Sanitize extracted data ────────────────────────────────────
+  if (extracted.ownerPhone) {
+    const d = String(extracted.ownerPhone).replace(/\D/g, '')
+    if (d.length === 10) extracted.ownerPhone = `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`
+    else if (d.length === 11 && d[0] === '1') extracted.ownerPhone = `${d.slice(1,4)}-${d.slice(4,7)}-${d.slice(7)}`
+    else extracted.ownerPhone = null
   }
-  const yr = parseInt(data.yearBuilt); data.yearBuilt = (yr >= 1800 && yr <= 2026) ? yr : null
-  const toNum = (v: unknown, min: number) => { const n = typeof v === 'string' ? parseFloat((v as string).replace(/[$,]/g, '')) : Number(v); return (!isNaN(n) && n >= min) ? Math.round(n) : null }
-  data.marketValue = toNum(data.marketValue, 5000)
-  data.assessedValue = toNum(data.assessedValue, 1000)
-  data.appraisedValue = toNum(data.appraisedValue, 1000)
-  data.lastSalePrice = toNum(data.lastSalePrice, 100)
-  data.listingPrice = toNum(data.listingPrice, 100)
-  data.taxAnnual = toNum(data.taxAnnual, 0)
-  data.hoaMonthly = toNum(data.hoaMonthly, 0)
-  const toInt = (v: unknown, min: number, max: number) => { const n = parseInt(String(v)); return (!isNaN(n) && n >= min && n <= max) ? n : null }
-  data.sqft = toInt(data.sqft, 100, 50000)
-  data.lotSqft = toInt(data.lotSqft, 100, 500000)
-  data.bedrooms = toInt(data.bedrooms, 0, 20)
-  data.bathrooms = toInt(data.bathrooms, 0, 20)
-  data.ownerAge = toInt(data.ownerAge, 18, 120)
-  if (data.roofAgeYears !== null) { const r = Math.round(parseFloat(data.roofAgeYears)); data.roofAgeYears = (!isNaN(r) && r >= 1 && r <= 100) ? r : null }
-  if (data.permitCount !== null) { const p = parseInt(data.permitCount); data.permitCount = (!isNaN(p) && p >= 0) ? p : null }
-  if (typeof data.roofAgeEstimated !== 'boolean') data.roofAgeEstimated = false
+  const toMoney = (v: unknown): number | null => {
+    if (!v) return null
+    const n = typeof v === 'string' ? parseFloat(String(v).replace(/[$,]/g, '')) : Number(v)
+    return (!isNaN(n) && n > 0) ? Math.round(n) : null
+  }
+  const toInt = (v: unknown, min: number, max: number): number | null => {
+    const n = parseInt(String(v ?? ''))
+    return (!isNaN(n) && n >= min && n <= max) ? n : null
+  }
 
-  // Merge geocode + storm
-  if (geocoded) { data.geocoded_lat = geocoded.lat; data.geocoded_lng = geocoded.lng }
-  const stormHistory = stormResult.status === 'fulfilled' ? stormResult.value : null
-  if (stormHistory) data.stormHistory = stormHistory
+  extracted.yearBuilt = toInt(extracted.yearBuilt, 1800, 2025)
+  extracted.sqft = toInt(extracted.sqft, 100, 100000)
+  extracted.lotSqft = toInt(extracted.lotSqft, 100, 5000000)
+  extracted.bedrooms = toInt(extracted.bedrooms, 0, 30)
+  extracted.bathrooms = toInt(extracted.bathrooms, 0, 30)
+  extracted.ownerAge = toInt(extracted.ownerAge, 18, 120)
+  extracted.permitCount = toInt(extracted.permitCount, 0, 100)
+  extracted.marketValue = toMoney(extracted.marketValue)
+  extracted.assessedValue = toMoney(extracted.assessedValue)
+  extracted.appraisedValue = toMoney(extracted.appraisedValue)
+  extracted.lastSalePrice = toMoney(extracted.lastSalePrice)
+  extracted.listingPrice = toMoney(extracted.listingPrice)
+  extracted.taxAnnual = toMoney(extracted.taxAnnual)
+  extracted.hoaMonthly = toMoney(extracted.hoaMonthly)
 
-  // Save to Supabase if available (non-blocking)
-  if (supabase && jobId) {
+  // Roof age from yearBuilt
+  if (extracted.yearBuilt && !extracted.roofAgeYears) {
+    extracted.roofAgeYears = 2026 - extracted.yearBuilt
+    extracted.roofAgeEstimated = true
+  }
+  if (extracted.roofAgeYears) {
+    const r = Math.round(parseFloat(String(extracted.roofAgeYears)))
+    extracted.roofAgeYears = (!isNaN(r) && r >= 0 && r <= 150) ? r : null
+  }
+
+  // Flags
+  const flags: string[] = Array.isArray(extracted.flags) ? [...extracted.flags] : []
+  if (extracted.roofAgeEstimated && !flags.includes('estimated-roof-age')) flags.push('estimated-roof-age')
+  if (typeof extracted.roofAgeYears === 'number' && extracted.roofAgeYears >= 20 && !flags.includes('old-roof')) flags.push('old-roof')
+  if (typeof extracted.marketValue === 'number' && extracted.marketValue > 250000 && !flags.includes('high-value')) flags.push('high-value')
+
+  // ─── Step 5: Merge all data — geocoded fields always win ────────────────
+  const data: Record<string, unknown> = {
+    ownerName: extracted.ownerName ?? null,
+    ownerPhone: extracted.ownerPhone ?? null,
+    ownerEmail: extracted.ownerEmail ?? null,
+    ownerAge: extracted.ownerAge ?? null,
+    yearBuilt: extracted.yearBuilt ?? null,
+    sqft: extracted.sqft ?? null,
+    lotSqft: extracted.lotSqft ?? null,
+    bedrooms: extracted.bedrooms ?? null,
+    bathrooms: extracted.bathrooms ?? null,
+    marketValue: extracted.marketValue ?? null,
+    assessedValue: extracted.assessedValue ?? null,
+    appraisedValue: extracted.appraisedValue ?? null,
+    lastSaleDate: extracted.lastSaleDate ?? null,
+    lastSalePrice: extracted.lastSalePrice ?? null,
+    listingStatus: extracted.listingStatus ?? null,
+    listingPrice: extracted.listingPrice ?? null,
+    hoaMonthly: extracted.hoaMonthly ?? null,
+    subdivision: extracted.subdivision ?? null,
+    occupancyType: extracted.occupancyType ?? null,
+    propertyClass: extracted.propertyClass ?? null,
+    landUse: extracted.landUse ?? null,
+    deedDate: extracted.deedDate ?? null,
+    deedType: extracted.deedType ?? null,
+    deedBook: extracted.deedBook ?? null,
+    permitCount: extracted.permitCount ?? null,
+    permitLastDate: extracted.permitLastDate ?? null,
+    roofAgeYears: extracted.roofAgeYears ?? null,
+    roofAgeEstimated: extracted.roofAgeEstimated ?? false,
+    // Geocoded fields always override extracted (more accurate)
+    county: geo?.county ?? extracted.county ?? null,
+    neighborhood: geo?.neighborhood ?? extracted.neighborhood ?? null,
+    parcelId: extracted.parcelId ?? null,
+    taxAnnual: extracted.taxAnnual ?? null,
+    flags,
+    sources: extracted.sources ?? {},
+    // Attach storm history + coordinates
+    stormHistory: stormHistory ?? null,
+    geocoded_lat: lat,
+    geocoded_lng: lng,
+  }
+
+  console.log(`[research] DONE: ${Date.now() - t0}ms — owner=${!!data.ownerName}, county=${data.county}, storm=${!!(data.stormHistory)}`)
+
+  // Save to Supabase non-blocking
+  const supabase = getSupabase()
+  if (supabase) {
     Promise.resolve(
-      supabase.from('research_jobs')
-        .update({ status: 'done', result: data, updated_at: new Date().toISOString() })
-        .eq('id', jobId)
-    )
-      .then(() => console.log(`[research] Saved to Supabase in ${Date.now() - startTime}ms`))
-      .catch((e: unknown) => console.warn('[research] Supabase save failed (non-critical):', e))
+      supabase.from('research_jobs').insert({
+        address: formattedAddress,
+        status: 'done',
+        result: data,
+        updated_at: new Date().toISOString(),
+      })
+    ).catch(() => { /* table may not exist — non-critical */ })
   }
 
-  console.log(`[research] DONE in ${Date.now() - startTime}ms`)
-
-  // Always return data directly — frontend doesn't need to poll
-  return NextResponse.json({ jobId, status: 'done', data })
+  return NextResponse.json({ jobId: null, status: 'done', data })
 }
