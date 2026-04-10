@@ -1340,7 +1340,7 @@ Only respond with the JSON array, no other text.` }
               mode="dark"
               onModeChange={() => {}}
             />
-            <div className="absolute inset-0 bg-[#0d1117]/60" style={{backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(6,182,212,0.06) 0%, transparent 60%)'}} />
+            <div className="absolute inset-0 bg-[#0d1117]/10" style={{backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(6,182,212,0.04) 0%, transparent 60%)'}} />
           </div>
         ) : (
           <>
