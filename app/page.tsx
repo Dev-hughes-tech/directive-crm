@@ -956,51 +956,53 @@ export default function Dashboard() {
 
       setSweepPhase('researching')
 
-      // Phase 2: Start async research job — returns jobId immediately (no timeout)
+      // Phase 2: Research — returns data directly (synchronous within 60s timeout)
       const startRes = await fetch('/api/research/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: addressToResearch }),
       })
-      if (!startRes.ok) throw new Error('Could not start research job')
-      const { jobId } = await startRes.json()
+      if (!startRes.ok) throw new Error('Could not start research')
+      const startJson = await startRes.json()
 
-      // Phase 3: Poll for results every 3 seconds (research runs in background)
+      // Phase 3: Use direct data if returned, otherwise poll (legacy fallback)
       let data: Record<string, unknown> = {}
-      let attempts = 0
-      const maxAttempts = 30 // 30 × 3s = 90 seconds max wait
 
-      await new Promise<void>((resolve) => {
-        const poll = async () => {
-          attempts++
-          try {
-            const statusRes = await fetch(`/api/research/status?jobId=${jobId}`)
-            const status = await statusRes.json()
-
-            if (status.status === 'done') {
-              data = status.data || {}
-              setSweepPhase('scoring')
-              resolve()
-              return
-            }
-            if (status.status === 'error') {
-              console.error('Research job error:', status.error)
-              resolve()
-              return
-            }
-          } catch (e) {
-            console.error('Poll error:', e)
-          }
-
-          if (attempts >= maxAttempts) {
-            console.warn('Research timed out after 90s')
-            resolve()
-            return
+      if (startJson.status === 'done' && startJson.data) {
+        // Direct response — research completed synchronously
+        data = startJson.data || {}
+        // Use geocoded coords from research if available
+        if (startJson.data.geocoded_lat && startJson.data.geocoded_lng) {
+          setMapCenter({ lat: startJson.data.geocoded_lat as number, lng: startJson.data.geocoded_lng as number })
+          setMapZoom(18)
+        }
+        setSweepPhase('scoring')
+      } else if (startJson.jobId) {
+        // Legacy polling path
+        let attempts = 0
+        const maxAttempts = 30
+        await new Promise<void>((resolve) => {
+          const poll = async () => {
+            attempts++
+            try {
+              const statusRes = await fetch(`/api/research/status?jobId=${startJson.jobId}`)
+              const status = await statusRes.json()
+              if (status.status === 'done') {
+                data = status.data || {}
+                setSweepPhase('scoring')
+                resolve()
+                return
+              }
+              if (status.status === 'error') { resolve(); return }
+            } catch (e) { console.error('Poll error:', e) }
+            if (attempts >= maxAttempts) { resolve(); return }
+            setTimeout(poll, 3000)
           }
           setTimeout(poll, 3000)
-        }
-        setTimeout(poll, 3000)
-      })
+        })
+      } else {
+        setSweepPhase('scoring')
+      }
 
       // Phase 4: Build property from whatever research returned
       const newProperty: Property = {
