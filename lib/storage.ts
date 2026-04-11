@@ -1,5 +1,36 @@
 import { supabase } from './supabase'
 import type { Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job } from './types'
+import type { UserRole } from './tiers'
+
+// ── USER PROFILE / ROLE ──────────────────────────────────────────────────────
+
+export interface UserProfile {
+  id: string
+  email: string
+  role: UserRole
+  company_name: string | null
+  plan_expires_at: string | null
+  manager_id: string | null   // For enterprise reps — points to manager user id
+  created_at: string
+}
+
+export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single()
+    if (error) return null
+    return data as UserProfile
+  } catch { return null }
+}
+
+export async function upsertUserProfile(profile: Partial<UserProfile> & { id: string }): Promise<void> {
+  try {
+    await supabase.from('profiles').upsert(profile)
+  } catch { /* silent */ }
+}
 
 // ── PROPERTIES ──────────────────────────────────────────────────────────────
 

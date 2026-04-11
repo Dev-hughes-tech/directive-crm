@@ -45,7 +45,10 @@ import { supabase } from '@/lib/supabase'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
-import { getClients, saveClient, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, markMessagesRead, getJobs, saveJob, deleteJob } from '@/lib/storage'
+import { getClients, saveClient, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile } from '@/lib/storage'
+import type { UserProfile } from '@/lib/storage'
+import { canAccess, getTierConfig, TIER_DESCRIPTIONS } from '@/lib/tiers'
+import type { UserRole } from '@/lib/tiers'
 import PropertyGraph from '@/components/dashboard/PropertyGraph'
 
 const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false })
@@ -638,19 +641,49 @@ export default function Dashboard() {
   // Auth state
   const [user, setUser] = useState<{ id: string; email: string | undefined } | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [userRole, setUserRole] = useState<UserRole>('trial')
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [lockedFeature, setLockedFeature] = useState<string>('')
   const router = useRouter()
 
   // Auth check on mount
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ? { id: session.user.id, email: session.user.email } : null)
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        setUser({ id: session.user.id, email: session.user.email })
+        const profile = await getUserProfile(session.user.id)
+        if (profile) {
+          setUserProfile(profile)
+          setUserRole(profile.role)
+        } else {
+          // New user — default to trial
+          setUserRole('trial')
+        }
+      } else {
+        setUser(null)
+      }
       setAuthLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ? { id: session.user.id, email: session.user.email } : null)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        setUser({ id: session.user.id, email: session.user.email })
+        const profile = await getUserProfile(session.user.id)
+        if (profile) { setUserProfile(profile); setUserRole(profile.role) }
+      } else {
+        setUser(null); setUserRole('trial')
+      }
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  // Helper: gate a feature — shows upgrade modal if locked
+  const requireTier = (feature: keyof ReturnType<typeof getTierConfig>['features'], featureName: string): boolean => {
+    if (canAccess(userRole, feature)) return true
+    setLockedFeature(featureName)
+    setShowUpgradeModal(true)
+    return false
+  }
 
   // Load properties on mount
   useEffect(() => {
@@ -1430,36 +1463,45 @@ Only respond with the JSON array, no other text.` }
 
           <div className="flex gap-1 overflow-x-auto scrollbar-hide">
             {[
-              { id: 'dashboard' as Screen, label: 'Dashboard', icon: BarChart3 },
-              { id: 'territory' as Screen, label: 'Territory', icon: MapPin },
-              { id: 'sweep' as Screen, label: 'Sweep', icon: Navigation },
-              { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio },
-              { id: 'michael' as Screen, label: 'Michael', icon: Brain },
-              { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase },
-              { id: 'clients' as Screen, label: 'Clients', icon: Users },
-              { id: 'proposals' as Screen, label: 'Proposals', icon: FileText },
-              { id: 'materials' as Screen, label: 'Materials', icon: Package },
-              { id: 'team' as Screen, label: 'Team', icon: MessageSquare },
-              { id: 'settings' as Screen, label: 'Settings', icon: Settings },
+              { id: 'dashboard' as Screen, label: 'Dashboard', icon: BarChart3, feature: 'dashboard' as const },
+              { id: 'territory' as Screen, label: 'Territory', icon: MapPin, feature: 'territory' as const },
+              { id: 'sweep' as Screen, label: 'Sweep', icon: Navigation, feature: 'sweep' as const },
+              { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio, feature: 'stormscope' as const },
+              { id: 'michael' as Screen, label: 'Michael', icon: Brain, feature: 'michael' as const },
+              { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, feature: 'jobs' as const },
+              { id: 'clients' as Screen, label: 'Clients', icon: Users, feature: 'clients' as const },
+              { id: 'proposals' as Screen, label: 'Proposals', icon: FileText, feature: 'proposals' as const },
+              { id: 'materials' as Screen, label: 'Materials', icon: Package, feature: 'materials' as const },
+              { id: 'team' as Screen, label: 'Team', icon: MessageSquare, feature: 'team' as const },
+              { id: 'settings' as Screen, label: 'Settings', icon: Settings, feature: 'settings' as const },
             ].map((tab) => {
               const Icon = tab.icon
               const hasUnread = tab.id === 'team' && unreadCount > 0
+              const isLocked = !canAccess(userRole, tab.feature)
               return (
                 <button
                   key={tab.id}
                   onClick={() => {
+                    if (isLocked) {
+                      setLockedFeature(tab.label)
+                      setShowUpgradeModal(true)
+                      return
+                    }
                     setActiveScreen(tab.id)
                     if (tab.id === 'team') setUnreadCount(0)
                   }}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all relative whitespace-nowrap flex-shrink-0 ${
                     activeScreen === tab.id
                       ? 'bg-cyan text-dark'
+                      : isLocked
+                      ? 'text-gray-600 cursor-pointer hover:text-gray-400'
                       : 'text-gray-400 hover:text-white hover:bg-dark-700/50'
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
                   {tab.label}
-                  {hasUnread && (
+                  {isLocked && <span className="text-gray-600 ml-0.5">🔒</span>}
+                  {hasUnread && !isLocked && (
                     <span className="absolute top-1 right-1 w-2 h-2 bg-red rounded-full" />
                   )}
                 </button>
@@ -1476,6 +1518,18 @@ Only respond with the JSON array, no other text.` }
               <MapPin className="w-3 h-3 text-gray-400" />
               <span className="text-xs text-gray-300">{HQ_CITY}</span>
             </div>
+            {/* Tier Badge */}
+            <button
+              onClick={() => setActiveScreen('settings')}
+              className="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wide border transition-all hover:opacity-80"
+              style={{
+                color: getTierConfig(userRole).color,
+                borderColor: getTierConfig(userRole).color + '60',
+                backgroundColor: getTierConfig(userRole).color + '15',
+              }}
+            >
+              {getTierConfig(userRole).name}
+            </button>
             <button
               onClick={() => supabase.auth.signOut().then(() => router.push('/login'))}
               className="px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-dark-700/50 rounded transition-all"
@@ -1485,6 +1539,50 @@ Only respond with the JSON array, no other text.` }
           </div>
         </div>
       </nav>
+
+      {/* UPGRADE MODAL */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowUpgradeModal(false)}>
+          <div className="bg-[#0d1117] border border-white/10 rounded-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-white">Upgrade to unlock <span className="text-cyan">{lockedFeature}</span></h2>
+                <p className="text-sm text-gray-400 mt-1">Choose the plan that fits your operation</p>
+              </div>
+              <button onClick={() => setShowUpgradeModal(false)} className="text-gray-400 hover:text-white p-1"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {TIER_DESCRIPTIONS.map(tier => (
+                <div key={tier.role} className="border rounded-xl p-5 transition-all hover:border-opacity-80 cursor-pointer"
+                  style={{ borderColor: tier.color + '40', backgroundColor: tier.color + '08' }}>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-bold text-white text-lg">{tier.name}</span>
+                    <span className="font-bold" style={{ color: tier.color }}>${tier.price}<span className="text-xs text-gray-400 font-normal">/mo</span></span>
+                  </div>
+                  <p className="text-xs text-gray-400 mb-3">{tier.tagline}</p>
+                  <ul className="space-y-1.5 mb-3">
+                    {tier.perks.map(p => (
+                      <li key={p} className="text-xs text-gray-300 flex items-start gap-2">
+                        <span style={{ color: tier.color }} className="mt-0.5">✓</span>{p}
+                      </li>
+                    ))}
+                  </ul>
+                  {tier.locked.length > 0 && (
+                    <ul className="space-y-1">
+                      {tier.locked.map(l => (
+                        <li key={l} className="text-xs text-gray-600 flex items-start gap-2">
+                          <span className="mt-0.5">✗</span>{l}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 text-center mt-6">Contact <span className="text-cyan">mazeratirecords@gmail.com</span> to upgrade your plan</p>
+          </div>
+        </div>
+      )}
 
       {/* SCREEN 1: DASHBOARD */}
       {activeScreen === 'dashboard' && (
