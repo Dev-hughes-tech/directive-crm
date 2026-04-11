@@ -130,7 +130,7 @@ async function enformionAddressIDPlus(address: string): Promise<any> {
     const addressLine1 = parts[0]?.trim() ?? address
     const addressLine2 = parts.slice(1).join(',').trim()
 
-    const res = await fetch('https://api.enformion.com/AddressID/Plus', {
+    const res = await fetch('https://devapi.enformion.com/addressidplus', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -168,7 +168,7 @@ async function enformionPropertyV2(address: string): Promise<any> {
     const addressLine1 = parts[0]?.trim() ?? address
     const addressLine2 = parts.slice(1).join(',').trim()
 
-    const res = await fetch('https://api.enformion.com/Property/V2', {
+    const res = await fetch('https://devapi.enformion.com/propertyv2search', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -176,7 +176,7 @@ async function enformionPropertyV2(address: string): Promise<any> {
         'galaxy-ap-password': apPassword,
         'galaxy-search-type': 'PropertyV2',
       },
-      body: JSON.stringify({ FirstName: '', LastName: '', AddressLine1: addressLine1, AddressLine2: addressLine2 }),
+      body: JSON.stringify({ FirstName: '', LastName: '', AddressLine1: addressLine1, AddressLine2: addressLine2, Page: 1, ResultsPerPage: 10 }),
       signal: AbortSignal.timeout(12000),
     })
 
@@ -204,7 +204,7 @@ function parseEnformion(addressPlus: any, propertyV2: any): Record<string, any> 
   // Each item: { poseidonId, property: { summary: { currentOwners, propertyDetails, propertyValue, ... } } }
   if (propertyV2) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const items: any[] = Array.isArray(propertyV2) ? propertyV2 : (propertyV2?.results || propertyV2?.data || [])
+    const items: any[] = propertyV2?.propertyV2Records || (Array.isArray(propertyV2) ? propertyV2 : [])
     const item = items[0]
     const summary = item?.property?.summary
 
