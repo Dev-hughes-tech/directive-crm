@@ -522,6 +522,7 @@ export default function Dashboard() {
   const [sweepLoading, setSweepLoading] = useState(false)
   const [sweepPhase, setSweepPhase] = useState<'idle' | 'geocoding' | 'researching' | 'scoring'>('idle')
   const [sweepResult, setSweepResult] = useState<Property | null>(null)
+  const [sweepError, setSweepError] = useState<string | null>(null)
   const [commercialResults, setCommercialResults] = useState<Array<{
     id: string; name: string | null; address: string | null;
     lat: number | null; lng: number | null; types: string[]; phone: string | null
@@ -932,6 +933,8 @@ export default function Dashboard() {
   const handleSweepResearch = async () => {
     if (!sweepAddress.trim()) return
 
+    setSweepResult(null) // Clear previous result so stale data never lingers
+    setSweepError(null)
     setSweepLoading(true)
     setSweepPhase('geocoding')
 
@@ -1054,6 +1057,8 @@ export default function Dashboard() {
       setSweepPhase('idle')
     } catch (error) {
       console.error('Sweep error:', error)
+      const msg = error instanceof Error ? error.message : 'Search failed'
+      setSweepError(msg.includes('Geocoding') ? 'Address not found. Try adding city and state.' : 'Search failed. Please try again.')
       setSweepPhase('idle')
     } finally {
       setSweepLoading(false)
@@ -2340,7 +2345,7 @@ Only respond with the JSON array, no other text.` }
                   type="text"
                   placeholder="Enter address..."
                   value={sweepAddress}
-                  onChange={(e) => setSweepAddress(e.target.value)}
+                  onChange={(e) => { setSweepAddress(e.target.value); setSweepError(null) }}
                   onKeyDown={(e) => e.key === 'Enter' && handleSweepResearch()}
                   className="w-full bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
                 />
@@ -2352,6 +2357,10 @@ Only respond with the JSON array, no other text.` }
                 >
                   {sweepLoading ? 'Researching...' : 'Research Property'}
                 </button>
+
+                {sweepError && (
+                  <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-center">{sweepError}</p>
+                )}
 
                 {sweepLocationAccuracy && (
                   <p className="text-xs text-gray-400 text-center">
