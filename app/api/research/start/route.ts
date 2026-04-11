@@ -200,79 +200,97 @@ function parseEnformion(addressPlus: any, propertyV2: any): Record<string, any> 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const out: Record<string, any> = {}
 
-  // AddressIDPlus — first match
-  if (addressPlus) {
+  // PropertyV2 — actual response is an array at top level
+  // Each item: { poseidonId, property: { summary: { currentOwners, propertyDetails, propertyValue, ... } } }
+  if (propertyV2) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const matches: any[] = addressPlus?.Result?.Matches || addressPlus?.Matches || []
-    const match = matches[0]
-    if (match) {
-      const name = match?.Name || match?.FullName || null
-      if (name) out.ownerName = name
+    const items: any[] = Array.isArray(propertyV2) ? propertyV2 : (propertyV2?.results || propertyV2?.data || [])
+    const item = items[0]
+    const summary = item?.property?.summary
 
-      const phones: string[] = []
-      const phoneList = match?.Phones || match?.PhoneNumbers || []
+    if (summary) {
+      // Owner name — from currentOwners array
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      phoneList.slice(0, 1).forEach((p: any) => {
-        const num = p?.PhoneNumber || p?.Number || ''
-        const d = String(num).replace(/\D/g, '')
-        if (d.length === 10) phones.push(`${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`)
-        else if (d.length === 11 && d[0] === '1') phones.push(`${d.slice(1,4)}-${d.slice(4,7)}-${d.slice(7)}`)
-      })
-      if (phones.length) out.ownerPhone = phones[0]
-
-      const emails: string[] = []
-      const emailList = match?.Emails || []
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      emailList.slice(0, 1).forEach((e: any) => { if (e?.Email) emails.push(e.Email) })
-      if (emails.length) out.ownerEmail = emails[0]
-
-      // DOB / age
-      const dob = match?.DateOfBirth || match?.DOB || null
-      if (dob) {
-        const year = parseInt(String(dob).slice(0, 4))
-        if (year > 1900) out.ownerAge = 2026 - year
+      const owners: any[] = summary.currentOwners || []
+      if (owners.length > 0) {
+        out.ownerName = owners[0]?.name?.fullName || null
       }
-      if (match?.Age) out.ownerAge = parseInt(match.Age)
 
-      // Consumer insights
-      const insights = match?.ConsumerInsights || match?.MarketingData || {}
-      if (insights.estimatedCurrentHomeValue) out.marketValue = parseInt(String(insights.estimatedCurrentHomeValue).replace(/\D/g, ''))
-      if (insights.estimatedIncome) out.estimatedIncome = insights.estimatedIncome
-      if (insights.numberOfChildren !== undefined) out.numberOfChildren = insights.numberOfChildren
-      if (insights.maritalStatus) out.maritalStatus = insights.maritalStatus
-      if (insights.occupationGroup) out.occupationGroup = insights.occupationGroup
-      if (insights.netWorth) out.netWorth = insights.netWorth
+      // Occupancy
+      if (summary.isOwnerOccupied === true) out.occupancyType = 'Owner Occupied'
+      else if (summary.isOwnerOccupied === false) out.occupancyType = 'Rental'
+      const occCode = summary.currentOwnerMetaData?.ownerOccupancyCode
+      if (occCode === 'O') out.occupancyType = 'Owner Occupied'
+      else if (occCode === 'R') out.occupancyType = 'Rental'
 
-      // Property from address details
-      const addrDetails = match?.Addresses?.[0] || {}
-      if (addrDetails.OwnerOccupied !== undefined) out.occupancyType = addrDetails.OwnerOccupied ? 'Owner Occupied' : 'Rental'
+      // Property details
+      const details = summary.propertyDetails || {}
+      if (details.yearBuilt) out.yearBuilt = parseInt(details.yearBuilt)
+      if (details.livingArea) out.sqft = parseInt(details.livingArea)
+      if (details.squareFootage && !out.sqft) out.sqft = parseInt(details.squareFootage)
+      if (details.lotSize) out.lotSqft = parseInt(details.lotSize)
+      if (details.beds && parseInt(details.beds) > 0) out.bedrooms = parseInt(details.beds)
+      if (details.baths) out.bathrooms = parseFloat(details.baths)
+      if (details.type) out.propertyClass = details.type
 
-      if (!out.ownerName) out.ownerName = null
+      // Property value
+      const val = summary.propertyValue || {}
+      if (val.assessedValue) out.assessedValue = Math.round(parseFloat(String(val.assessedValue)))
+      if (val.marketValue) out.marketValue = Math.round(parseFloat(String(val.marketValue)))
+      if (val.appraisedTotalValue) out.appraisedValue = Math.round(parseFloat(String(val.appraisedTotalValue)))
+      if (val.taxAmount) out.taxAnnual = Math.round(parseFloat(String(val.taxAmount)))
+
+      // Last sale
+      const purchase = summary.purchasePrice || {}
+      if (purchase.price) out.lastSalePrice = Math.round(parseFloat(String(purchase.price)))
+      if (purchase.date) out.lastSaleDate = purchase.date
+
+      // Parcel / identification
+      const ident = summary.propertyIdentification || {}
+      if (ident.apnUnformatted) out.parcelId = ident.apnUnformatted
+      if (ident.landUseCodeDescription) out.landUse = ident.landUseCodeDescription
+
+      // Address / county
+      const addr = summary.address || {}
+      if (addr.county) out.county = addr.county
+
+      console.log(`[enformion] Parsed: owner=${out.ownerName}, yearBuilt=${out.yearBuilt}, market=$${out.marketValue}`)
     }
   }
 
-  // PropertyV2
-  if (propertyV2) {
+  // AddressIDPlus — for phone, email, age, consumer insights
+  if (addressPlus) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const props: any[] = propertyV2?.Result?.Properties || propertyV2?.Properties || propertyV2?.Result?.Matches || []
-    const prop = props[0]
-    if (prop) {
-      if (prop.YearBuilt && !out.yearBuilt) out.yearBuilt = parseInt(prop.YearBuilt)
-      if (prop.LivingSquareFeet) out.sqft = parseInt(prop.LivingSquareFeet)
-      if (prop.LotSquareFeet) out.lotSqft = parseInt(prop.LotSquareFeet)
-      if (prop.Bedrooms) out.bedrooms = parseInt(prop.Bedrooms)
-      if (prop.Bathrooms) out.bathrooms = parseFloat(prop.Bathrooms)
-      if (prop.AssessedValue) out.assessedValue = parseInt(String(prop.AssessedValue).replace(/\D/g, ''))
-      if (prop.MarketValue && !out.marketValue) out.marketValue = parseInt(String(prop.MarketValue).replace(/\D/g, ''))
-      if (prop.AppraisedValue) out.appraisedValue = parseInt(String(prop.AppraisedValue).replace(/\D/g, ''))
-      if (prop.TaxAmount) out.taxAnnual = parseInt(String(prop.TaxAmount).replace(/\D/g, ''))
-      if (prop.LastSaleDate) out.lastSaleDate = prop.LastSaleDate
-      if (prop.LastSalePrice) out.lastSalePrice = parseInt(String(prop.LastSalePrice).replace(/\D/g, ''))
-      if (prop.LandUse) out.landUse = prop.LandUse
-      if (prop.PropertyClass || prop.PropertyType) out.propertyClass = prop.PropertyClass || prop.PropertyType
-      if (prop.Subdivision) out.subdivision = prop.Subdivision
-      if (prop.ParcelID || prop.ParcelNumber) out.parcelId = prop.ParcelID || prop.ParcelNumber
-      if (prop.OwnerName && !out.ownerName) out.ownerName = prop.OwnerName
+    const matches: any[] = Array.isArray(addressPlus) ? addressPlus : (addressPlus?.results || addressPlus?.matches || addressPlus?.data || [])
+    const match = matches[0]
+    if (match) {
+      // Phone
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const phoneList = match?.phones || match?.Phones || match?.phoneNumbers || []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      phoneList.slice(0, 1).forEach((p: any) => {
+        const num = p?.phoneNumber || p?.PhoneNumber || p?.number || ''
+        const d = String(num).replace(/\D/g, '')
+        if (d.length === 10) out.ownerPhone = `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`
+        else if (d.length === 11 && d[0] === '1') out.ownerPhone = `${d.slice(1,4)}-${d.slice(4,7)}-${d.slice(7)}`
+      })
+
+      // Email
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const emailList = match?.emails || match?.Emails || []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      emailList.slice(0, 1).forEach((e: any) => {
+        if (e?.email || e?.Email) out.ownerEmail = e?.email || e?.Email
+      })
+
+      // Age
+      if (match?.age || match?.Age) out.ownerAge = parseInt(match?.age || match?.Age)
+
+      // Consumer insights
+      const insights = match?.consumerInsights || match?.ConsumerInsights || match?.marketingData || {}
+      if (insights?.estimatedCurrentHomeValue && !out.marketValue) {
+        out.marketValue = parseInt(String(insights.estimatedCurrentHomeValue).replace(/\D/g, ''))
+      }
     }
   }
 
