@@ -117,6 +117,168 @@ async function fetchStormHistory(lat: number, lng: number): Promise<any> {
   return out
 }
 
+// ─── Enformion AddressIDPlus ──────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function enformionAddressIDPlus(address: string): Promise<any> {
+  const apName = process.env.ENFORMION_AP_NAME
+  const apPassword = process.env.ENFORMION_AP_PASSWORD
+  if (!apName || !apPassword) return null
+
+  try {
+    // Split address into line1 / line2
+    const parts = address.split(',')
+    const addressLine1 = parts[0]?.trim() ?? address
+    const addressLine2 = parts.slice(1).join(',').trim()
+
+    const res = await fetch('https://api.enformion.com/galaxysearchservice.svc/json/SearchV2', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'galaxy-ap-name': apName,
+        'galaxy-ap-password': apPassword,
+        'galaxy-search-type': 'DevAPIAddressIDPlus',
+      },
+      body: JSON.stringify({ addressLine1, addressLine2 }),
+      signal: AbortSignal.timeout(12000),
+    })
+
+    if (!res.ok) {
+      console.warn('[enformion] AddressIDPlus status:', res.status)
+      return null
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json()
+    console.log('[enformion] AddressIDPlus raw keys:', Object.keys(data || {}))
+    return data
+  } catch (e) {
+    console.warn('[enformion] AddressIDPlus error:', e)
+    return null
+  }
+}
+
+// ─── Enformion PropertyV2 ─────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function enformionPropertyV2(address: string): Promise<any> {
+  const apName = process.env.ENFORMION_AP_NAME
+  const apPassword = process.env.ENFORMION_AP_PASSWORD
+  if (!apName || !apPassword) return null
+
+  try {
+    const parts = address.split(',')
+    const addressLine1 = parts[0]?.trim() ?? address
+    const addressLine2 = parts.slice(1).join(',').trim()
+
+    const res = await fetch('https://api.enformion.com/galaxysearchservice.svc/json/SearchV2', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'galaxy-ap-name': apName,
+        'galaxy-ap-password': apPassword,
+        'galaxy-search-type': 'PropertyV2',
+      },
+      body: JSON.stringify({ FirstName: '', LastName: '', AddressLine1: addressLine1, AddressLine2: addressLine2 }),
+      signal: AbortSignal.timeout(12000),
+    })
+
+    if (!res.ok) {
+      console.warn('[enformion] PropertyV2 status:', res.status)
+      return null
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json()
+    console.log('[enformion] PropertyV2 raw keys:', Object.keys(data || {}))
+    return data
+  } catch (e) {
+    console.warn('[enformion] PropertyV2 error:', e)
+    return null
+  }
+}
+
+// ─── Parse Enformion results into our field schema ────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseEnformion(addressPlus: any, propertyV2: any): Record<string, any> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const out: Record<string, any> = {}
+
+  // AddressIDPlus — first match
+  if (addressPlus) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const matches: any[] = addressPlus?.Result?.Matches || addressPlus?.Matches || []
+    const match = matches[0]
+    if (match) {
+      const name = match?.Name || match?.FullName || null
+      if (name) out.ownerName = name
+
+      const phones: string[] = []
+      const phoneList = match?.Phones || match?.PhoneNumbers || []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      phoneList.slice(0, 1).forEach((p: any) => {
+        const num = p?.PhoneNumber || p?.Number || ''
+        const d = String(num).replace(/\D/g, '')
+        if (d.length === 10) phones.push(`${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`)
+        else if (d.length === 11 && d[0] === '1') phones.push(`${d.slice(1,4)}-${d.slice(4,7)}-${d.slice(7)}`)
+      })
+      if (phones.length) out.ownerPhone = phones[0]
+
+      const emails: string[] = []
+      const emailList = match?.Emails || []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      emailList.slice(0, 1).forEach((e: any) => { if (e?.Email) emails.push(e.Email) })
+      if (emails.length) out.ownerEmail = emails[0]
+
+      // DOB / age
+      const dob = match?.DateOfBirth || match?.DOB || null
+      if (dob) {
+        const year = parseInt(String(dob).slice(0, 4))
+        if (year > 1900) out.ownerAge = 2026 - year
+      }
+      if (match?.Age) out.ownerAge = parseInt(match.Age)
+
+      // Consumer insights
+      const insights = match?.ConsumerInsights || match?.MarketingData || {}
+      if (insights.estimatedCurrentHomeValue) out.marketValue = parseInt(String(insights.estimatedCurrentHomeValue).replace(/\D/g, ''))
+      if (insights.estimatedIncome) out.estimatedIncome = insights.estimatedIncome
+      if (insights.numberOfChildren !== undefined) out.numberOfChildren = insights.numberOfChildren
+      if (insights.maritalStatus) out.maritalStatus = insights.maritalStatus
+      if (insights.occupationGroup) out.occupationGroup = insights.occupationGroup
+      if (insights.netWorth) out.netWorth = insights.netWorth
+
+      // Property from address details
+      const addrDetails = match?.Addresses?.[0] || {}
+      if (addrDetails.OwnerOccupied !== undefined) out.occupancyType = addrDetails.OwnerOccupied ? 'Owner Occupied' : 'Rental'
+
+      if (!out.ownerName) out.ownerName = null
+    }
+  }
+
+  // PropertyV2
+  if (propertyV2) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const props: any[] = propertyV2?.Result?.Properties || propertyV2?.Properties || propertyV2?.Result?.Matches || []
+    const prop = props[0]
+    if (prop) {
+      if (prop.YearBuilt && !out.yearBuilt) out.yearBuilt = parseInt(prop.YearBuilt)
+      if (prop.LivingSquareFeet) out.sqft = parseInt(prop.LivingSquareFeet)
+      if (prop.LotSquareFeet) out.lotSqft = parseInt(prop.LotSquareFeet)
+      if (prop.Bedrooms) out.bedrooms = parseInt(prop.Bedrooms)
+      if (prop.Bathrooms) out.bathrooms = parseFloat(prop.Bathrooms)
+      if (prop.AssessedValue) out.assessedValue = parseInt(String(prop.AssessedValue).replace(/\D/g, ''))
+      if (prop.MarketValue && !out.marketValue) out.marketValue = parseInt(String(prop.MarketValue).replace(/\D/g, ''))
+      if (prop.AppraisedValue) out.appraisedValue = parseInt(String(prop.AppraisedValue).replace(/\D/g, ''))
+      if (prop.TaxAmount) out.taxAnnual = parseInt(String(prop.TaxAmount).replace(/\D/g, ''))
+      if (prop.LastSaleDate) out.lastSaleDate = prop.LastSaleDate
+      if (prop.LastSalePrice) out.lastSalePrice = parseInt(String(prop.LastSalePrice).replace(/\D/g, ''))
+      if (prop.LandUse) out.landUse = prop.LandUse
+      if (prop.PropertyClass || prop.PropertyType) out.propertyClass = prop.PropertyClass || prop.PropertyType
+      if (prop.Subdivision) out.subdivision = prop.Subdivision
+      if (prop.ParcelID || prop.ParcelNumber) out.parcelId = prop.ParcelID || prop.ParcelNumber
+      if (prop.OwnerName && !out.ownerName) out.ownerName = prop.OwnerName
+    }
+  }
+
+  return out
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   const t0 = Date.now()
@@ -198,20 +360,28 @@ Compute roofAgeYears = 2026 - yearBuilt if yearBuilt found. Set roofAgeEstimated
 flags: include "old-roof" if roofAge>=20, "estimated-roof-age" if estimated, "high-value" if market>250000, "owner-occupied" or "rental" per occupancy.
 sources: {"ownerName": "FastPeopleSearch"} etc.`
 
-  const [claudeResult, stormResult] = await Promise.allSettled([
+  const [claudeResult, stormResult, enformionAddressResult, enformionPropertyResult] = await Promise.allSettled([
     client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 3000,
-      // web_search_20250305 requires name: 'web_search' per Anthropic SDK type definition
       tools: [{ type: 'web_search_20250305' as const, name: 'web_search' as const }],
       messages: [{ role: 'user', content: prompt }],
     } as Parameters<typeof client.messages.create>[0]),
     (lat && lng) ? fetchStormHistory(lat, lng) : Promise.resolve(null),
+    enformionAddressIDPlus(formattedAddress),
+    enformionPropertyV2(formattedAddress),
   ])
 
-  console.log(`[research] Claude+NOAA done: ${Date.now() - t0}ms`)
+  console.log(`[research] All parallel done: ${Date.now() - t0}ms`)
 
   const stormHistory = stormResult.status === 'fulfilled' ? stormResult.value : null
+
+  // Parse Enformion results
+  const enformionData = parseEnformion(
+    enformionAddressResult.status === 'fulfilled' ? enformionAddressResult.value : null,
+    enformionPropertyResult.status === 'fulfilled' ? enformionPropertyResult.value : null,
+  )
+  console.log(`[research] Enformion fields: ${Object.keys(enformionData).join(', ')}`)
 
   // ─── Step 3: Parse Claude response ──────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -247,7 +417,13 @@ sources: {"ownerName": "FastPeopleSearch"} etc.`
     }
   }
 
-  // ─── Step 4: Sanitize extracted data ────────────────────────────────────
+  // ─── Step 4: Merge Enformion (authoritative) over Claude results ─────────
+  // Enformion wins for owner/property fields — it's a paid structured database
+  for (const [key, val] of Object.entries(enformionData)) {
+    if (val !== null && val !== undefined) extracted[key] = val
+  }
+
+  // ─── Step 4b: Sanitize extracted data ────────────────────────────────────
   if (extracted.ownerPhone) {
     const d = String(extracted.ownerPhone).replace(/\D/g, '')
     if (d.length === 10) extracted.ownerPhone = `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`
