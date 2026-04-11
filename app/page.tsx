@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import {
@@ -38,7 +39,9 @@ import {
   CheckCircle2,
   ChevronDown,
   Calculator,
+  Settings,
 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
@@ -631,6 +634,23 @@ export default function Dashboard() {
   const [michaelLeadsLoading, setMichaelLeadsLoading] = useState(false)
   const [timelineView, setTimelineView] = useState<'month' | 'week' | 'day'>('month')
   const [timelinePlaying, setTimelinePlaying] = useState(false)
+
+  // Auth state
+  const [user, setUser] = useState<{ id: string; email: string | undefined } | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const router = useRouter()
+
+  // Auth check on mount
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ? { id: session.user.id, email: session.user.email } : null)
+      setAuthLoading(false)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ? { id: session.user.id, email: session.user.email } : null)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
 
   // Load properties on mount
   useEffect(() => {
@@ -1332,6 +1352,23 @@ Only respond with the JSON array, no other text.` }
     return true
   })
 
+  // Auth guard
+  if (authLoading) {
+    return (
+      <div className="relative w-screen h-screen overflow-hidden bg-dark flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 text-cyan animate-spin mx-auto mb-4" />
+          <p className="text-gray-400 text-sm">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    router.push('/login')
+    return null
+  }
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-dark">
       {/* Background */}
@@ -1399,6 +1436,7 @@ Only respond with the JSON array, no other text.` }
               { id: 'proposals' as Screen, label: 'Proposals', icon: FileText },
               { id: 'materials' as Screen, label: 'Materials', icon: Package },
               { id: 'team' as Screen, label: 'Team', icon: MessageSquare },
+              { id: 'settings' as Screen, label: 'Settings', icon: Settings },
             ].map((tab) => {
               const Icon = tab.icon
               const hasUnread = tab.id === 'team' && unreadCount > 0
@@ -1434,6 +1472,12 @@ Only respond with the JSON array, no other text.` }
               <MapPin className="w-3 h-3 text-gray-400" />
               <span className="text-xs text-gray-300">{HQ_CITY}</span>
             </div>
+            <button
+              onClick={() => supabase.auth.signOut().then(() => router.push('/login'))}
+              className="px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-dark-700/50 rounded transition-all"
+            >
+              Sign Out
+            </button>
           </div>
         </div>
       </nav>
@@ -1442,7 +1486,7 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'dashboard' && (
         <>
           {/* Stats Bar */}
-          <div className="absolute left-4 right-4 top-24 z-30 glass rounded-lg px-6 py-4 flex gap-6">
+          <div className="absolute left-4 right-4 top-24 z-30 glass rounded-lg px-6 py-4 flex gap-6 overflow-x-auto flex-nowrap">
             {/* Properties Scanned */}
             <div className="text-center">
               <p className="text-3xl font-bold text-cyan">{properties.length}</p>
@@ -2866,9 +2910,9 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 6: CLIENTS */}
       {activeScreen === 'clients' && (
-        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+        <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
           {/* Left Panel: Client List */}
-          <div className="w-1/3 glass rounded-lg p-6 flex flex-col">
+          <div className="w-full md:w-1/3 glass rounded-lg p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-white">CRM Pipeline</h2>
               <div className="relative group">
@@ -2967,7 +3011,7 @@ Only respond with the JSON array, no other text.` }
           </div>
 
           {/* Right Panel: Client Details */}
-          <div className="w-2/3 glass rounded-lg p-6 flex flex-col">
+          <div className="w-full md:w-2/3 glass rounded-lg p-6 flex flex-col">
             {selectedClient ? (
               <>
                 {(() => {
@@ -2976,7 +3020,46 @@ Only respond with the JSON array, no other text.` }
                     <>
                       <div className="mb-6 pb-6 border-b border-white/10">
                         <h2 className="text-xl font-semibold text-white">{prop?.address || '—'}</h2>
-                        <p className="text-sm text-gray-400 mt-1">Owner: {prop?.owner_name || '—'}</p>
+                        {prop && (
+                          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                            <div><span className="text-gray-400">Phone: </span><span className="text-cyan">{prop.owner_phone || '—'}</span></div>
+                            <div><span className="text-gray-400">Email: </span><span className="text-white truncate">{prop.owner_email || '—'}</span></div>
+                            <div><span className="text-gray-400">Roof Age: </span><span className="text-amber">{prop.roof_age_years ? prop.roof_age_years + ' yrs' : '—'}</span></div>
+                            <div><span className="text-gray-400">Year Built: </span><span className="text-white">{prop.year_built || '—'}</span></div>
+                            <div><span className="text-gray-400">Market Value: </span><span className="text-white">{prop.market_value ? '$' + prop.market_value.toLocaleString() : '—'}</span></div>
+                            <div><span className="text-gray-400">Sqft: </span><span className="text-white">{prop.sqft?.toLocaleString() || '—'}</span></div>
+                            <div><span className="text-gray-400">Parcel ID: </span><span className="text-white">{prop.parcel_id || '—'}</span></div>
+                            <div><span className="text-gray-400">County: </span><span className="text-white">{prop.county || '—'}</span></div>
+                          </div>
+                        )}
+                        <button
+                          onClick={async () => {
+                            if (!prop) return
+                            const newProposal: Proposal = {
+                              id: crypto.randomUUID(),
+                              client_id: selectedClient.id,
+                              property_id: prop.id,
+                              status: 'draft',
+                              line_items: [
+                                { id: crypto.randomUUID(), description: 'Full Roof Replacement', quantity: prop.sqft ? Math.ceil(prop.sqft / 100) : 0, unit: 'sq', unit_price: 450, total: prop.sqft ? Math.ceil(prop.sqft / 100) * 450 : 0 },
+                                { id: crypto.randomUUID(), description: 'Remove & Dispose', quantity: 1, unit: 'job', unit_price: 500, total: 500 },
+                              ],
+                              total: prop.sqft ? Math.ceil(prop.sqft / 100) * 450 + 500 : 950,
+                              notes: `Owner: ${prop.owner_name || 'Unknown'}\nPhone: ${prop.owner_phone || 'Unknown'}`,
+                              created_at: new Date().toISOString(),
+                              sent_at: null,
+                            }
+                            const updatedProposals = [...proposals, newProposal]
+                            setProposals(updatedProposals)
+                            await saveProposal(newProposal)
+                            setActiveScreen('proposals')
+                            setSelectedProposal(newProposal)
+                          }}
+                          className="w-full mt-3 bg-cyan/20 text-cyan py-2 rounded-lg text-sm font-medium hover:bg-cyan/30 transition-all flex items-center justify-center gap-2"
+                        >
+                          <FileText className="w-4 h-4" />
+                          Create Proposal
+                        </button>
                       </div>
 
                       {prop && (
@@ -3109,34 +3192,56 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 7: PROPOSALS */}
       {activeScreen === 'proposals' && (
-        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+        <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
           {/* Left Panel: Proposal List */}
-          <div className="w-1/3 glass rounded-lg p-6 flex flex-col">
+          <div className="w-full md:w-1/3 glass rounded-lg p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-white">Proposals</h2>
-              <button
-                onClick={async () => {
-                  const newProposal: Proposal = {
-                    id: Math.random().toString(36).substr(2, 9),
-                    client_id: '',
-                    property_id: '',
-                    status: 'draft',
-                    line_items: [],
-                    total: 0,
-                    notes: '',
-                    created_at: new Date().toISOString(),
-                    sent_at: null,
-                  }
-                  const newProposals = [...proposals, newProposal]
-                  setProposals(newProposals)
-                  await saveProposal(newProposal)
-                  setSelectedProposal(newProposal)
-                  setEditingProposal(true)
-                }}
-                className="p-1.5 rounded hover:bg-dark-700 text-cyan"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
+              <div className="relative group">
+                <button className="p-1.5 rounded hover:bg-dark-700 text-cyan">
+                  <Plus className="w-5 h-5" />
+                </button>
+                <div className="absolute right-0 mt-1 w-64 bg-dark-800 border border-white/10 rounded-lg shadow-lg p-2 hidden group-hover:block z-50">
+                  <p className="text-xs text-gray-400 px-2 py-1 font-semibold">New Proposal For:</p>
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {properties.slice(0, 20).map(prop => (
+                      <button
+                        key={prop.id}
+                        onClick={async () => {
+                          const client = clients.find(c => c.property_id === prop.id)
+                          const newProposal: Proposal = {
+                            id: crypto.randomUUID(),
+                            client_id: client?.id || '',
+                            property_id: prop.id,
+                            status: 'draft',
+                            line_items: [
+                              { id: crypto.randomUUID(), description: 'Full Roof Replacement', quantity: prop.sqft ? Math.ceil(prop.sqft / 100) : 0, unit: 'sq', unit_price: 450, total: prop.sqft ? Math.ceil(prop.sqft / 100) * 450 : 0 },
+                              { id: crypto.randomUUID(), description: 'Remove & Dispose Old Roof', quantity: 1, unit: 'job', unit_price: 500, total: 500 },
+                              { id: crypto.randomUUID(), description: 'Ice & Water Shield', quantity: 2, unit: 'sq', unit_price: 120, total: 240 },
+                            ],
+                            total: prop.sqft ? Math.ceil(prop.sqft / 100) * 450 + 740 : 1240,
+                            notes: `Property: ${prop.address}\nOwner: ${prop.owner_name || 'Unknown'}\nRoof Age: ${prop.roof_age_years || 'Unknown'} years\nMarket Value: ${prop.market_value ? '$' + prop.market_value.toLocaleString() : 'Unknown'}`,
+                            created_at: new Date().toISOString(),
+                            sent_at: null,
+                          }
+                          const newProposals = [...proposals, newProposal]
+                          setProposals(newProposals)
+                          await saveProposal(newProposal)
+                          setSelectedProposal(newProposal)
+                          setEditingProposal(true)
+                        }}
+                        className="w-full text-left px-2 py-2 text-xs text-white hover:bg-dark-700 rounded transition-all"
+                      >
+                        <div className="font-medium">{prop.address}</div>
+                        <div className="text-gray-400">{prop.owner_name || 'Unknown Owner'} • {prop.sqft ? prop.sqft.toLocaleString() + ' sqft' : 'Size unknown'}</div>
+                      </button>
+                    ))}
+                    {properties.length === 0 && (
+                      <p className="text-xs text-gray-500 px-2 py-2">No properties yet — sweep an address first</p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-2">
@@ -3170,13 +3275,28 @@ Only respond with the JSON array, no other text.` }
           </div>
 
           {/* Right Panel: Proposal Editor */}
-          <div className="w-2/3 glass rounded-lg p-6 flex flex-col">
+          <div className="w-full md:w-2/3 glass rounded-lg p-6 flex flex-col">
             {selectedProposal ? (
               <>
                 <div className="mb-4 pb-4 border-b border-white/10">
-                  <h2 className="text-lg font-semibold text-white">
-                    {properties.find(p => p.id === selectedProposal.property_id)?.address || 'Select property'}
-                  </h2>
+                  {(() => {
+                    const prop = properties.find(p => p.id === selectedProposal.property_id)
+                    return (
+                      <>
+                        <h2 className="text-lg font-semibold text-white">{prop?.address || 'Unknown Property'}</h2>
+                        {prop && (
+                          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                            <div><span className="text-gray-400">Owner: </span><span className="text-white">{prop.owner_name || '—'}</span></div>
+                            <div><span className="text-gray-400">Phone: </span><span className="text-cyan">{prop.owner_phone || '—'}</span></div>
+                            <div><span className="text-gray-400">Roof Age: </span><span className="text-amber">{prop.roof_age_years ? prop.roof_age_years + ' yrs' : '—'}</span></div>
+                            <div><span className="text-gray-400">Market Value: </span><span className="text-white">{prop.market_value ? '$' + prop.market_value.toLocaleString() : '—'}</span></div>
+                            <div><span className="text-gray-400">Sqft: </span><span className="text-white">{prop.sqft?.toLocaleString() || '—'}</span></div>
+                            <div><span className="text-gray-400">Year Built: </span><span className="text-white">{prop.year_built || '—'}</span></div>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
 
                 {(() => {
@@ -3386,7 +3506,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 8: MATERIALS */}
       {activeScreen === 'materials' && (
-        <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)] gap-4">
+        <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
           {/* Roof Calculator */}
           <div className="glass rounded-lg p-6">
             <div className="flex items-center gap-2 mb-4">
@@ -3479,6 +3599,35 @@ Only respond with the JSON array, no other text.` }
                 </div>
               )
             })()}
+          </div>
+
+          {/* Smart Estimate Panel */}
+          <div className="glass rounded-lg p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Brain className="w-5 h-5 text-cyan" />
+              <h3 className="text-lg font-semibold text-white">Smart Estimate Builder</h3>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">Select a property to auto-build a material estimate based on roof size, pitch, and age.</p>
+            <div className="space-y-3">
+              <select
+                className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                onChange={(e) => {
+                  const prop = properties.find(p => p.id === e.target.value)
+                  if (prop && prop.sqft) {
+                    setRoofWidth(String(Math.round(Math.sqrt(prop.sqft))))
+                    setRoofLength(String(Math.round(Math.sqrt(prop.sqft))))
+                  }
+                }}
+              >
+                <option value="">Select property from pipeline...</option>
+                {properties.map(prop => (
+                  <option key={prop.id} value={prop.id}>
+                    {prop.address} {prop.sqft ? `— ${prop.sqft.toLocaleString()} sqft` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500">Selecting a property auto-fills the roof dimensions above. Then use the calculator to get material quantities and costs.</p>
+            </div>
           </div>
 
           {/* Materials Catalog */}
@@ -3621,9 +3770,9 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 9: TEAM CHAT */}
       {activeScreen === 'team' && (
-        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+        <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
           {/* Left Panel: Channels & User Role */}
-          <div className="w-48 glass rounded-lg p-6 flex flex-col">
+          <div className="w-full md:w-48 glass rounded-lg p-6 flex flex-col">
             <div className="mb-6">
               <label className="text-xs text-gray-400 uppercase tracking-wide">I am:</label>
               <select
@@ -4281,6 +4430,117 @@ Only respond with the JSON array, no other text.` }
                 )
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* SCREEN: SETTINGS */}
+      {activeScreen === 'settings' && (
+        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+          <div className="w-full glass rounded-lg p-8 overflow-y-auto">
+            <h2 className="text-2xl font-bold text-white mb-8">Settings</h2>
+
+            {/* Account */}
+            <section className="mb-8">
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Account</h3>
+              <div className="bg-dark-700/50 rounded-lg p-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-sm text-white font-medium">Email</p>
+                    <p className="text-xs text-gray-400">{user?.email}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => supabase.auth.signOut().then(() => router.push('/login'))}
+                  className="px-4 py-2 bg-red/20 text-red-400 rounded-lg text-sm hover:bg-red/30 transition-all"
+                >
+                  Sign Out
+                </button>
+              </div>
+            </section>
+
+            {/* Company Info */}
+            <section className="mb-8">
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Company Info</h3>
+              <div className="bg-dark-700/50 rounded-lg p-4 space-y-3">
+                <div>
+                  <label className="text-xs text-gray-400">Company Name</label>
+                  <input className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="Your Company Name" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">Phone Number</label>
+                  <input className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="(555) 000-0000" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">License Number</label>
+                  <input className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="License #" />
+                </div>
+              </div>
+            </section>
+
+            {/* Territory */}
+            <section className="mb-8">
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Territory</h3>
+              <div className="bg-dark-700/50 rounded-lg p-4 space-y-3">
+                <div>
+                  <label className="text-xs text-gray-400">Home Office City</label>
+                  <input className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="Huntsville, AL" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">Service Radius (miles)</label>
+                  <input type="number" className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="50" />
+                </div>
+              </div>
+            </section>
+
+            {/* Proposal Defaults */}
+            <section className="mb-8">
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Proposal Defaults</h3>
+              <div className="bg-dark-700/50 rounded-lg p-4 space-y-3">
+                <div>
+                  <label className="text-xs text-gray-400">Default Tax Rate (%)</label>
+                  <input type="number" step="0.1" className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="0" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">Default Payment Terms</label>
+                  <select className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white">
+                    <option>50% deposit, 50% on completion</option>
+                    <option>100% on completion</option>
+                    <option>Net 30</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">Warranty Period</label>
+                  <select className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white">
+                    <option>1 year workmanship</option>
+                    <option>2 year workmanship</option>
+                    <option>5 year workmanship</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            {/* Notifications */}
+            <section className="mb-8">
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Notifications</h3>
+              <div className="bg-dark-700/50 rounded-lg p-4 space-y-4">
+                {[
+                  { label: 'Storm alerts in territory', desc: 'Get notified when severe weather hits your zip codes' },
+                  { label: 'New leads from Michael AI', desc: 'Daily lead recommendations from the AI engine' },
+                  { label: 'Proposal viewed by client', desc: 'When a client opens your proposal' },
+                ].map(({ label, desc }) => (
+                  <div key={label} className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm text-white">{label}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
+                    </div>
+                    <div className="w-10 h-5 bg-cyan/30 rounded-full flex-shrink-0 relative cursor-pointer">
+                      <div className="absolute right-0.5 top-0.5 w-4 h-4 bg-cyan rounded-full" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
         </div>
       )}

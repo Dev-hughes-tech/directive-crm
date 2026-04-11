@@ -41,10 +41,10 @@ export default function PropertyGraph({ properties, center }: PropertyGraphProps
   }
 
   return (
-    <div className="glass rounded-lg p-6 w-full">
-      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-6">Property Network</h3>
+    <div className="glass rounded-lg p-4 w-full max-h-72 overflow-hidden">
+      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-4">Property Network</h3>
 
-      <svg className="w-full" style={{ aspectRatio: '280/280' }} viewBox="0 0 280 280">
+      <svg className="w-full max-h-48" viewBox="0 0 280 280">
         {/* Center hub */}
         <circle cx="140" cy="140" r="24" fill="#06b6d4" opacity="0.2" />
         <circle cx="140" cy="140" r="16" fill="#06b6d4" opacity="0.6" />
