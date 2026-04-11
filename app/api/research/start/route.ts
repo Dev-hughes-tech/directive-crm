@@ -130,7 +130,7 @@ async function enformionAddressIDPlus(address: string): Promise<any> {
     const addressLine1 = parts[0]?.trim() ?? address
     const addressLine2 = parts.slice(1).join(',').trim()
 
-    const res = await fetch('https://api.enformion.com/galaxysearchservice.svc/json/SearchV2', {
+    const res = await fetch('https://devapi.endato.com/AddressID/Plus', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -168,7 +168,7 @@ async function enformionPropertyV2(address: string): Promise<any> {
     const addressLine1 = parts[0]?.trim() ?? address
     const addressLine2 = parts.slice(1).join(',').trim()
 
-    const res = await fetch('https://api.enformion.com/galaxysearchservice.svc/json/SearchV2', {
+    const res = await fetch('https://devapi.endato.com/Property/V2', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
