@@ -1414,14 +1414,18 @@ Only respond with the JSON array, no other text.` }
       {/* Top Navigation Bar */}
       <nav className="absolute top-0 left-0 right-0 z-40 glass m-4 rounded-lg">
         <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <Image
-              src="/directive-wordmark.png"
+              src="/directive-icon.png"
               alt="Directive"
-              width={200}
-              height={48}
-              className="h-10 w-auto"
+              width={36}
+              height={36}
+              className="h-9 w-9 object-contain"
             />
+            <div className="hidden sm:block">
+              <p className="text-base font-bold text-white leading-tight tracking-tight">Directive</p>
+              <p className="text-[10px] text-cyan uppercase tracking-widest leading-none">CRM</p>
+            </div>
           </div>
 
           <div className="flex gap-1 overflow-x-auto scrollbar-hide">
