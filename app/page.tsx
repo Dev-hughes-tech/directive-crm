@@ -633,8 +633,24 @@ export default function Dashboard() {
   const [dashWeather, setDashWeather] = useState<WeatherCurrent | null>(null)
   const [dashAlerts, setDashAlerts] = useState<WeatherAlert[]>([])
   const [recentAlerts90d, setRecentAlerts90d] = useState<any[]>([])
-  const [michaelLeads, setMichaelLeads] = useState<Array<{ address: string; reason: string; score: number; source: string }>>([])
+  const [michaelLeads, setMichaelLeads] = useState<Array<{ address: string; reason: string; score: number; source: string; roofAge: number | null; stormHits: number }>>([])
   const [michaelLeadsLoading, setMichaelLeadsLoading] = useState(false)
+  const [michaelTab, setMichaelTab] = useState<'leads' | 'chat'>('leads')
+  const [michaelZip, setMichaelZip] = useState('')
+  const [michaelStormData, setMichaelStormData] = useState<{
+    zip: string; city: string; state: string; lat: number; lng: number;
+    riskLevel: string; totalEvents: number; hailCount: number; severeHailCount: number;
+    maxHailSize: number; tornadoCount: number; windCount: number;
+    byYear: Record<number, { hail: number; tornado: number; wind: number; maxHail: number }>;
+    impactPoints: Array<{ lat: number; lng: number; size: number; date: string | null; type: string; severity: string }>;
+    yearsAnalyzed: number;
+  } | null>(null)
+  const [stormImpactZones, setStormImpactZones] = useState<Array<{
+    zip: string; city: string; riskLevel: string; hailCount: number; tornadoCount: number;
+    lat: number; lng: number; addedAt: string;
+  }>>(() => {
+    try { return JSON.parse(localStorage.getItem('directive_impact_zones') || '[]') } catch { return [] }
+  })
   const [timelineView, setTimelineView] = useState<'month' | 'week' | 'day'>('month')
   const [timelinePlaying, setTimelinePlaying] = useState(false)
 
@@ -2916,96 +2932,384 @@ Only respond with the JSON array, no other text.` }
                 </div>
               )}
             </div>
+
+            {/* Storm Impact Zones */}
+            <div className="glass p-4 rounded-xl">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white">Impact Zones</h3>
+                <span className="text-xs text-gray-500">{stormImpactZones.length} saved</span>
+              </div>
+              {stormImpactZones.length === 0 ? (
+                <div className="text-center py-4">
+                  <p className="text-xs text-gray-500">No impact zones yet</p>
+                  <p className="text-xs text-gray-600 mt-1">Search a ZIP in Michael AI and save it as an impact zone</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {stormImpactZones.map(zone => (
+                    <div key={zone.zip} className="bg-dark-700/50 rounded-lg p-3 flex justify-between items-center">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-white">{zone.zip}</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                            zone.riskLevel === 'Critical' ? 'bg-red/20 text-red-400' :
+                            zone.riskLevel === 'High' ? 'bg-amber/20 text-amber' :
+                            zone.riskLevel === 'Moderate' ? 'bg-yellow-500/20 text-yellow-400' :
+                            'bg-gray-700 text-gray-400'
+                          }`}>{zone.riskLevel}</span>
+                        </div>
+                        <p className="text-xs text-gray-400">{zone.city} · {zone.hailCount} hail · {zone.tornadoCount} tornado</p>
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            setMapCenter({ lat: zone.lat, lng: zone.lng })
+                            setMapZoom(12)
+                          }}
+                          className="p-1.5 text-cyan hover:bg-cyan/10 rounded transition-all"
+                          title="View on map"
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            const updated = stormImpactZones.filter(z => z.zip !== zone.zip)
+                            setStormImpactZones(updated)
+                            try { localStorage.setItem('directive_impact_zones', JSON.stringify(updated)) } catch { /* ignore */ }
+                          }}
+                          className="p-1.5 text-gray-500 hover:text-red-400 rounded transition-all"
+                          title="Remove zone"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => { setActiveScreen('michael'); setMichaelTab('leads') }}
+                className="w-full mt-3 text-xs py-1.5 bg-cyan/10 text-cyan border border-cyan/20 rounded hover:bg-cyan/20 transition-all"
+              >
+                + Add Impact Zone via Michael AI
+              </button>
+            </div>
           </div>
         </>
       )}
 
       {/* SCREEN 5: MICHAEL AI */}
       {activeScreen === 'michael' && (
-        <div className="absolute inset-4 top-20 z-30 flex items-center justify-center">
-          <div className="glass p-6 rounded-xl w-full max-w-2xl h-[calc(100vh-180px)] flex flex-col">
+        <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
+
+          {/* Left Panel — ZIP Lead Search */}
+          <div className="w-full md:w-96 flex-shrink-0 glass rounded-xl p-6 flex flex-col gap-4 overflow-y-auto">
             {/* Header */}
-            <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-cyan/20 flex items-center justify-center border border-cyan/30">
-                <Brain className="w-6 h-6 text-cyan" />
+                <Brain className="w-5 h-5 text-cyan" />
               </div>
               <div>
-                <h2 className="text-lg font-heading font-semibold">Michael AI</h2>
-                <p className="text-xs text-gray-400">Hughes Technologies</p>
+                <h2 className="font-bold text-white">Michael AI</h2>
+                <p className="text-xs text-gray-400">ZIP Code Lead Engine</p>
               </div>
-              <div className="ml-auto flex items-center gap-2">
-                <div className="w-2 h-2 bg-green rounded-full animate-pulse-dot" />
-                <span className="text-xs text-green">Online</span>
+              <div className="ml-auto flex items-center gap-1.5">
+                <div className="w-2 h-2 bg-green rounded-full animate-pulse" />
+                <span className="text-xs text-green font-medium">Online</span>
               </div>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-2">
-              {chatMessages.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center">
-                    <Brain className="w-12 h-12 text-cyan/30 mx-auto mb-3" />
-                    <p className="text-sm text-gray-400">
-                      Ask me about your leads, storm risk, or territory
-                    </p>
+            {/* ZIP Input */}
+            <div className="space-y-2">
+              <label className="text-xs text-gray-400 uppercase tracking-wide">Search by ZIP Code</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={michaelZip}
+                  onChange={e => setMichaelZip(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && michaelZip.trim().length >= 5) {
+                      setMichaelLeadsLoading(true)
+                      setMichaelLeads([])
+                      setMichaelStormData(null)
+                      fetch('/api/michael/leads', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ zip: michaelZip.trim() }),
+                      })
+                        .then(r => r.json())
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        .then((data: any) => {
+                          setMichaelLeads(data.leads || [])
+                          setMichaelStormData(data)
+                          if (data.lat && data.lng) setMapCenter({ lat: data.lat, lng: data.lng })
+                        })
+                        .catch(console.error)
+                        .finally(() => setMichaelLeadsLoading(false))
+                    }
+                  }}
+                  placeholder="e.g. 35801"
+                  maxLength={10}
+                  className="flex-1 bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                />
+                <button
+                  disabled={michaelLeadsLoading || michaelZip.trim().length < 5}
+                  onClick={() => {
+                    setMichaelLeadsLoading(true)
+                    setMichaelLeads([])
+                    setMichaelStormData(null)
+                    fetch('/api/michael/leads', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ zip: michaelZip.trim() }),
+                    })
+                      .then(r => r.json())
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      .then((data: any) => {
+                        setMichaelLeads(data.leads || [])
+                        setMichaelStormData(data)
+                        if (data.lat && data.lng) setMapCenter({ lat: data.lat, lng: data.lng })
+                      })
+                      .catch(console.error)
+                      .finally(() => setMichaelLeadsLoading(false))
+                  }}
+                  className="bg-cyan text-dark px-4 py-2 rounded-lg font-bold text-sm hover:bg-cyan/90 transition-all disabled:opacity-50"
+                >
+                  {michaelLeadsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500">Michael analyzes 10 years of NOAA storm data to find your best roofing leads</p>
+            </div>
+
+            {/* Storm Summary Card */}
+            {michaelStormData && (
+              <div className={`rounded-lg p-4 border space-y-3 ${
+                michaelStormData.riskLevel === 'Critical' ? 'bg-red/10 border-red/30' :
+                michaelStormData.riskLevel === 'High' ? 'bg-amber/10 border-amber/30' :
+                michaelStormData.riskLevel === 'Moderate' ? 'bg-yellow-500/10 border-yellow-500/30' :
+                'bg-dark-700/50 border-white/10'
+              }`}>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="font-bold text-white">{michaelStormData.zip} — {michaelStormData.city}{michaelStormData.state ? `, ${michaelStormData.state}` : ''}</p>
+                    <p className="text-xs text-gray-400">{michaelStormData.yearsAnalyzed}-year NOAA analysis</p>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    michaelStormData.riskLevel === 'Critical' ? 'bg-red/20 text-red-400' :
+                    michaelStormData.riskLevel === 'High' ? 'bg-amber/20 text-amber' :
+                    michaelStormData.riskLevel === 'Moderate' ? 'bg-yellow-500/20 text-yellow-400' :
+                    'bg-gray-700 text-gray-300'
+                  }`}>{michaelStormData.riskLevel} Risk</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-black/20 rounded p-2">
+                    <p className="text-lg font-bold text-amber">{michaelStormData.hailCount}</p>
+                    <p className="text-xs text-gray-400">Hail Events</p>
+                  </div>
+                  <div className="bg-black/20 rounded p-2">
+                    <p className="text-lg font-bold text-red-400">{michaelStormData.tornadoCount}</p>
+                    <p className="text-xs text-gray-400">Tornadoes</p>
+                  </div>
+                  <div className="bg-black/20 rounded p-2">
+                    <p className="text-lg font-bold text-cyan">{michaelStormData.severeHailCount}</p>
+                    <p className="text-xs text-gray-400">Severe Hail</p>
                   </div>
                 </div>
-              ) : (
-                <>
-                  {chatMessages.map((msg, idx) => (
-                    <div
-                      key={idx}
-                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-md px-4 py-3 rounded-2xl text-sm ${
-                          msg.role === 'user'
-                            ? 'bg-cyan text-dark rounded-tr-sm'
-                            : 'bg-dark-700 text-gray-200 rounded-tl-sm'
-                        }`}
-                      >
-                        {msg.role === 'assistant' && (
-                          <p className="text-xs text-gray-500 mb-1">Michael • Directive CRM</p>
-                        )}
-                        <p className="break-words">{msg.content}</p>
-                      </div>
-                    </div>
-                  ))}
-                  {chatLoading && (
-                    <div className="flex justify-start">
-                      <div className="bg-dark-700 text-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm">
-                        <div className="flex gap-1">
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
-                </>
-              )}
-            </div>
+                {michaelStormData.maxHailSize > 0 && (
+                  <p className="text-xs text-amber">⚠ Max hail recorded: {michaelStormData.maxHailSize.toFixed(2)}" diameter</p>
+                )}
 
-            {/* Input */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Ask Michael..."
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !chatLoading && handleSendChat()}
-                disabled={chatLoading}
-                className="flex-1 bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 disabled:opacity-50"
-              />
+                {/* Save as Impact Zone button */}
+                <button
+                  onClick={() => {
+                    const zone = {
+                      zip: michaelStormData.zip,
+                      city: michaelStormData.city,
+                      riskLevel: michaelStormData.riskLevel,
+                      hailCount: michaelStormData.hailCount,
+                      tornadoCount: michaelStormData.tornadoCount,
+                      lat: michaelStormData.lat,
+                      lng: michaelStormData.lng,
+                      addedAt: new Date().toISOString(),
+                    }
+                    const updated = [zone, ...stormImpactZones.filter(z => z.zip !== zone.zip)]
+                    setStormImpactZones(updated)
+                    try { localStorage.setItem('directive_impact_zones', JSON.stringify(updated)) } catch { /* ignore */ }
+                  }}
+                  className="w-full text-xs py-1.5 bg-cyan/10 text-cyan border border-cyan/20 rounded hover:bg-cyan/20 transition-all"
+                >
+                  + Save as StormScope Impact Zone
+                </button>
+              </div>
+            )}
+
+            {/* Year-by-Year Chart */}
+            {michaelStormData?.byYear && (
+              <div className="glass-sm rounded-lg p-3">
+                <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Hail Events by Year</p>
+                <div className="space-y-1">
+                  {Object.entries(michaelStormData.byYear)
+                    .sort(([a], [b]) => parseInt(b) - parseInt(a))
+                    .slice(0, 10)
+                    .map(([yr, d]) => (
+                      <div key={yr} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 w-10 flex-shrink-0">{yr}</span>
+                        <div className="flex-1 bg-dark-700 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="h-full bg-amber rounded-full"
+                            style={{ width: `${Math.min(100, (d.hail / Math.max(1, ...Object.values(michaelStormData.byYear).map(v => v.hail))) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-gray-400 w-6 text-right">{d.hail}</span>
+                        {d.tornado > 0 && <span className="text-xs text-red-400">🌪 {d.tornado}</span>}
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Panel — Leads + Chat tabs */}
+          <div className="flex-1 glass rounded-xl flex flex-col overflow-hidden">
+            {/* Tab Bar */}
+            <div className="flex border-b border-white/10 px-4 pt-4 gap-2 flex-shrink-0">
               <button
-                onClick={handleSendChat}
-                disabled={chatLoading || !chatInput.trim()}
-                className="bg-cyan text-dark px-4 py-2 rounded-lg font-medium hover:bg-cyan/90 transition-all disabled:opacity-50"
+                onClick={() => setMichaelTab('leads')}
+                className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-all ${michaelTab === 'leads' ? 'bg-cyan/20 text-cyan border-b-2 border-cyan' : 'text-gray-400 hover:text-white'}`}
               >
-                <Send className="w-4 h-4" />
+                AI Leads {michaelLeads.length > 0 && <span className="ml-1 bg-cyan text-dark text-xs px-1.5 rounded-full">{michaelLeads.length}</span>}
+              </button>
+              <button
+                onClick={() => setMichaelTab('chat')}
+                className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-all ${michaelTab === 'chat' ? 'bg-cyan/20 text-cyan border-b-2 border-cyan' : 'text-gray-400 hover:text-white'}`}
+              >
+                Chat
               </button>
             </div>
+
+            {/* LEADS TAB */}
+            {michaelTab === 'leads' && (
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {michaelLeadsLoading && (
+                  <div className="flex flex-col items-center justify-center h-48 gap-4">
+                    <Loader2 className="w-8 h-8 text-cyan animate-spin" />
+                    <div className="text-center">
+                      <p className="text-sm text-white font-medium">Michael is analyzing storm data...</p>
+                      <p className="text-xs text-gray-400 mt-1">Querying 10 years of NOAA records for ZIP {michaelZip}</p>
+                    </div>
+                  </div>
+                )}
+
+                {!michaelLeadsLoading && michaelLeads.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
+                    <Brain className="w-12 h-12 text-cyan/20" />
+                    <p className="text-sm text-gray-400">Enter a ZIP code to generate storm-based leads</p>
+                    <p className="text-xs text-gray-500">Michael scores leads using 10 years of hail, tornado, and wind data combined with estimated roof ages</p>
+                  </div>
+                )}
+
+                {michaelLeads.map((lead, idx) => (
+                  <div key={idx} className="bg-dark-700/50 border border-white/5 rounded-xl p-4 hover:border-cyan/20 transition-all">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex-1 pr-3">
+                        <p className="text-sm font-semibold text-white">{lead.address}</p>
+                        <p className="text-xs text-gray-400 mt-1">{lead.reason}</p>
+                      </div>
+                      <div className="text-center flex-shrink-0">
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm border-2 ${
+                          lead.score >= 85 ? 'border-green bg-green/10 text-green' :
+                          lead.score >= 70 ? 'border-amber bg-amber/10 text-amber' :
+                          'border-gray-600 bg-gray-700/50 text-gray-300'
+                        }`}>
+                          {lead.score}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">score</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {lead.roofAge && (
+                        <span className="text-xs bg-amber/10 text-amber px-2 py-0.5 rounded">🏠 ~{lead.roofAge}yr roof</span>
+                      )}
+                      {lead.stormHits > 0 && (
+                        <span className="text-xs bg-red/10 text-red-400 px-2 py-0.5 rounded">⛈ {lead.stormHits} storm hits</span>
+                      )}
+                      <span className="text-xs bg-dark-700 text-gray-400 px-2 py-0.5 rounded">{lead.source}</span>
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => {
+                          setSweepAddress(lead.address)
+                          setActiveScreen('sweep')
+                        }}
+                        className="flex-1 text-xs py-1.5 bg-cyan/10 text-cyan border border-cyan/20 rounded hover:bg-cyan/20 transition-all"
+                      >
+                        Research in Sweep
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* CHAT TAB */}
+            {michaelTab === 'chat' && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  {chatMessages.length === 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <Brain className="w-12 h-12 text-cyan/30 mx-auto mb-3" />
+                        <p className="text-sm text-gray-400">Ask me about your leads, storm risk, or territory</p>
+                        {michaelStormData && (
+                          <p className="text-xs text-cyan/60 mt-2">I have data loaded for ZIP {michaelStormData.zip} — ask me about it</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {chatMessages.map((msg, idx) => (
+                        <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-md px-4 py-3 rounded-2xl text-sm ${
+                            msg.role === 'user' ? 'bg-cyan text-dark rounded-tr-sm' : 'bg-dark-700 text-gray-200 rounded-tl-sm'
+                          }`}>
+                            {msg.role === 'assistant' && <p className="text-xs text-gray-500 mb-1">Michael • Directive CRM</p>}
+                            <p className="break-words">{msg.content}</p>
+                          </div>
+                        </div>
+                      ))}
+                      {chatLoading && (
+                        <div className="flex justify-start">
+                          <div className="bg-dark-700 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1">
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                          </div>
+                        </div>
+                      )}
+                      <div ref={chatEndRef} />
+                    </>
+                  )}
+                </div>
+                <div className="flex gap-2 p-4 border-t border-white/10">
+                  <input
+                    type="text"
+                    placeholder="Ask Michael..."
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && !chatLoading && handleSendChat()}
+                    disabled={chatLoading}
+                    className="flex-1 bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 disabled:opacity-50"
+                  />
+                  <button
+                    onClick={handleSendChat}
+                    disabled={chatLoading || !chatInput.trim()}
+                    className="bg-cyan text-dark px-4 py-2 rounded-lg font-medium hover:bg-cyan/90 transition-all disabled:opacity-50"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
