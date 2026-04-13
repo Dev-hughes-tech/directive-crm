@@ -780,19 +780,33 @@ export default function Dashboard() {
     setNotifications(prev => [n, ...prev].slice(0, 50))
   }
 
+  // Fetch profile via server API (bypasses RLS)
+  const fetchProfileServer = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/profile?userId=${userId}`)
+      const data = await res.json()
+      if (data.profile) {
+        setUserProfile(data.profile)
+        setUserRole(data.profile.role)
+      } else {
+        // Fallback: try direct Supabase
+        const profile = await getUserProfile(userId)
+        if (profile) { setUserProfile(profile); setUserRole(profile.role) }
+        else setUserRole('trial')
+      }
+    } catch {
+      const profile = await getUserProfile(userId)
+      if (profile) { setUserProfile(profile); setUserRole(profile.role) }
+      else setUserRole('trial')
+    }
+  }
+
   // Auth check on mount
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email })
-        const profile = await getUserProfile(session.user.id)
-        if (profile) {
-          setUserProfile(profile)
-          setUserRole(profile.role)
-        } else {
-          // New user — default to trial
-          setUserRole('trial')
-        }
+        await fetchProfileServer(session.user.id)
       } else {
         setUser(null)
       }
@@ -801,8 +815,7 @@ export default function Dashboard() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email })
-        const profile = await getUserProfile(session.user.id)
-        if (profile) { setUserProfile(profile); setUserRole(profile.role) }
+        await fetchProfileServer(session.user.id)
       } else {
         setUser(null); setUserRole('trial')
       }
