@@ -63,53 +63,56 @@ async function fetchStormHistory(lat: number, lng: number): Promise<any> {
     windEvents: [], totalWindEvents: 0, maxWindSpeed: null, lastWindDate: null,
     stormRiskLevel: 'unknown',
   }
-  const end = new Date().toISOString().split('T')[0]
-  const start = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  const h = { 'User-Agent': 'DirectiveCRM/1.0 (mazeratirecords@gmail.com)' }
+  const fmtDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '')
+  const endDate = new Date()
+  const startDate = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000)
+  const end = fmtDate(endDate)
+  const start = fmtDate(startDate)
+  const h = { 'User-Agent': 'DirectiveCRM/1.0 (support@hughes-technologies.com)' }
 
-  // Single call to get all event types
+  // Fetch PLSR events (spotter-reported)
   const allR = await Promise.allSettled([
-    fetch(`https://www.ncei.noaa.gov/swdiws/json/stormevents/${start}:${end}?lat=${lat}&lon=${lng}&r=25`, { headers: h, signal: AbortSignal.timeout(7000) }).then(r => r.ok ? r.json() : null),
+    fetch(`https://www.ncei.noaa.gov/swdiws/json/plsr/${start}:${end}?lat=${lat}&lon=${lng}&r=25`, { headers: h, signal: AbortSignal.timeout(7000) }).then(r => r.ok ? r.json() : null),
   ])
 
   const allData = allR[0].status === 'fulfilled' ? allR[0].value : null
   const events = allData?.result || []
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hailEvents = events.filter((e: any) => e.EVENT_TYPE === 'Hail')
+  const hailEvents = events.filter((e: any) => e.TYPECODE === 'H')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tornadoEvents = events.filter((e: any) => e.EVENT_TYPE === 'Tornado')
+  const tornadoEvents = events.filter((e: any) => e.TYPECODE === 'T')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const windEvents = events.filter((e: any) => e.EVENT_TYPE === 'Thunderstorm Wind')
+  const windEvents = events.filter((e: any) => e.TYPECODE === 'G' || e.TYPECODE === 'D')
 
   if (hailEvents.length) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.hailEvents = hailEvents.slice(0, 20).map((x: any) => ({ date: x.BEGIN_DATE_TIME || null, size: x.MAGNITUDE ? parseFloat(x.MAGNITUDE) : null, severity: (x.MAGNITUDE && parseFloat(x.MAGNITUDE) >= 2) ? 'severe' : 'moderate' }))
+    out.hailEvents = hailEvents.slice(0, 20).map((x: any) => ({ date: x.ZTIME || null, size: x.MAGNITUDE ? parseFloat(x.MAGNITUDE) : null, severity: (x.MAGNITUDE && parseFloat(x.MAGNITUDE) >= 2) ? 'severe' : 'moderate' }))
     out.totalHailEvents = hailEvents.length
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     out.maxHailSize = Math.max(...hailEvents.map((x: any) => x.MAGNITUDE ? parseFloat(x.MAGNITUDE) : 0))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.lastHailDate = [...hailEvents].sort((a: any, b: any) => (b.BEGIN_DATE_TIME || '').localeCompare(a.BEGIN_DATE_TIME || ''))[0]?.BEGIN_DATE_TIME || null
+    out.lastHailDate = [...hailEvents].sort((a: any, b: any) => (b.ZTIME || '').localeCompare(a.ZTIME || ''))[0]?.ZTIME || null
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     out.severeHailCount = hailEvents.filter((x: any) => x.MAGNITUDE && parseFloat(x.MAGNITUDE) >= 1).length
   }
 
   if (tornadoEvents.length) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.tornadoEvents = tornadoEvents.slice(0, 10).map((x: any) => ({ date: x.BEGIN_DATE_TIME || null, magnitude: x.TOR_F_SCALE || null }))
+    out.tornadoEvents = tornadoEvents.slice(0, 10).map((x: any) => ({ date: x.ZTIME || null, magnitude: x.MAGNITUDE || null }))
     out.totalTornadoEvents = tornadoEvents.length
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.lastTornadoDate = [...tornadoEvents].sort((a: any, b: any) => (b.BEGIN_DATE_TIME || '').localeCompare(a.BEGIN_DATE_TIME || ''))[0]?.BEGIN_DATE_TIME || null
+    out.lastTornadoDate = [...tornadoEvents].sort((a: any, b: any) => (b.ZTIME || '').localeCompare(a.ZTIME || ''))[0]?.ZTIME || null
   }
 
   if (windEvents.length) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.windEvents = windEvents.slice(0, 20).map((x: any) => ({ date: x.BEGIN_DATE_TIME || null, speed: x.MAGNITUDE ? parseFloat(x.MAGNITUDE) : null }))
+    out.windEvents = windEvents.slice(0, 20).map((x: any) => ({ date: x.ZTIME || null, speed: x.MAGNITUDE ? parseFloat(x.MAGNITUDE) : null }))
     out.totalWindEvents = windEvents.length
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     out.maxWindSpeed = Math.max(...windEvents.map((x: any) => x.MAGNITUDE ? parseFloat(x.MAGNITUDE) : 0))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.lastWindDate = [...windEvents].sort((a: any, b: any) => (b.BEGIN_DATE_TIME || '').localeCompare(a.BEGIN_DATE_TIME || ''))[0]?.BEGIN_DATE_TIME || null
+    out.lastWindDate = [...windEvents].sort((a: any, b: any) => (b.ZTIME || '').localeCompare(a.ZTIME || ''))[0]?.ZTIME || null
   }
 
   const total = out.totalHailEvents + out.totalTornadoEvents + out.totalWindEvents

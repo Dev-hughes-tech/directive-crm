@@ -186,9 +186,9 @@ function MapInner({
       getTileUrl: (coord: google.maps.Point, zoom: number) =>
         `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/${zoom}/${coord.x}/${coord.y}.png`,
       tileSize: new google.maps.Size(256, 256),
-      maxZoom: 11,
+      maxZoom: 12,
       minZoom: 0,
-      opacity: 0.7,
+      opacity: 0.5,
       name: 'NEXRAD',
     })
     mapRef.current.overlayMapTypes.insertAt(0, radarMapType)
@@ -251,9 +251,9 @@ function MapInner({
         getTileUrl: (coord: google.maps.Point, zoom: number) =>
           `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/${zoom}/${coord.x}/${coord.y}.png`,
         tileSize: new google.maps.Size(256, 256),
-        maxZoom: 11,
+        maxZoom: 12,
         minZoom: 0,
-        opacity: 0.7,
+        opacity: 0.5,
         name: 'NEXRAD',
       })
       map.overlayMapTypes.insertAt(0, radarMapType)

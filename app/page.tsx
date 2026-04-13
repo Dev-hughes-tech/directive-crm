@@ -6129,6 +6129,18 @@ Only respond with the JSON array, no other text.` }
           </div>
         </div>
       )}
+
+      {/* Animation Keyframes */}
+      <style jsx global>{`
+        @keyframes stormPulse {
+          0%, 100% { opacity: 0.2; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(1.02); }
+        }
+        @keyframes stormSpin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   )
 }
