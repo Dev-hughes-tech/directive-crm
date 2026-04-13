@@ -50,11 +50,13 @@ import type { UserProfile } from '@/lib/storage'
 import { canAccess, getTierConfig, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
 import PropertyGraph from '@/components/dashboard/PropertyGraph'
+import { useIsMobile } from '@/hooks/useIsMobile'
 
 const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false })
 const WeatherWidget = dynamic(() => import('@/components/WeatherWidget'), { ssr: false })
 const PropertyMapEmbed = dynamic(() => import('@/components/PropertyMapEmbed'), { ssr: false })
 const DamagePhotoUpload = dynamic(() => import('@/components/DamagePhotoUpload'), { ssr: false })
+const MobileLayout = dynamic(() => import('@/components/mobile/MobileLayout'), { ssr: false })
 import StreetView from '@/components/StreetView'
 import AerialView from '@/components/AerialView'
 
@@ -662,6 +664,7 @@ export default function Dashboard() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [lockedFeature, setLockedFeature] = useState<string>('')
   const router = useRouter()
+  const isMobile = useIsMobile()
 
   // Auth check on mount
   useEffect(() => {
@@ -1416,6 +1419,73 @@ Only respond with the JSON array, no other text.` }
   if (!user) {
     router.push('/login')
     return null
+  }
+
+  // Mobile layout
+  if (isMobile && !authLoading && user) {
+    return (
+      <MobileLayout
+        user={user}
+        userRole={userRole}
+        onSignOut={() => supabase.auth.signOut().then(() => router.push('/login'))}
+        activeScreen={activeScreen}
+        setActiveScreen={setActiveScreen}
+        properties={properties}
+        sweepAddress={sweepAddress}
+        setSweepAddress={setSweepAddress}
+        sweepLoading={sweepLoading}
+        sweepPhase={sweepPhase}
+        sweepResult={sweepResult}
+        sweepError={sweepError}
+        onSweepResearch={handleSweepResearch}
+        onSaveProperty={async (p) => {
+          const updated = [...properties.filter(x => x.id !== p.id), p]
+          setProperties(updated)
+          await saveProperty(p)
+        }}
+        weather={weather}
+        alerts={alerts}
+        forecast={forecast}
+        clients={clients}
+        selectedClient={selectedClient}
+        setSelectedClient={setSelectedClient}
+        onSaveClient={async (c) => {
+          const updated = clients.map(x => x.id === c.id ? c : x)
+          setClients(updated)
+          await saveClient(c)
+        }}
+        proposals={proposals}
+        setSelectedProposal={setSelectedProposal}
+        michaelZip={michaelZip}
+        setMichaelZip={setMichaelZip}
+        michaelLeadsLoading={michaelLeadsLoading}
+        michaelLeads={michaelLeads}
+        michaelStormData={michaelStormData}
+        onMichaelSearch={(zip) => {
+          setMichaelLeadsLoading(true)
+          setMichaelLeads([])
+          setMichaelStormData(null)
+          fetch('/api/michael/leads', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ zip }),
+          })
+            .then(r => r.json())
+            .then((data: any) => {
+              setMichaelLeads(data.leads || [])
+              setMichaelStormData(data)
+            })
+            .catch(console.error)
+            .finally(() => setMichaelLeadsLoading(false))
+        }}
+        chatMessages={chatMessages}
+        chatInput={chatInput}
+        setChatInput={setChatInput}
+        chatLoading={chatLoading}
+        onSendChat={handleSendChat}
+        stormImpactZones={stormImpactZones}
+      />
+    )
   }
 
   return (
