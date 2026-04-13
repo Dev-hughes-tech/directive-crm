@@ -633,6 +633,8 @@ export default function Dashboard() {
   const [stormLoading, setStormLoading] = useState(false)
   const [stormRisk, setStormRisk] = useState<{ level: 'High' | 'Moderate' | 'Low'; eventCount: number } | null>(null)
   const [showRadar, setShowRadar] = useState(false)
+  const [stormLocation, setStormLocation] = useState('')
+  const [stormCenter, setStormCenter] = useState({ lat: HQ_LAT, lng: HQ_LNG })
 
   // Pin drop state (GPS Sweep)
   const [pinDropLat, setPinDropLat] = useState<number | null>(null)
@@ -872,7 +874,7 @@ export default function Dashboard() {
           fetch(`/api/weather/current?lat=${HQ_LAT}&lng=${HQ_LNG}`),
           fetch(`/api/weather/alerts?lat=${HQ_LAT}&lng=${HQ_LNG}`),
           fetch(`/api/weather/forecast?lat=${HQ_LAT}&lng=${HQ_LNG}`),
-          fetch(`/api/noaa/hail?lat=${HQ_LAT}&lng=${HQ_LNG}&days=365`),
+          fetch(`/api/noaa/hail?lat=${HQ_LAT}&lng=${HQ_LNG}&days=3650`),
         ])
 
         if (weatherRes.ok) setWeather(await weatherRes.json())
@@ -1447,6 +1449,28 @@ export default function Dashboard() {
     }
   }
 
+  // Handle StormScope location search
+  const handleStormLocationSearch = async (query: string) => {
+    if (!query.trim()) return
+
+    try {
+      const geocodeRes = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`)
+      if (!geocodeRes.ok) throw new Error('Geocoding failed')
+      const { lat, lng } = await geocodeRes.json()
+      setStormCenter({ lat, lng })
+      setMapCenter({ lat, lng })
+      setMapZoom(12)
+      // Auto-fetch 10-year hail data for new location
+      const hailRes = await fetch(`/api/noaa/hail?lat=${lat}&lng=${lng}&days=3650`)
+      if (hailRes.ok) {
+        const hailData = await hailRes.json()
+        setHailEvents(hailData)
+      }
+    } catch (error) {
+      console.error('Storm location search error:', error)
+    }
+  }
+
   // Handle StormScope risk assessment
   const handleStormAssess = async () => {
     if (!stormAddress.trim()) return
@@ -1458,7 +1482,7 @@ export default function Dashboard() {
       if (!geocodeRes.ok) throw new Error('Geocoding failed')
       const { lat, lng } = await geocodeRes.json()
 
-      const hailRes = await fetch(`/api/noaa/hail?lat=${lat}&lng=${lng}&days=365`)
+      const hailRes = await fetch(`/api/noaa/hail?lat=${lat}&lng=${lng}&days=3650`)
       if (!hailRes.ok) throw new Error('Hail data failed')
       const hailData = await hailRes.json()
 
@@ -1725,16 +1749,12 @@ Only respond with the JSON array, no other text.` }
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2 flex-shrink-0">
             <Image
-              src="/directive-icon.png"
-              alt="Directive"
-              width={36}
-              height={36}
-              className="h-9 w-9 object-contain"
+              src="/directive-wordmark.png"
+              alt="Directive CRM"
+              width={160}
+              height={48}
+              className="h-12 w-auto object-contain"
             />
-            <div className="block">
-              <p className="text-base font-bold text-white leading-tight tracking-tight">Directive</p>
-              <p className="text-[10px] text-cyan uppercase tracking-widest leading-none">CRM</p>
-            </div>
           </div>
 
           <div className="flex gap-1 overflow-x-auto scrollbar-hide">
@@ -3209,6 +3229,54 @@ Only respond with the JSON array, no other text.` }
         <>
           {/* Left Panel */}
           <div className="absolute left-4 top-20 bottom-4 w-80 overflow-y-auto space-y-3 z-30">
+            {/* StormScope Animated Header */}
+            <div className="relative mb-4 p-4 rounded-xl overflow-hidden" style={{
+              background: 'linear-gradient(135deg, rgba(6,182,212,0.1) 0%, rgba(13,17,23,0.95) 50%, rgba(6,182,212,0.05) 100%)',
+              border: '1px solid rgba(6,182,212,0.2)',
+            }}>
+              {/* Pulsing glow effect */}
+              <div className="absolute inset-0 opacity-30" style={{
+                background: 'radial-gradient(ellipse at 30% 50%, rgba(6,182,212,0.3), transparent 70%)',
+                animation: 'stormPulse 3s ease-in-out infinite',
+              }} />
+              <div className="absolute inset-0 opacity-20" style={{
+                background: 'radial-gradient(ellipse at 70% 50%, rgba(34,211,238,0.2), transparent 60%)',
+                animation: 'stormPulse 3s ease-in-out infinite 1.5s',
+              }} />
+
+              <div className="relative z-10 flex items-center gap-4">
+                <div className="relative">
+                  {/* Glowing ring around logo */}
+                  <div className="absolute -inset-1 rounded-xl opacity-60" style={{
+                    background: 'conic-gradient(from 0deg, #06b6d4, #22d3ee, #0891b2, #06b6d4)',
+                    animation: 'stormSpin 4s linear infinite',
+                    filter: 'blur(4px)',
+                  }} />
+                  <Image
+                    src="/stormscope-icon.png"
+                    alt="StormScope"
+                    width={56}
+                    height={56}
+                    className="relative rounded-xl"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white tracking-tight" style={{
+                    textShadow: '0 0 20px rgba(6,182,212,0.5), 0 0 40px rgba(6,182,212,0.2)',
+                  }}>StormScope</h2>
+                  <p className="text-xs text-cyan/70">10-Year NOAA Storm Intelligence • Nationwide Coverage</p>
+                </div>
+                <div className="ml-auto flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-green-400" style={{
+                    animation: 'stormPulse 2s ease-in-out infinite',
+                    boxShadow: '0 0 8px rgba(74,222,128,0.6)',
+                  }} />
+                  <span className="text-xs text-green-400">LIVE</span>
+                </div>
+              </div>
+            </div>
+
             {/* Current Conditions */}
             <div className="glass p-6 rounded-xl">
               <div className="flex items-center gap-2 mb-4">
@@ -3266,7 +3334,7 @@ Only respond with the JSON array, no other text.` }
 
             {/* NOAA Hail Events */}
             <div className="glass p-6 rounded-xl">
-              <h3 className="text-sm font-semibold mb-3">NOAA Hail Events (1y)</h3>
+              <h3 className="text-sm font-semibold mb-3">NOAA Hail Events (10y)</h3>
               <p className="text-lg font-bold text-amber mb-3">{hailEvents.length} events</p>
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {hailEvents.slice(0, 5).map((event, idx) => (
@@ -3282,6 +3350,28 @@ Only respond with the JSON array, no other text.` }
 
           {/* Right Panel */}
           <div className="absolute right-4 top-20 bottom-4 w-72 overflow-y-auto space-y-3 z-30">
+            {/* Location Search */}
+            <div className="glass p-4 rounded-xl">
+              <div className="flex items-center gap-2 mb-2">
+                <MapPin className="w-4 h-4 text-cyan" />
+                <span className="text-sm font-semibold">Search Location</span>
+              </div>
+              <input
+                type="text"
+                placeholder="City, ZIP, or address..."
+                value={stormLocation}
+                onChange={(e) => setStormLocation(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleStormLocationSearch(stormLocation)}
+                className="w-full bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+              />
+              <button
+                onClick={() => handleStormLocationSearch(stormLocation)}
+                className="w-full mt-2 bg-cyan text-dark text-xs font-medium py-1.5 rounded-lg hover:bg-cyan/90 transition-all"
+              >
+                Search
+              </button>
+            </div>
+
             {/* Live Radar Toggle */}
             <div className="glass p-4 rounded-xl">
               <div className="flex items-center justify-between">
@@ -3354,7 +3444,7 @@ Only respond with the JSON array, no other text.` }
                   }`}>
                     {stormRisk.level}
                   </p>
-                  <p className="text-xs text-gray-400 mt-2">{stormRisk.eventCount} events in past year</p>
+                  <p className="text-xs text-gray-400 mt-2">{stormRisk.eventCount} events in past 10 years</p>
                 </div>
               )}
             </div>

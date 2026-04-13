@@ -94,12 +94,9 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo & Header */}
         <div className="text-center mb-8">
-          <div className="flex justify-center mb-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-cyan to-blue rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">D</span>
-            </div>
+          <div className="flex justify-center mb-8">
+            <Image src="/directive-wordmark.png" alt="Directive CRM" width={240} height={72} className="h-16 w-auto object-contain" />
           </div>
-          <h1 className="text-2xl font-bold text-white mb-1">Directive CRM</h1>
           <p className="text-sm text-gray-400">Roofing intelligence powered by Michael AI</p>
         </div>
 

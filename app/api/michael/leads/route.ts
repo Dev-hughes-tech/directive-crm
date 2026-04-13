@@ -56,19 +56,30 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
   const chunks: number[][] = []
   for (let i = 0; i < years.length; i += 2) chunks.push(years.slice(i, i + 2))
 
+  // Map event type to NOAA event type filter
+  const eventTypeMap: Record<string, string> = {
+    'hail': 'Hail',
+    'torn': 'Tornado',
+    'wind': 'Thunderstorm Wind',
+  }
+
   await Promise.allSettled(chunks.map(async (chunk) => {
     const start = `${chunk[0]}-01-01`
     const end = `${chunk[chunk.length - 1]}-12-31`
     const radius = eventType === 'torn' ? 40 : 15
     try {
       const res = await fetch(
-        `https://www.ncdc.noaa.gov/swdi/stormEvents/geojson/${eventType}/${start}:${end}?lat=${lat}&lon=${lng}&r=${radius}`,
+        `https://www.ncei.noaa.gov/swdiws/json/stormevents/${start}:${end}?lat=${lat}&lon=${lng}&r=${radius}`,
         { headers: h, signal: AbortSignal.timeout(10000) }
       )
       if (!res.ok) return
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data: any = await res.json()
-      if (data?.features?.length) results.push(...data.features)
+      if (data?.result?.length) {
+        // Filter by event type
+        const filtered = data.result.filter((e: any) => e.EVENT_TYPE === eventTypeMap[eventType])
+        results.push(...filtered)
+      }
     } catch { /* individual year may fail, continue */ }
   }))
 
@@ -96,9 +107,9 @@ export async function POST(request: NextRequest) {
   // 3. Build impact zone summary
   const totalEvents = hailFeatures.length + tornadoFeatures.length + windFeatures.length
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const severeHail = hailFeatures.filter((f: any) => (f.properties?.HAILSIZE || 0) >= 1.5)
+  const severeHail = hailFeatures.filter((f: any) => (f.MAGNITUDE && parseFloat(f.MAGNITUDE) >= 1.5))
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const maxHailSize = hailFeatures.reduce((max: number, f: any) => Math.max(max, f.properties?.HAILSIZE || 0), 0)
+  const maxHailSize = hailFeatures.reduce((max: number, f: any) => Math.max(max, f.MAGNITUDE ? parseFloat(f.MAGNITUDE) : 0), 0)
 
   // Risk level
   let riskLevel = 'Low'
@@ -109,12 +120,12 @@ export async function POST(request: NextRequest) {
   // 4. Build heatmap data for map overlay
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const impactPoints = hailFeatures.map((f: any) => ({
-    lat: f.geometry?.coordinates?.[1] ?? geo.lat,
-    lng: f.geometry?.coordinates?.[0] ?? geo.lng,
-    size: f.properties?.HAILSIZE || 1,
-    date: f.properties?.EVENT_DATE || null,
+    lat: f.BEGIN_LAT ?? geo.lat,
+    lng: f.BEGIN_LON ?? geo.lng,
+    size: f.MAGNITUDE ? parseFloat(f.MAGNITUDE) : 1,
+    date: f.BEGIN_DATE_TIME || null,
     type: 'hail',
-    severity: (f.properties?.HAILSIZE || 0) >= 1.5 ? 'severe' : 'moderate',
+    severity: (f.MAGNITUDE && parseFloat(f.MAGNITUDE) >= 1.5) ? 'severe' : 'moderate',
   }))
 
   // 5. Year-by-year breakdown
@@ -124,20 +135,20 @@ export async function POST(request: NextRequest) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   hailFeatures.forEach((f: any) => {
-    const yr = parseInt((f.properties?.EVENT_DATE || '').slice(0, 4))
+    const yr = parseInt((f.BEGIN_DATE_TIME || '').slice(0, 4))
     if (byYear[yr]) {
       byYear[yr].hail++
-      byYear[yr].maxHail = Math.max(byYear[yr].maxHail, f.properties?.HAILSIZE || 0)
+      byYear[yr].maxHail = Math.max(byYear[yr].maxHail, f.MAGNITUDE ? parseFloat(f.MAGNITUDE) : 0)
     }
   })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tornadoFeatures.forEach((f: any) => {
-    const yr = parseInt((f.properties?.EVENT_DATE || '').slice(0, 4))
+    const yr = parseInt((f.BEGIN_DATE_TIME || '').slice(0, 4))
     if (byYear[yr]) byYear[yr].tornado++
   })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   windFeatures.forEach((f: any) => {
-    const yr = parseInt((f.properties?.EVENT_DATE || '').slice(0, 4))
+    const yr = parseInt((f.BEGIN_DATE_TIME || '').slice(0, 4))
     if (byYear[yr]) byYear[yr].wind++
   })
 
