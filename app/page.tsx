@@ -1541,7 +1541,7 @@ Only respond with the JSON array, no other text.` }
               height={36}
               className="h-9 w-9 object-contain"
             />
-            <div className="hidden sm:block">
+            <div className="block">
               <p className="text-base font-bold text-white leading-tight tracking-tight">Directive</p>
               <p className="text-[10px] text-cyan uppercase tracking-widest leading-none">CRM</p>
             </div>
