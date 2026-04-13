@@ -89,6 +89,8 @@ function riskColor(level: string) {
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export default function MobileLayout(props: MobileLayoutProps) {
+  const [clientFilter, setClientFilter] = useState<'all' | 'new_lead' | 'contacted' | 'proposal_sent' | 'scheduled' | 'complete'>('all')
+
   const {
     user, userRole, onSignOut,
     activeScreen, setActiveScreen,
@@ -123,6 +125,11 @@ export default function MobileLayout(props: MobileLayoutProps) {
     .filter(p => p.roof_age_years !== null && p.roof_age_years >= 15)
     .sort((a, b) => (b.roof_age_years || 0) - (a.roof_age_years || 0))
     .slice(0, 5)
+
+  // Filtered clients based on status filter
+  const filteredClients = clientFilter === 'all'
+    ? clients
+    : clients.filter(c => c.status === clientFilter)
 
   // ── SCREENS ────────────────────────────────────────────────────────────────
 
@@ -700,8 +707,12 @@ export default function MobileLayout(props: MobileLayoutProps) {
             {(['all','new_lead','contacted','proposal_sent','scheduled','complete'] as const).map(s => (
               <button
                 key={s}
-                onClick={() => {}}
-                className="px-3 py-1.5 rounded-full text-xs font-medium bg-[#0d1117] border border-white/10 text-gray-300 whitespace-nowrap flex-shrink-0"
+                onClick={() => setClientFilter(s)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${
+                  clientFilter === s
+                    ? 'bg-cyan-500/30 border border-cyan-500/40 text-cyan-400'
+                    : 'bg-[#0d1117] border border-white/10 text-gray-300'
+                }`}
               >
                 {s === 'all' ? 'All' : s.replace(/_/g, ' ')}
               </button>
@@ -709,14 +720,14 @@ export default function MobileLayout(props: MobileLayoutProps) {
           </div>
 
           <div className="space-y-2 mt-4">
-            {clients.length === 0 ? (
+            {filteredClients.length === 0 ? (
               <div className="text-center py-12">
                 <Users className="w-12 h-12 text-gray-600 mx-auto mb-3" />
                 <p className="text-sm text-gray-400">No clients yet</p>
                 <p className="text-xs text-gray-500 mt-1">Research a property in Sweep and save it as a lead</p>
               </div>
             ) : (
-              clients.map(client => {
+              filteredClients.map(client => {
                 const prop = properties.find(p => p.id === client.property_id)
                 const statusColors: Record<string, string> = {
                   new_lead: 'text-cyan-400 bg-cyan-400/10',

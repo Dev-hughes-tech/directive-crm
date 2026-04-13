@@ -40,6 +40,9 @@ import {
   ChevronDown,
   Calculator,
   Settings,
+  Bell,
+  Globe,
+  ExternalLink,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
@@ -131,6 +134,16 @@ function getScoreBadgeColor(score: number | null): string {
   if (score >= 70) return 'bg-green/20 text-green border border-green/30'
   if (score >= 50) return 'bg-amber/20 text-amber border border-amber/30'
   return 'bg-red/20 text-red border border-red/30'
+}
+
+// Helper to log client activity
+function logClientActivity(clientId: string, action: string, activities: Record<string, Array<{action: string, timestamp: string}>>) {
+  const timestamp = new Date().toISOString()
+  const newActivities = { ...activities }
+  if (!newActivities[clientId]) newActivities[clientId] = []
+  newActivities[clientId] = [...newActivities[clientId], { action, timestamp }]
+  localStorage.setItem('directive_client_activities', JSON.stringify(newActivities))
+  return newActivities
 }
 
 // Property card component
@@ -390,6 +403,45 @@ function PropertyCard({ property }: PropertyCardProps) {
         </div>
       </div>
 
+      {/* ROOF MEASUREMENTS — Powered by Google Solar */}
+      {property.roof_area_sqft && (
+        <div className="border-t border-white/5 pt-4 space-y-2">
+          <h4 className="text-xs font-bold text-cyan uppercase tracking-wider">Roof Measurements</h4>
+          <div className="grid grid-cols-3 gap-2 text-center text-sm">
+            <div>
+              <p className="text-lg font-bold text-white">{property.roof_area_sqft?.toLocaleString()}</p>
+              <p className="text-[10px] text-gray-400">Total Sq Ft</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-white">{property.roof_pitch}</p>
+              <p className="text-[10px] text-gray-400">Pitch</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-white">{property.roofing_squares}</p>
+              <p className="text-[10px] text-gray-400">Squares</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-2 text-center text-sm">
+            <div>
+              <p className="text-sm font-bold text-white">{property.roof_segments}</p>
+              <p className="text-[10px] text-gray-400">Roof Segments</p>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white">×{property.pitch_multiplier}</p>
+              <p className="text-[10px] text-gray-400">Pitch Multiplier</p>
+            </div>
+          </div>
+          {property.satellite_image_url && (
+            <div className="mt-3">
+              <img src={property.satellite_image_url} alt="Satellite view" className="w-full rounded-lg border border-white/10" />
+              <p className="text-[9px] text-gray-500 mt-1 text-center">
+                Satellite imagery {property.roof_imagery_date ? `from ${property.roof_imagery_date}` : ''} • {property.roof_imagery_quality || 'Standard'} quality
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* STORM HISTORY */}
       {property.storm_history && (
         <div className="border-t border-white/5 pt-4 space-y-2">
@@ -590,6 +642,9 @@ export default function Dashboard() {
   const [clients, setClients] = useState<Client[]>([])
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [clientStatusFilter, setClientStatusFilter] = useState<string>('all')
+  const [clientActivities, setClientActivities] = useState<Record<string, Array<{action: string, timestamp: string}>>>(() => {
+    try { return JSON.parse(localStorage.getItem('directive_client_activities') || '{}') } catch { return {} }
+  })
 
   // Proposals screen state
   const [proposals, setProposals] = useState<Proposal[]>([])
@@ -608,6 +663,24 @@ export default function Dashboard() {
   const [valleyDeductSqft, setValleyDeductSqft] = useState<string>('')
   const [roofType, setRoofType] = useState<'gable' | 'hip'>('gable')
 
+  // Material Orders state
+  interface MaterialOrder {
+    id: string
+    materials: Array<{ name: string; quantity: number; unit: string; unit_cost: number; total: number }>
+    job_id?: string
+    job_title?: string
+    status: 'draft' | 'ordered' | 'shipped' | 'delivered'
+    supplier: string
+    order_date: string
+    notes: string
+    total_cost: number
+  }
+  const [materialOrders, setMaterialOrders] = useState<MaterialOrder[]>(() => {
+    try { return JSON.parse(localStorage.getItem('directive_material_orders') || '[]') } catch { return [] }
+  })
+  const [addingOrder, setAddingOrder] = useState(false)
+  const [materialsTab, setMaterialsTab] = useState<'catalog' | 'orders'>('catalog')
+
   // Jobs / Production Management state
   const [jobs, setJobs] = useState<Job[]>([])
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
@@ -620,6 +693,7 @@ export default function Dashboard() {
   const [jobTab, setJobTab] = useState<'pipeline' | 'detail' | 'insurance' | 'photos'>('pipeline')
   const [addingSupplementNote, setAddingSupplementNote] = useState(false)
   const [photoCategory, setPhotoCategory] = useState<PhotoCategory>('overall_roof')
+  const [jobViewMode, setJobViewMode] = useState<'list' | 'board'>('list')
   const photoInputRef = useRef<HTMLInputElement>(null)
 
   // Team chat state
@@ -628,9 +702,10 @@ export default function Dashboard() {
   const [teamChatInput, setTeamChatInput] = useState('')
   const [unreadCount, setUnreadCount] = useState(0)
   const [activeChannel, setActiveChannel] = useState<'general' | 'management'>('general')
+  const [commsTab, setCommsTab] = useState<'team' | 'voice' | 'gmail'>('team')
 
   // Dashboard enhanced state
-  const [dashboardTab, setDashboardTab] = useState<'overview' | 'storm-leads' | 'michael-leads' | 'historical'>('overview')
+  const [dashboardTab, setDashboardTab] = useState<'overview' | 'storm-leads' | 'michael-leads' | 'historical' | 'analytics'>('overview')
   const [weatherZip, setWeatherZip] = useState('')
   const [dashWeather, setDashWeather] = useState<WeatherCurrent | null>(null)
   const [dashAlerts, setDashAlerts] = useState<WeatherAlert[]>([])
@@ -656,6 +731,17 @@ export default function Dashboard() {
   const [timelineView, setTimelineView] = useState<'month' | 'week' | 'day'>('month')
   const [timelinePlaying, setTimelinePlaying] = useState(false)
 
+  // Notification system state
+  interface AppNotification {
+    id: string
+    message: string
+    type: 'info' | 'success' | 'warning'
+    timestamp: string
+    read: boolean
+  }
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [showNotifications, setShowNotifications] = useState(false)
+
   // Auth state
   const [user, setUser] = useState<{ id: string; email: string | undefined } | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -663,8 +749,36 @@ export default function Dashboard() {
   const [userRole, setUserRole] = useState<UserRole>('trial')
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [lockedFeature, setLockedFeature] = useState<string>('')
+  const [settingsSaved, setSettingsSaved] = useState(false)
   const router = useRouter()
   const isMobile = useIsMobile()
+
+  // Company settings state
+  const [companySettings, setCompanySettings] = useState({
+    company_name: '',
+    company_phone: '',
+    license_number: '',
+    home_city: '',
+    service_radius: '25',
+    tax_rate: '8.5',
+    payment_terms: '50_50',
+    warranty_period: '2',
+    notify_storm: true,
+    notify_leads: true,
+    notify_status: true,
+  })
+
+  // Notification helper function
+  const addNotification = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
+    const n: AppNotification = {
+      id: crypto.randomUUID(),
+      message,
+      type,
+      timestamp: new Date().toISOString(),
+      read: false
+    }
+    setNotifications(prev => [n, ...prev].slice(0, 50))
+  }
 
   // Auth check on mount
   useEffect(() => {
@@ -694,6 +808,18 @@ export default function Dashboard() {
       }
     })
     return () => subscription.unsubscribe()
+  }, [])
+
+  // Load company settings from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('directive_company_settings')
+    if (saved) {
+      try {
+        setCompanySettings(JSON.parse(saved))
+      } catch (e) {
+        console.error('Failed to load company settings:', e)
+      }
+    }
   }, [])
 
   // Helper: gate a feature — shows upgrade modal if locked
@@ -756,6 +882,11 @@ export default function Dashboard() {
       setChatMessages([{ role: 'assistant', content: initialMsg }])
     }
   }, [])
+
+  // Save material orders to localStorage
+  useEffect(() => {
+    localStorage.setItem('directive_material_orders', JSON.stringify(materialOrders))
+  }, [materialOrders])
 
   // Update time every second
   useEffect(() => {
@@ -894,11 +1025,16 @@ export default function Dashboard() {
       deed_type: null, deed_book: null, tax_annual: null,
       neighborhood: null, owner_age: null, roof_age_estimated: false,
       storm_history: null,
+      roof_area_sqft: null, roof_pitch: null, roof_pitch_degrees: null,
+      pitch_multiplier: null, roofing_squares: null, roof_segments: null,
+      roof_segment_details: null, satellite_image_url: null,
+      roof_imagery_date: null, roof_imagery_quality: null,
     }
 
     const updated = [...properties, newProperty]
     setProperties(updated)
     await saveProperty(newProperty)
+    addNotification(`Property saved: ${newProperty.address}`, 'success')
     setCommercialResults(commercialResults.filter(p => p.id !== place.id))
   }
 
@@ -967,11 +1103,16 @@ export default function Dashboard() {
       deed_type: null, deed_book: null, tax_annual: null,
       neighborhood: null, owner_age: null, roof_age_estimated: false,
       storm_history: null,
+      roof_area_sqft: null, roof_pitch: null, roof_pitch_degrees: null,
+      pitch_multiplier: null, roofing_squares: null, roof_segments: null,
+      roof_segment_details: null, satellite_image_url: null,
+      roof_imagery_date: null, roof_imagery_quality: null,
     }
 
     const updated = [...properties, newProperty]
     setProperties(updated)
     await saveProperty(newProperty)
+    addNotification(`Property saved: ${newProperty.address}`, 'success')
     setResidentialResults(residentialResults.filter(p => p.id !== place.id))
   }
 
@@ -1122,6 +1263,39 @@ export default function Dashboard() {
         owner_age: (data.ownerAge as number) || null,
         roof_age_estimated: (data.roofAgeEstimated as boolean) || false,
         storm_history: (data.stormHistory as Property['storm_history']) || null,
+        roof_area_sqft: null,
+        roof_pitch: null,
+        roof_pitch_degrees: null,
+        pitch_multiplier: null,
+        roofing_squares: null,
+        roof_segments: null,
+        roof_segment_details: null,
+        satellite_image_url: null,
+        roof_imagery_date: null,
+        roof_imagery_quality: null,
+      }
+
+      // Phase 5: Fetch roof measurements from Google Solar API
+      try {
+        const roofRes = await fetch(`/api/roof-measure?lat=${lat}&lng=${lng}`)
+        if (roofRes.ok) {
+          const roofData = await roofRes.json()
+          if (roofData.success && roofData.roof) {
+            newProperty.roof_area_sqft = roofData.roof.totalAreaSqFt
+            newProperty.roof_pitch = roofData.roof.avgPitchRatio
+            newProperty.roof_pitch_degrees = roofData.roof.avgPitchDegrees
+            newProperty.pitch_multiplier = roofData.roof.pitchMultiplier
+            newProperty.roofing_squares = roofData.roof.roofingSquares
+            newProperty.roof_segments = roofData.roof.segmentCount
+            newProperty.roof_segment_details = roofData.roof.segments
+            newProperty.satellite_image_url = roofData.satelliteImageUrl
+            newProperty.roof_imagery_date = roofData.imagery?.date
+            newProperty.roof_imagery_quality = roofData.imagery?.quality
+          }
+        }
+      } catch (e) {
+        // Silently fail — roof data is supplemental
+        console.log('Roof measure unavailable:', e)
       }
 
       setSweepResult(newProperty)
@@ -1166,6 +1340,7 @@ export default function Dashboard() {
     const updated = [...properties, sweepResult]
     setProperties(updated)
     await saveProperty(sweepResult)
+    addNotification(`Property saved: ${sweepResult.address}`, 'success')
     setSweepResult(null)
     setSweepAddress('')
   }
@@ -1453,6 +1628,8 @@ Only respond with the JSON array, no other text.` }
           const updated = clients.map(x => x.id === c.id ? c : x)
           setClients(updated)
           await saveClient(c)
+          const propForClient = properties.find(p => p.id === c.property_id)
+          addNotification(`Client updated for ${propForClient?.address || 'property'}`, 'info')
         }}
         proposals={proposals}
         setSelectedProposal={setSelectedProposal}
@@ -1616,6 +1793,45 @@ Only respond with the JSON array, no other text.` }
             >
               {getTierConfig(userRole).name}
             </button>
+            {/* Notifications Bell */}
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="relative px-3 py-1.5 text-gray-400 hover:text-white transition-all"
+              >
+                <Bell className="w-4 h-4" />
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="absolute top-1 right-1 w-4 h-4 bg-red rounded-full text-white text-[9px] font-bold flex items-center justify-center">
+                    {Math.min(notifications.filter(n => !n.read).length, 9)}
+                  </span>
+                )}
+              </button>
+              {showNotifications && (
+                <div className="absolute right-0 top-12 w-80 max-h-96 overflow-y-auto glass rounded-lg border border-white/10 z-50 p-3 shadow-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-bold text-white">Notifications</h3>
+                    {notifications.length > 0 && (
+                      <button
+                        onClick={() => setNotifications(prev => prev.map(n => ({...n, read: true})))}
+                        className="text-xs text-cyan hover:text-cyan/80 transition-all"
+                      >
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+                  {notifications.length === 0 ? (
+                    <p className="text-xs text-gray-500 text-center py-4">No notifications</p>
+                  ) : (
+                    notifications.map(n => (
+                      <div key={n.id} className={`p-2 rounded mb-1 ${n.read ? 'opacity-50' : 'bg-white/5'} hover:bg-white/10 transition-all`}>
+                        <p className="text-xs text-white">{n.message}</p>
+                        <p className="text-[10px] text-gray-500 mt-1">{new Date(n.timestamp).toLocaleString()}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
             <button
               onClick={() => supabase.auth.signOut().then(() => router.push('/login'))}
               className="px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-dark-700/50 rounded transition-all"
@@ -1751,6 +1967,16 @@ Only respond with the JSON array, no other text.` }
               }`}
             >
               Historical Weather
+            </button>
+            <button
+              onClick={() => setDashboardTab('analytics')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
+                dashboardTab === 'analytics'
+                  ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                  : 'glass text-gray-300 hover:text-white'
+              }`}
+            >
+              Analytics
             </button>
           </div>
 
@@ -1981,34 +2207,47 @@ Only respond with the JSON array, no other text.` }
                   <div className="text-xs text-gray-500 text-center py-2">Powered by StormScope</div>
                 </div>
 
-                {/* Territory List */}
-                <div className="space-y-2">
+                {/* Property Hub - Card Grid */}
+                <div className="border-t border-white/5 pt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Property Hub</h3>
+                    {properties.length > 8 && (
+                      <button
+                        onClick={() => setActiveScreen('territory')}
+                        className="text-xs text-cyan hover:underline"
+                      >
+                        View All
+                      </button>
+                    )}
+                  </div>
                   {properties.length === 0 ? (
-                    <p className="text-sm text-gray-400">No territories yet</p>
+                    <p className="text-sm text-gray-400">No properties yet</p>
                   ) : (
-                    Array.from(
-                      properties.reduce((acc, p) => {
-                        const zip = p.address.split(',').pop()?.trim() || 'Unknown'
-                        const count = (acc.get(zip) || 0) + 1
-                        acc.set(zip, count)
-                        return acc
-                      }, new Map<string, number>())
-                    )
-                      .sort((a, b) => b[1] - a[1])
-                      .map(([zip, count]) => {
-                        const status = count >= 100 ? 'Hot Zone' : count >= 50 ? 'Warm' : 'Developing'
-                        const statusColor = count >= 100 ? 'text-red' : count >= 50 ? 'text-amber' : 'text-gray-400'
+                    <div className="grid grid-cols-2 gap-2">
+                      {properties.slice(0, 8).map(p => {
+                        const score = calculateLeadScore(p)
+                        const isHot = score >= 70
                         return (
-                          <div key={zip} className="bg-dark-700/50 rounded-lg p-3 text-sm">
-                            <p className="font-semibold text-white">{zip}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">Huntsville area</p>
-                            <div className="flex justify-between items-center mt-2">
-                              <span className="text-xs text-gray-400">{count} leads</span>
-                              <span className={`text-xs font-semibold ${statusColor}`}>{status}</span>
+                          <div
+                            key={p.id}
+                            className="glass rounded-lg p-3 cursor-pointer hover:border-cyan/30 border border-transparent transition-all"
+                            onClick={() => { setSelectedProperty(p) }}
+                          >
+                            {p.satellite_image_url && (
+                              <img src={p.satellite_image_url} alt="" className="w-full h-20 object-cover rounded mb-2" />
+                            )}
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-white font-medium truncate flex-1">{p.address?.split(',')[0]}</p>
+                              <span className={`text-xs font-bold ml-1 ${isHot ? 'text-red-400' : score >= 50 ? 'text-amber-400' : 'text-green-400'}`}>{score}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              {p.roof_age_years && <span className="text-[10px] text-gray-400">{p.roof_age_years}yr roof</span>}
+                              {p.sqft && <span className="text-[10px] text-cyan">{p.sqft.toLocaleString()} sqft</span>}
                             </div>
                           </div>
                         )
-                      })
+                      })}
+                    </div>
                   )}
                 </div>
               </div>
@@ -2176,6 +2415,109 @@ Only respond with the JSON array, no other text.` }
             </div>
           )}
 
+          {/* ANALYTICS TAB */}
+          {dashboardTab === 'analytics' && (
+            <div className="absolute left-4 right-4 top-[236px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+              <h2 className="text-lg font-semibold text-cyan mb-6">Analytics & Reporting</h2>
+
+              {/* Calculate metrics from existing data */}
+              {(() => {
+                const analytics = {
+                  totalRevenue: jobs.filter(j => j.stage === 'collected').reduce((sum, j) => sum + (j.contract_amount || 0), 0),
+                  pendingRevenue: jobs.filter(j => j.stage !== 'collected' && j.stage !== 'sold').reduce((sum, j) => sum + (j.contract_amount || 0), 0),
+                  totalJobs: jobs.length,
+                  completedJobs: jobs.filter(j => j.stage === 'collected' || j.stage === 'final_inspection').length,
+                  avgJobValue: jobs.length > 0 ? jobs.reduce((sum, j) => sum + (j.contract_amount || 0), 0) / jobs.length : 0,
+                  totalClients: clients.length,
+                  conversionRate: clients.length > 0 ? (clients.filter(c => c.status === 'complete').length / clients.length * 100) : 0,
+                  proposalsSent: proposals.filter(p => p.status === 'sent' || p.status === 'accepted').length,
+                  proposalsAccepted: proposals.filter(p => p.status === 'accepted').length,
+                  closeRate: proposals.filter(p => p.status === 'sent' || p.status === 'accepted').length > 0
+                    ? (proposals.filter(p => p.status === 'accepted').length / proposals.filter(p => p.status === 'sent' || p.status === 'accepted').length * 100) : 0,
+                  propertiesScanned: properties.length,
+                  hotLeads: properties.filter(p => calculateLeadScore(p) >= 70).length,
+                }
+
+                return (
+                  <>
+                    {/* Row 1: Revenue Metrics */}
+                    <div className="grid grid-cols-3 gap-4 mb-6">
+                      <div className="glass rounded-lg p-4 border border-white/10">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Total Revenue</p>
+                        <p className="text-3xl font-bold text-cyan">${(analytics.totalRevenue / 1000).toFixed(0)}k</p>
+                      </div>
+                      <div className="glass rounded-lg p-4 border border-white/10">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Pending Revenue</p>
+                        <p className="text-3xl font-bold text-amber">${(analytics.pendingRevenue / 1000).toFixed(0)}k</p>
+                      </div>
+                      <div className="glass rounded-lg p-4 border border-white/10">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Avg Job Value</p>
+                        <p className="text-3xl font-bold text-green">${(analytics.avgJobValue / 1000).toFixed(1)}k</p>
+                      </div>
+                    </div>
+
+                    {/* Row 2: Job Metrics */}
+                    <div className="grid grid-cols-3 gap-4 mb-6">
+                      <div className="glass rounded-lg p-4 border border-white/10">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Total Jobs</p>
+                        <p className="text-3xl font-bold text-cyan">{analytics.totalJobs}</p>
+                      </div>
+                      <div className="glass rounded-lg p-4 border border-white/10">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Completed Jobs</p>
+                        <p className="text-3xl font-bold text-green">{analytics.completedJobs}</p>
+                      </div>
+                      <div className="glass rounded-lg p-4 border border-white/10">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Close Rate %</p>
+                        <p className="text-3xl font-bold text-cyan">{analytics.closeRate.toFixed(0)}%</p>
+                      </div>
+                    </div>
+
+                    {/* Row 3: Lead & Client Metrics */}
+                    <div className="grid grid-cols-3 gap-4 mb-6">
+                      <div className="glass rounded-lg p-4 border border-white/10">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Properties Scanned</p>
+                        <p className="text-3xl font-bold text-cyan">{analytics.propertiesScanned}</p>
+                      </div>
+                      <div className="glass rounded-lg p-4 border border-white/10">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Hot Leads (70+)</p>
+                        <p className="text-3xl font-bold text-red">{analytics.hotLeads}</p>
+                      </div>
+                      <div className="glass rounded-lg p-4 border border-white/10">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Conversion Rate %</p>
+                        <p className="text-3xl font-bold text-green">{analytics.conversionRate.toFixed(0)}%</p>
+                      </div>
+                    </div>
+
+                    {/* Pipeline Breakdown */}
+                    <div className="glass rounded-lg p-4 border border-white/10 mt-6">
+                      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-4">Pipeline Breakdown</h3>
+                      <div className="space-y-3">
+                        {JOB_STAGES.map((stage) => {
+                          const stageCount = jobs.filter(j => j.stage === stage.key).length
+                          const percentage = jobs.length > 0 ? (stageCount / jobs.length) * 100 : 0
+                          return (
+                            <div key={stage.key}>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-semibold text-white">{stage.label}</span>
+                                <span className="text-xs text-gray-400">{stageCount}</span>
+                              </div>
+                              <div className="w-full bg-dark-700/50 rounded-full h-2">
+                                <div
+                                  className="h-full rounded-full transition-all"
+                                  style={{ width: `${percentage}%`, backgroundColor: stage.color || '#22d3ee' }}
+                                />
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          )}
+
           {/* Bottom Control Timeline */}
           <div className="absolute bottom-4 left-4 right-4 z-30 glass px-6 py-3 rounded-lg flex items-center justify-between h-14">
             <span className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Timeline View</span>
@@ -2208,7 +2550,8 @@ Only respond with the JSON array, no other text.` }
               </button>
               <button
                 onClick={() => {
-                  /* Jump to today logic */
+                  setTimelineView('day')
+                  setTimelinePlaying(false)
                 }}
                 className="w-8 h-8 rounded-lg bg-dark-700/50 hover:bg-dark-700 flex items-center justify-center transition-all"
                 title="Jump to today"
@@ -3580,13 +3923,19 @@ Only respond with the JSON array, no other text.` }
                             <select
                               value={selectedClient.status}
                               onChange={async (e) => {
-                                const updated = { ...selectedClient, status: e.target.value as any }
+                                const newStatus = e.target.value as any
+                                const updated = { ...selectedClient, status: newStatus }
                                 setSelectedClient(updated)
                                 const idx = clients.findIndex(c => c.id === selectedClient.id)
                                 const newClients = [...clients]
                                 newClients[idx] = updated
                                 setClients(newClients)
                                 await saveClient(updated)
+                                const statusLabel = newStatus.replace(/_/g, ' ').split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+                                const clientProp = properties.find(p => p.id === selectedClient.property_id)
+                                addNotification(`Client for ${clientProp?.address || 'property'} marked as ${statusLabel}`, 'info')
+                                const newActivities = logClientActivity(selectedClient.id, `Status changed to '${statusLabel}'`, clientActivities)
+                                setClientActivities(newActivities)
                               }}
                               className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
                             >
@@ -3633,6 +3982,28 @@ Only respond with the JSON array, no other text.` }
                           className="w-full h-20 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
                           placeholder="Add notes..."
                         />
+                      </div>
+
+                      {/* Activity Log */}
+                      <div className="mb-4">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-3">Activity</p>
+                        <div className="space-y-2 max-h-32 overflow-y-auto">
+                          {clientActivities[selectedClient.id] && clientActivities[selectedClient.id].length > 0 ? (
+                            [...(clientActivities[selectedClient.id] || [])].reverse().map((activity, idx) => {
+                              const date = new Date(activity.timestamp)
+                              const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                              const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                              return (
+                                <div key={idx} className="text-xs border-l border-cyan/30 pl-3 py-1">
+                                  <p className="text-cyan">{activity.action}</p>
+                                  <p className="text-gray-500 text-xs mt-0.5">{dateStr} {timeStr}</p>
+                                </div>
+                              )
+                            })
+                          ) : (
+                            <p className="text-xs text-gray-500">No activity yet</p>
+                          )}
+                        </div>
                       </div>
 
                       {prop && (
@@ -3803,13 +4174,59 @@ Only respond with the JSON array, no other text.` }
                     <label className="text-xs text-gray-400 uppercase tracking-wide">Status</label>
                     <select
                       value={selectedProposal.status}
-                      onChange={(e) => {
-                        const updated = { ...selectedProposal, status: e.target.value as any }
+                      onChange={async (e) => {
+                        const newStatus = e.target.value as any
+                        const updated = { ...selectedProposal, status: newStatus }
                         setSelectedProposal(updated)
                         const idx = proposals.findIndex(p => p.id === selectedProposal.id)
                         const newProposals = [...proposals]
                         newProposals[idx] = updated
                         setProposals(newProposals)
+
+                        // Auto-convert accepted proposal to job
+                        if (newStatus === 'accepted') {
+                          const jobAlreadyExists = jobs.some(j => j.address === selectedProposal.property_id)
+                          if (!jobAlreadyExists) {
+                            const subtotal = selectedProposal.line_items.reduce((sum, item) => sum + item.total, 0)
+                            const taxRate = parseFloat(companySettings.tax_rate || '0') / 100
+                            const contractAmount = subtotal * (1 + taxRate)
+                            const prop = properties.find(p => p.id === selectedProposal.property_id)
+
+                            const newJob: Job = {
+                              id: crypto.randomUUID(),
+                              property_id: selectedProposal.property_id,
+                              client_id: selectedProposal.client_id || null,
+                              proposal_id: selectedProposal.id,
+                              title: `Roof - ${prop?.address || 'Unknown'}`,
+                              address: prop?.address || '',
+                              owner_name: prop?.owner_name || null,
+                              contract_amount: contractAmount,
+                              stage: 'sold' as const,
+                              contract_signed_at: new Date().toISOString(),
+                              permit_number: null,
+                              permit_applied_at: null,
+                              permit_approved_at: null,
+                              scheduled_date: null,
+                              crew_lead: null,
+                              crew_members: [],
+                              started_at: null,
+                              completed_at: null,
+                              invoice_number: null,
+                              invoice_sent_at: null,
+                              amount_collected: null,
+                              collected_at: null,
+                              insurance: null,
+                              photos: [],
+                              notes: selectedProposal.notes || '',
+                              created_at: new Date().toISOString()
+                            }
+
+                            const updatedJobs = [...jobs, newJob]
+                            setJobs(updatedJobs)
+                            await saveJob(newJob)
+                            addNotification(`Proposal accepted for ${prop?.address || 'property'} — Job created!`, 'success')
+                          }
+                        }
                       }}
                       className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
                     >
@@ -3921,18 +4338,28 @@ Only respond with the JSON array, no other text.` }
                   </div>
 
                   <div className="bg-dark-700/50 rounded p-4 space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">Subtotal:</span>
-                      <span className="text-white">${selectedProposal.total.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">Tax (0%):</span>
-                      <span className="text-white">$0</span>
-                    </div>
-                    <div className="flex justify-between text-lg font-semibold border-t border-white/10 pt-2">
-                      <span className="text-gray-400">Total:</span>
-                      <span className="text-cyan">${selectedProposal.total.toLocaleString()}</span>
-                    </div>
+                    {(() => {
+                      const subtotal = selectedProposal.line_items.reduce((sum, item) => sum + item.total, 0)
+                      const taxRate = parseFloat(companySettings.tax_rate || '0') / 100
+                      const taxAmount = subtotal * taxRate
+                      const grandTotal = subtotal + taxAmount
+                      return (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-400">Subtotal:</span>
+                            <span className="text-white">${subtotal.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-400">Tax ({companySettings.tax_rate}%):</span>
+                            <span className="text-white">${taxAmount.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-lg font-semibold border-t border-white/10 pt-2">
+                            <span className="text-gray-400">Total:</span>
+                            <span className="text-cyan">${grandTotal.toFixed(2)}</span>
+                          </div>
+                        </>
+                      )
+                    })()}
                   </div>
                 </div>
 
@@ -3984,8 +4411,10 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'materials' && (
         <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
           {/* Roof Calculator */}
-          <div className="glass rounded-lg p-6">
-            <div className="flex items-center gap-2 mb-4">
+          {materialsTab === 'catalog' && (
+            <>
+            <div className="glass rounded-lg p-6">
+              <div className="flex items-center gap-2 mb-4">
               <Calculator className="w-5 h-5 text-cyan" />
               <h3 className="text-lg font-semibold text-white">Roof Area Calculator</h3>
             </div>
@@ -4075,53 +4504,53 @@ Only respond with the JSON array, no other text.` }
                 </div>
               )
             })()}
-          </div>
-
-          {/* Smart Estimate Panel */}
-          <div className="glass rounded-lg p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Brain className="w-5 h-5 text-cyan" />
-              <h3 className="text-lg font-semibold text-white">Smart Estimate Builder</h3>
-            </div>
-            <p className="text-xs text-gray-400 mb-4">Select a property to auto-build a material estimate based on roof size, pitch, and age.</p>
-            <div className="space-y-3">
-              <select
-                className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
-                onChange={(e) => {
-                  const prop = properties.find(p => p.id === e.target.value)
-                  if (prop && prop.sqft) {
-                    setRoofWidth(String(Math.round(Math.sqrt(prop.sqft))))
-                    setRoofLength(String(Math.round(Math.sqrt(prop.sqft))))
-                  }
-                }}
-              >
-                <option value="">Select property from pipeline...</option>
-                {properties.map(prop => (
-                  <option key={prop.id} value={prop.id}>
-                    {prop.address} {prop.sqft ? `— ${prop.sqft.toLocaleString()} sqft` : ''}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500">Selecting a property auto-fills the roof dimensions above. Then use the calculator to get material quantities and costs.</p>
-            </div>
-          </div>
-
-          {/* Materials Catalog */}
-          <div className="flex-1 glass rounded-lg p-6 overflow-y-auto flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Materials Catalog</h3>
-              <button
-                onClick={() => setAddingMaterial(!addingMaterial)}
-                className="p-1.5 rounded hover:bg-dark-700 text-cyan"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
             </div>
 
-            {/* Add Material Form */}
-            {addingMaterial && (
-              <div className="mb-4 p-4 bg-dark-700/50 rounded-lg border border-white/10 space-y-3">
-                <h4 className="text-sm font-semibold text-white mb-3">New Material</h4>
+            {/* Smart Estimate Panel */}
+            <div className="glass rounded-lg p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Brain className="w-5 h-5 text-cyan" />
+                <h3 className="text-lg font-semibold text-white">Smart Estimate Builder</h3>
+              </div>
+              <p className="text-xs text-gray-400 mb-4">Select a property to auto-build a material estimate based on roof size, pitch, and age.</p>
+              <div className="space-y-3">
+                <select
+                  className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                  onChange={(e) => {
+                    const prop = properties.find(p => p.id === e.target.value)
+                    if (prop && prop.sqft) {
+                      setRoofWidth(String(Math.round(Math.sqrt(prop.sqft))))
+                      setRoofLength(String(Math.round(Math.sqrt(prop.sqft))))
+                    }
+                  }}
+                >
+                  <option value="">Select property from pipeline...</option>
+                  {properties.map(prop => (
+                    <option key={prop.id} value={prop.id}>
+                      {prop.address} {prop.sqft ? `— ${prop.sqft.toLocaleString()} sqft` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500">Selecting a property auto-fills the roof dimensions above. Then use the calculator to get material quantities and costs.</p>
+              </div>
+            </div>
+
+            {/* Materials Catalog */}
+              <div className="flex-1 glass rounded-lg p-6 overflow-y-auto flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-white">Materials Catalog</h3>
+                  <button
+                    onClick={() => setAddingMaterial(!addingMaterial)}
+                    className="p-1.5 rounded hover:bg-dark-700 text-cyan"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Add Material Form */}
+                {addingMaterial && (
+                  <div className="mb-4 p-4 bg-dark-700/50 rounded-lg border border-white/10 space-y-3">
+                    <h4 className="text-sm font-semibold text-white mb-3">New Material</h4>
                 <input
                   id="mat-name"
                   type="text"
@@ -4240,128 +4669,452 @@ Only respond with the JSON array, no other text.` }
                 </tbody>
               </table>
             )}
+            </div>
+            </>
+          )}
+
+          {/* Orders Tab */}
+          {materialsTab === 'orders' && (
+            <div className="flex-1 glass rounded-lg p-6 overflow-y-auto flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Material Orders</h3>
+                <button
+                  onClick={() => setAddingOrder(!addingOrder)}
+                  className="p-1.5 rounded hover:bg-dark-700 text-cyan"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Add Order Form */}
+              {addingOrder && (
+                <div className="mb-4 p-4 bg-dark-700/50 rounded-lg border border-white/10 space-y-3">
+                  <h4 className="text-sm font-semibold text-white mb-3">New Order</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-400 uppercase tracking-wide">Supplier</label>
+                      <input
+                        id="order-supplier"
+                        type="text"
+                        placeholder="Supplier name..."
+                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 uppercase tracking-wide">Link to Job (Optional)</label>
+                      <select
+                        id="order-job"
+                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                      >
+                        <option value="">Select job...</option>
+                        {jobs.map(job => (
+                          <option key={job.id} value={job.id}>{job.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 uppercase tracking-wide">Materials</label>
+                    <div className="space-y-2 mt-1 max-h-32 overflow-y-auto">
+                      {materials.map(mat => (
+                        <label key={mat.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            value={mat.id}
+                            className="rounded"
+                            id={`mat-checkbox-${mat.id}`}
+                          />
+                          <span className="text-sm text-gray-300">{mat.name} ({mat.unit}) - ${mat.unit_cost}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 uppercase tracking-wide">Notes</label>
+                    <textarea
+                      id="order-notes"
+                      placeholder="Order notes..."
+                      className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                      rows={2}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        const supplier = (document.getElementById('order-supplier') as HTMLInputElement).value
+                        const jobId = (document.getElementById('order-job') as HTMLSelectElement).value
+                        const notes = (document.getElementById('order-notes') as HTMLTextAreaElement).value
+                        const selectedMaterials = Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(el => {
+                          const id = (el as HTMLInputElement).value
+                          const mat = materials.find(m => m.id === id)
+                          return mat ? { name: mat.name, quantity: 1, unit: mat.unit, unit_cost: mat.unit_cost, total: mat.unit_cost } : null
+                        }).filter(Boolean) as any[]
+
+                        if (supplier && selectedMaterials.length > 0) {
+                          const totalCost = selectedMaterials.reduce((sum, m) => sum + m.total, 0)
+                          const newOrder: MaterialOrder = {
+                            id: crypto.randomUUID(),
+                            materials: selectedMaterials,
+                            job_id: jobId || undefined,
+                            job_title: jobId ? jobs.find(j => j.id === jobId)?.title : undefined,
+                            status: 'draft',
+                            supplier,
+                            order_date: new Date().toISOString().split('T')[0],
+                            notes,
+                            total_cost: totalCost
+                          }
+                          setMaterialOrders([...materialOrders, newOrder])
+                          setAddingOrder(false)
+                          ;(document.getElementById('order-supplier') as HTMLInputElement).value = ''
+                          ;(document.getElementById('order-notes') as HTMLTextAreaElement).value = ''
+                          Array.from(document.querySelectorAll('input[type="checkbox"]')).forEach(el => {
+                            (el as HTMLInputElement).checked = false
+                          })
+                        }
+                      }}
+                      className="flex-1 bg-cyan text-dark py-2 rounded font-medium hover:bg-cyan/90 text-sm"
+                    >
+                      Save Order
+                    </button>
+                    <button
+                      onClick={() => setAddingOrder(false)}
+                      className="flex-1 bg-dark-700/50 text-gray-400 py-2 rounded font-medium hover:text-white text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {materialOrders.length === 0 ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-gray-400">No orders yet. Create your first order.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {materialOrders.map(order => (
+                    <div key={order.id} className="bg-dark-700/50 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold text-white">{order.supplier}</p>
+                        <span className={`text-xs font-bold px-2 py-1 rounded ${
+                          order.status === 'draft' ? 'bg-gray-700 text-gray-300' :
+                          order.status === 'ordered' ? 'bg-cyan/20 text-cyan' :
+                          order.status === 'shipped' ? 'bg-amber/20 text-amber' :
+                          'bg-green/20 text-green'
+                        }`}>
+                          {order.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {order.materials.length} items · ${order.total_cost.toFixed(2)}
+                        {order.job_title && <span> · Job: {order.job_title}</span>}
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        {order.status === 'draft' && (
+                          <button
+                            onClick={() => {
+                              setMaterialOrders(materialOrders.map(o => o.id === order.id ? { ...o, status: 'ordered' } : o))
+                            }}
+                            className="flex-1 text-xs bg-cyan/20 text-cyan px-2 py-1 rounded hover:bg-cyan/30"
+                          >
+                            Mark Ordered
+                          </button>
+                        )}
+                        {order.status === 'ordered' && (
+                          <button
+                            onClick={() => {
+                              setMaterialOrders(materialOrders.map(o => o.id === order.id ? { ...o, status: 'shipped' } : o))
+                            }}
+                            className="flex-1 text-xs bg-amber/20 text-amber px-2 py-1 rounded hover:bg-amber/30"
+                          >
+                            Mark Shipped
+                          </button>
+                        )}
+                        {order.status === 'shipped' && (
+                          <button
+                            onClick={() => {
+                              setMaterialOrders(materialOrders.map(o => o.id === order.id ? { ...o, status: 'delivered' } : o))
+                            }}
+                            className="flex-1 text-xs bg-green/20 text-green px-2 py-1 rounded hover:bg-green/30"
+                          >
+                            Mark Delivered
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab buttons (positioned at top) */}
+          <div className="absolute top-6 right-6 flex gap-2 z-40">
+            <button
+              onClick={() => setMaterialsTab('catalog')}
+              className={`text-xs font-semibold uppercase px-3 py-2 rounded-lg transition-all ${
+                materialsTab === 'catalog'
+                  ? 'bg-cyan text-dark'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Catalog
+            </button>
+            <button
+              onClick={() => setMaterialsTab('orders')}
+              className={`text-xs font-semibold uppercase px-3 py-2 rounded-lg transition-all ${
+                materialsTab === 'orders'
+                  ? 'bg-cyan text-dark'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Orders
+            </button>
           </div>
         </div>
       )}
 
-      {/* SCREEN 9: TEAM CHAT */}
+      {/* SCREEN 9: COMMUNICATIONS HUB */}
       {activeScreen === 'team' && (
-        <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
-          {/* Left Panel: Channels & User Role */}
-          <div className="w-full md:w-48 glass rounded-lg p-6 flex flex-col">
-            <div className="mb-6">
-              <label className="text-xs text-gray-400 uppercase tracking-wide">I am:</label>
-              <select
-                value={currentUserRole}
-                onChange={(e) => setCurrentUserRole(e.target.value as any)}
-                className="mt-2 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
-              >
-                <option value="rep">Rep</option>
-                <option value="manager">Manager</option>
-              </select>
-            </div>
-
-            <div className="space-y-2 flex-1">
-              {['general', 'management'].map(channel => (
-                <button
-                  key={channel}
-                  onClick={() => setActiveChannel(channel as 'general' | 'management')}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                    activeChannel === channel
-                      ? 'bg-cyan text-dark'
-                      : 'bg-dark-700/50 hover:bg-dark-700 text-white'
-                  }`}
-                >
-                  # {channel}
-                </button>
-              ))}
+        <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)]">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="w-5 h-5 text-cyan" />
+              <h2 className="text-xl font-bold text-white">Communications Hub</h2>
             </div>
           </div>
 
-          {/* Right Panel: Chat */}
-          <div className="flex-1 glass rounded-lg p-6 flex flex-col">
-            <h2 className="text-lg font-semibold text-white mb-4">Team Chat</h2>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto mb-4 space-y-3 pr-2">
-              {teamMessages.filter(msg => msg.channel === activeChannel).length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-gray-400">No messages yet. Start the conversation!</p>
+          {/* Quick Contact Section - Show selected client's contact info */}
+          {selectedClient && (
+            <div className="glass rounded-lg p-4 mb-4">
+              <p className="text-xs text-gray-400 uppercase tracking-wide mb-3">Quick Contact</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-white">{selectedClient.id}</p>
+                  <p className="text-xs text-gray-400">Selected client</p>
                 </div>
-              ) : (
-                teamMessages
-                  .filter(msg => msg.channel === activeChannel)
-                  .map(msg => (
-                    <div
-                      key={msg.id}
-                      className={`flex ${msg.sender_role === 'manager' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-xs px-4 py-2 rounded-lg ${
-                          msg.sender_role === 'manager'
-                            ? 'bg-gold/20 text-gold'
-                            : 'bg-cyan/20 text-cyan'
-                        }`}
+                <div className="flex gap-2">
+                  {selectedClient.id && (
+                    <>
+                      <a
+                        href={`tel:${selectedClient.id}`}
+                        className="p-2 rounded-lg bg-cyan/20 text-cyan hover:bg-cyan/30 transition-all"
+                        title="Call client"
                       >
-                        <p className="text-xs font-semibold mb-1">{msg.sender_name}</p>
-                        <p className="text-sm">{msg.message}</p>
-                        <p className="text-xs mt-1 opacity-60">{new Date(msg.timestamp).toLocaleTimeString()}</p>
-                      </div>
-                    </div>
-                  ))
-              )}
+                        <Phone className="w-4 h-4" />
+                      </a>
+                      <a
+                        href={`mailto:${selectedClient.id}`}
+                        className="p-2 rounded-lg bg-gold/20 text-gold hover:bg-gold/30 transition-all"
+                        title="Email client"
+                      >
+                        <Mail className="w-4 h-4" />
+                      </a>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
+          )}
 
-            {/* Input */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Type a message..."
-                value={teamChatInput}
-                onChange={(e) => setTeamChatInput(e.target.value)}
-                onKeyDown={async (e) => {
-                  if (e.key === 'Enter' && teamChatInput.trim()) {
-                    const newMsg: ChatMessage = {
-                      id: Math.random().toString(36).substr(2, 9),
-                      sender_name: currentUserRole === 'manager' ? 'Manager' : 'Rep',
-                      sender_role: currentUserRole,
-                      message: teamChatInput,
-                      timestamp: new Date().toISOString(),
-                      read: true,
-                      channel: 'general'
-                    }
-                    const newMessages = [...teamMessages, newMsg]
-                    setTeamMessages(newMessages)
-                    await saveChatMessage(newMsg)
-                    setTeamChatInput('')
-                  }
-                }}
-                className="flex-1 bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
-              />
-              <button
-                onClick={async () => {
-                  if (teamChatInput.trim()) {
-                    const newMsg: ChatMessage = {
-                      id: Math.random().toString(36).substr(2, 9),
-                      sender_name: currentUserRole === 'manager' ? 'Manager' : 'Rep',
-                      sender_role: currentUserRole,
-                      message: teamChatInput,
-                      timestamp: new Date().toISOString(),
-                      read: true,
-                      channel: 'general'
-                    }
-                    const newMessages = [...teamMessages, newMsg]
-                    setTeamMessages(newMessages)
-                    await saveChatMessage(newMsg)
-                    setTeamChatInput('')
-                  }
-                }}
-                className="bg-cyan text-dark px-4 py-2 rounded-lg font-medium hover:bg-cyan/90"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
+          {/* Comms Tabs */}
+          <div className="flex gap-2 mb-4 glass rounded-lg p-1">
+            <button
+              onClick={() => setCommsTab('team')}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                commsTab === 'team'
+                  ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <MessageSquare className="w-4 h-4 inline mr-1" />
+              Team Chat
+            </button>
+            <button
+              onClick={() => setCommsTab('voice')}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                commsTab === 'voice'
+                  ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <Phone className="w-4 h-4 inline mr-1" />
+              Google Voice
+            </button>
+            <button
+              onClick={() => setCommsTab('gmail')}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                commsTab === 'gmail'
+                  ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <Mail className="w-4 h-4 inline mr-1" />
+              Gmail
+            </button>
           </div>
+
+          {/* TAB: TEAM CHAT */}
+          {commsTab === 'team' && (
+            <div className="flex-1 glass rounded-lg p-6 flex flex-col overflow-hidden">
+              {/* Channels */}
+              <div className="flex gap-2 mb-4">
+                {['general', 'management'].map(channel => (
+                  <button
+                    key={channel}
+                    onClick={() => setActiveChannel(channel as 'general' | 'management')}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                      activeChannel === channel
+                        ? 'bg-cyan text-dark'
+                        : 'bg-dark-700/50 hover:bg-dark-700 text-white'
+                    }`}
+                  >
+                    # {channel}
+                  </button>
+                ))}
+              </div>
+
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto mb-4 space-y-3 pr-2">
+                {teamMessages.filter(msg => msg.channel === activeChannel).length === 0 ? (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-gray-400">No messages yet. Start the conversation!</p>
+                  </div>
+                ) : (
+                  teamMessages
+                    .filter(msg => msg.channel === activeChannel)
+                    .map(msg => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.sender_role === 'manager' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-xs px-4 py-2 rounded-lg ${
+                            msg.sender_role === 'manager'
+                              ? 'bg-gold/20 text-gold'
+                              : 'bg-cyan/20 text-cyan'
+                          }`}
+                        >
+                          <p className="text-xs font-semibold mb-1">{msg.sender_name}</p>
+                          <p className="text-sm">{msg.message}</p>
+                          <p className="text-xs mt-1 opacity-60">{new Date(msg.timestamp).toLocaleTimeString()}</p>
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
+
+              {/* Input */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Type a message..."
+                  value={teamChatInput}
+                  onChange={(e) => setTeamChatInput(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && teamChatInput.trim()) {
+                      const newMsg: ChatMessage = {
+                        id: Math.random().toString(36).substr(2, 9),
+                        sender_name: userProfile?.email || 'Team Member',
+                        sender_role: currentUserRole,
+                        message: teamChatInput,
+                        timestamp: new Date().toISOString(),
+                        read: true,
+                        channel: activeChannel
+                      }
+                      const newMessages = [...teamMessages, newMsg]
+                      setTeamMessages(newMessages)
+                      await saveChatMessage(newMsg)
+                      setTeamChatInput('')
+                    }
+                  }}
+                  className="flex-1 bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                />
+                <button
+                  onClick={async () => {
+                    if (teamChatInput.trim()) {
+                      const newMsg: ChatMessage = {
+                        id: Math.random().toString(36).substr(2, 9),
+                        sender_name: userProfile?.email || 'Team Member',
+                        sender_role: currentUserRole,
+                        message: teamChatInput,
+                        timestamp: new Date().toISOString(),
+                        read: true,
+                        channel: activeChannel
+                      }
+                      const newMessages = [...teamMessages, newMsg]
+                      setTeamMessages(newMessages)
+                      await saveChatMessage(newMsg)
+                      setTeamChatInput('')
+                    }
+                  }}
+                  className="bg-cyan text-dark px-4 py-2 rounded-lg font-medium hover:bg-cyan/90"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: GOOGLE VOICE */}
+          {commsTab === 'voice' && (
+            <div className="flex-1 flex flex-col glass rounded-lg p-6 overflow-hidden">
+              <div className="p-3 bg-dark-700/50 rounded-lg mb-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-cyan" />
+                  Google Voice
+                </h3>
+                <p className="text-xs text-gray-400 mt-1">Free calls & texts — sign in with your Google account</p>
+              </div>
+              <div className="flex-1 overflow-hidden rounded-lg border border-white/10">
+                <iframe
+                  src="https://voice.google.com"
+                  className="w-full h-full"
+                  allow="microphone; camera"
+                />
+              </div>
+              {/* Fallback Button */}
+              <div className="mt-3 text-center">
+                <button
+                  onClick={() => window.open('https://voice.google.com', '_blank')}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-cyan/20 text-cyan rounded-lg hover:bg-cyan/30 transition-all text-sm"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open Google Voice in New Tab
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: GMAIL */}
+          {commsTab === 'gmail' && (
+            <div className="flex-1 flex flex-col glass rounded-lg p-6 overflow-hidden">
+              <div className="p-3 bg-dark-700/50 rounded-lg mb-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-gold" />
+                  Gmail
+                </h3>
+                <p className="text-xs text-gray-400 mt-1">Send emails directly to clients</p>
+              </div>
+              <div className="flex-1 overflow-hidden rounded-lg border border-white/10">
+                <iframe
+                  src="https://mail.google.com"
+                  className="w-full h-full"
+                />
+              </div>
+              {/* Fallback Button */}
+              <div className="mt-3 text-center">
+                <button
+                  onClick={() => window.open('https://mail.google.com', '_blank')}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-gold/20 text-gold rounded-lg hover:bg-gold/30 transition-all text-sm"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open Gmail in New Tab
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -4379,6 +5132,28 @@ Only respond with the JSON array, no other text.` }
               </span>
             </div>
             <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 glass rounded-lg p-1">
+                <button
+                  onClick={() => setJobViewMode('list')}
+                  className={`px-3 py-1.5 rounded text-sm font-semibold uppercase transition-all ${
+                    jobViewMode === 'list'
+                      ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                      : 'text-gray-300 hover:text-white'
+                  }`}
+                >
+                  List
+                </button>
+                <button
+                  onClick={() => setJobViewMode('board')}
+                  className={`px-3 py-1.5 rounded text-sm font-semibold uppercase transition-all ${
+                    jobViewMode === 'board'
+                      ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                      : 'text-gray-300 hover:text-white'
+                  }`}
+                >
+                  Board
+                </button>
+              </div>
               <select
                 value={jobStageFilter}
                 onChange={(e) => setJobStageFilter(e.target.value as JobStage | 'all')}
@@ -4466,9 +5241,10 @@ Only respond with the JSON array, no other text.` }
             </div>
           )}
 
-          <div className="flex-1 flex gap-4 min-h-0">
-            {/* Pipeline list */}
-            <div className="w-72 flex-shrink-0 glass rounded-lg p-4 overflow-y-auto flex flex-col gap-2">
+          {jobViewMode === 'list' ? (
+            <div className="flex-1 flex gap-4 min-h-0">
+              {/* Pipeline list */}
+              <div className="w-72 flex-shrink-0 glass rounded-lg p-4 overflow-y-auto flex flex-col gap-2">
               <h4 className="text-xs text-gray-400 uppercase tracking-wide mb-1">
                 {jobStageFilter === 'all' ? 'All Jobs' : JOB_STAGES.find(s => s.key === jobStageFilter)?.label}
                 {' '}({jobs.filter(j => jobStageFilter === 'all' || j.stage === jobStageFilter).length})
@@ -4522,6 +5298,8 @@ Only respond with the JSON array, no other text.` }
                           setSelectedJob(updated)
                           setJobs(jobs.map(j => j.id === updated.id ? updated : j))
                           await saveJob(updated)
+                          const stageLabel = JOB_STAGES.find(s => s.key === newStage)?.label || newStage
+                          addNotification(`Job "${updated.title}" moved to ${stageLabel}`, 'info')
                         }}
                         className="bg-dark-700 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cyan/50"
                       >
@@ -4535,15 +5313,38 @@ Only respond with the JSON array, no other text.` }
                           const idx = stages.indexOf(selectedJob.stage)
                           if (idx < stages.length - 1) {
                             const nextStage = stages[idx + 1]
-                            const updated = { ...selectedJob, stage: nextStage }
+                            let updated = { ...selectedJob, stage: nextStage }
+                            // Auto-generate invoice number when advancing to invoice_sent
+                            if (nextStage === 'invoice_sent' && !updated.invoice_number) {
+                              updated.invoice_number = `INV-${Date.now().toString(36).toUpperCase()}`
+                            }
                             setSelectedJob(updated)
                             setJobs(jobs.map(j => j.id === updated.id ? updated : j))
                             await saveJob(updated)
+                            const stageLabel = JOB_STAGES.find(s => s.key === nextStage)?.label || nextStage
+                            addNotification(`Job "${updated.title}" moved to ${stageLabel}`, 'info')
                           }
                         }}
                         className="flex items-center gap-1 bg-cyan/20 text-cyan px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-cyan/30"
                       >
                         Advance <ChevronDown className="w-3 h-3 rotate-[-90deg]" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setActiveScreen('materials')
+                          setMaterialsTab('orders')
+                          setAddingOrder(true)
+                          const jobSelectEl = document.getElementById('order-job') as HTMLSelectElement
+                          if (jobSelectEl) {
+                            setTimeout(() => {
+                              jobSelectEl.value = selectedJob.id
+                            }, 100)
+                          }
+                          addNotification('Quick order form opened for this job', 'info')
+                        }}
+                        className="flex items-center gap-1 bg-green/20 text-green px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-green/30"
+                      >
+                        <Package className="w-4 h-4" /> Quick Order
                       </button>
                     </div>
                   </div>
@@ -4611,13 +5412,114 @@ Only respond with the JSON array, no other text.` }
                           className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="Lead name" />
                       </div>
                       <div>
-                        <label className="text-xs text-gray-400 uppercase tracking-wide">Invoice Number</label>
-                        <input type="text" defaultValue={selectedJob.invoice_number || ''}
+                        <label className="text-xs text-gray-400 uppercase tracking-wide">Crew Members</label>
+                        <input type="text" defaultValue={selectedJob.crew_members?.join(', ') || ''}
                           onBlur={async (e) => {
-                            const updated = { ...selectedJob, invoice_number: e.target.value || null }
+                            const members = e.target.value ? e.target.value.split(',').map(m => m.trim()).filter(m => m) : []
+                            const updated = { ...selectedJob, crew_members: members }
                             setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
                           }}
-                          className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="INV-001" />
+                          className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="John, Jane, Mike..." />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 uppercase tracking-wide">Invoice Number</label>
+                        <div className="mt-1 flex gap-2">
+                          <input type="text" defaultValue={selectedJob.invoice_number || ''}
+                            onBlur={async (e) => {
+                              const updated = { ...selectedJob, invoice_number: e.target.value || null }
+                              setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                            }}
+                            className="flex-1 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="INV-001" />
+                          {!selectedJob.invoice_number && (
+                            <button
+                              onClick={async () => {
+                                const invoiceNum = `INV-${Date.now().toString(36).toUpperCase()}`
+                                const updated = { ...selectedJob, invoice_number: invoiceNum }
+                                setSelectedJob(updated)
+                                setJobs(jobs.map(j => j.id === updated.id ? updated : j))
+                                await saveJob(updated)
+                              }}
+                              className="bg-cyan/20 text-cyan hover:bg-cyan/30 px-3 py-2 rounded text-sm font-medium whitespace-nowrap"
+                            >
+                              Generate
+                            </button>
+                          )}
+                          {selectedJob.invoice_number && (
+                            <button
+                              onClick={() => {
+                                const job = selectedJob
+                                if (!job) return
+                                const settingsStr = localStorage.getItem('directive_company_settings')
+                                const settings = settingsStr ? JSON.parse(settingsStr) : {}
+                                const html = `
+                                  <!DOCTYPE html>
+                                  <html><head><title>Invoice ${job.invoice_number}</title>
+                                  <style>
+                                    body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: #1a1a1a; }
+                                    .header { display: flex; justify-content: space-between; margin-bottom: 40px; border-bottom: 3px solid #06b6d4; padding-bottom: 20px; }
+                                    .company { font-size: 24px; font-weight: bold; color: #0d1117; }
+                                    .invoice-title { font-size: 28px; color: #06b6d4; text-align: right; }
+                                    .invoice-number { color: #666; font-size: 14px; }
+                                    .bill-to { margin: 20px 0; }
+                                    .bill-to h3 { color: #06b6d4; margin-bottom: 8px; }
+                                    table { width: 100%; border-collapse: collapse; margin: 30px 0; }
+                                    th { background: #0d1117; color: #06b6d4; padding: 12px; text-align: left; }
+                                    td { padding: 12px; border-bottom: 1px solid #e5e7eb; }
+                                    .totals { text-align: right; margin-top: 20px; }
+                                    .totals .line { display: flex; justify-content: flex-end; gap: 40px; padding: 4px 0; }
+                                    .totals .total { font-size: 20px; font-weight: bold; color: #06b6d4; border-top: 2px solid #0d1117; padding-top: 8px; }
+                                    .footer { margin-top: 60px; text-align: center; color: #999; font-size: 12px; border-top: 1px solid #e5e7eb; padding-top: 20px; }
+                                    .terms { margin-top: 30px; padding: 20px; background: #f9fafb; border-radius: 8px; }
+                                    @media print { body { padding: 20px; } }
+                                  </style></head><body>
+                                  <div class="header">
+                                    <div>
+                                      <div class="company">${settings.company_name || 'Directive CRM'}</div>
+                                      <div>${settings.company_phone || ''}</div>
+                                      <div>License: ${settings.license_number || ''}</div>
+                                    </div>
+                                    <div>
+                                      <div class="invoice-title">INVOICE</div>
+                                      <div class="invoice-number">${job.invoice_number || ''}</div>
+                                      <div class="invoice-number">Date: ${new Date().toLocaleDateString()}</div>
+                                    </div>
+                                  </div>
+                                  <div class="bill-to">
+                                    <h3>Bill To:</h3>
+                                    <div><strong>${job.owner_name || 'Property Owner'}</strong></div>
+                                    <div>${job.address || ''}</div>
+                                  </div>
+                                  <table>
+                                    <thead><tr><th>Description</th><th>Amount</th></tr></thead>
+                                    <tbody>
+                                      <tr><td>${job.title || 'Roofing Services'}</td><td>$${(job.contract_amount || 0).toLocaleString('en-US', {minimumFractionDigits: 2})}</td></tr>
+                                    </tbody>
+                                  </table>
+                                  <div class="totals">
+                                    <div class="line"><span>Subtotal:</span><span>$${(job.contract_amount || 0).toLocaleString('en-US', {minimumFractionDigits: 2})}</span></div>
+                                    <div class="line"><span>Tax (${settings.tax_rate || 0}%):</span><span>$${((job.contract_amount || 0) * parseFloat(settings.tax_rate || '0') / 100).toLocaleString('en-US', {minimumFractionDigits: 2})}</span></div>
+                                    <div class="line total"><span>Total Due:</span><span>$${((job.contract_amount || 0) * (1 + parseFloat(settings.tax_rate || '0') / 100)).toLocaleString('en-US', {minimumFractionDigits: 2})}</span></div>
+                                  </div>
+                                  <div class="terms"><h4>Payment Terms</h4><p>${settings.payment_terms === '50_50' ? '50% due upon contract signing, 50% due upon completion.' : settings.payment_terms === 'net_30' ? 'Net 30 days from invoice date.' : '100% due upon completion of work.'}</p></div>
+                                  <div class="footer">
+                                    <p>Thank you for your business!</p>
+                                    <p>${settings.company_name || 'Directive CRM'} | ${settings.company_phone || ''}</p>
+                                  </div>
+                                  </body></html>
+                                `
+                                const w = window.open('', '_blank')
+                                if (w) {
+                                  w.document.write(html)
+                                  w.document.close()
+                                  setTimeout(() => w.print(), 500)
+                                }
+                              }}
+                              className="bg-green/20 text-green hover:bg-green/30 px-3 py-2 rounded text-sm font-medium whitespace-nowrap"
+                            >
+                              View/Print
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div>
                         <label className="text-xs text-gray-400 uppercase tracking-wide">Amount Collected</label>
@@ -4885,28 +5787,60 @@ Only respond with the JSON array, no other text.` }
                 </div>
               </div>
             )}
-          </div>
 
-          {/* Stage summary strip */}
-          <div className="glass rounded-lg p-3">
-            <div className="flex gap-2 overflow-x-auto">
+            {/* Stage summary strip - visible in list view */}
+            <div className="glass rounded-lg p-3">
+              <div className="flex gap-2 overflow-x-auto">
+                {JOB_STAGES.map(stage => {
+                  const count = jobs.filter(j => j.stage === stage.key).length
+                  const value = jobs.filter(j => j.stage === stage.key).reduce((sum, j) => sum + (j.contract_amount || 0), 0)
+                  return (
+                    <button key={stage.key}
+                      onClick={() => setJobStageFilter(jobStageFilter === stage.key ? 'all' : stage.key)}
+                      className={`flex-shrink-0 px-3 py-2 rounded-lg text-center transition-all border ${jobStageFilter === stage.key ? 'border-cyan/50 bg-cyan/10' : 'border-white/5 bg-dark-700/30 hover:border-white/20'}`}
+                    >
+                      <div className="w-2 h-2 rounded-full mx-auto mb-1" style={{ backgroundColor: stage.color }} />
+                      <p className="text-xs font-semibold text-white">{count}</p>
+                      <p className="text-xs text-gray-500 whitespace-nowrap">{stage.label}</p>
+                      {value > 0 && <p className="text-xs text-green mt-0.5">${(value / 1000).toFixed(0)}k</p>}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            </div>
+          ) : (
+            // KANBAN BOARD VIEW
+            <div className="flex-1 flex gap-3 overflow-x-auto pb-4" style={{ minHeight: '60vh' }}>
               {JOB_STAGES.map(stage => {
-                const count = jobs.filter(j => j.stage === stage.key).length
-                const value = jobs.filter(j => j.stage === stage.key).reduce((sum, j) => sum + (j.contract_amount || 0), 0)
+                const stageJobs = jobs.filter(j => j.stage === stage.key)
                 return (
-                  <button key={stage.key}
-                    onClick={() => setJobStageFilter(jobStageFilter === stage.key ? 'all' : stage.key)}
-                    className={`flex-shrink-0 px-3 py-2 rounded-lg text-center transition-all border ${jobStageFilter === stage.key ? 'border-cyan/50 bg-cyan/10' : 'border-white/5 bg-dark-700/30 hover:border-white/20'}`}
-                  >
-                    <div className="w-2 h-2 rounded-full mx-auto mb-1" style={{ backgroundColor: stage.color }} />
-                    <p className="text-xs font-semibold text-white">{count}</p>
-                    <p className="text-xs text-gray-500 whitespace-nowrap">{stage.label}</p>
-                    {value > 0 && <p className="text-xs text-green mt-0.5">${(value / 1000).toFixed(0)}k</p>}
-                  </button>
+                  <div key={stage.key} className="flex-shrink-0 w-64">
+                    <div className="glass rounded-lg p-3 mb-2">
+                      <h3 className="text-sm font-bold text-white">{stage.label}</h3>
+                      <span className="text-xs text-cyan">{stageJobs.length} jobs</span>
+                    </div>
+                    <div className="space-y-2">
+                      {stageJobs.map(job => (
+                        <div
+                          key={job.id}
+                          className="glass rounded-lg p-3 cursor-pointer hover:border-cyan/30 border border-transparent transition-all"
+                          onClick={() => setSelectedJob(job)}
+                        >
+                          <p className="text-sm text-white font-medium truncate">{job.title}</p>
+                          <p className="text-xs text-gray-400">{job.owner_name}</p>
+                          <p className="text-sm text-cyan font-bold mt-2">${(job.contract_amount || 0).toLocaleString()}</p>
+                        </div>
+                      ))}
+                      {stageJobs.length === 0 && (
+                        <p className="text-xs text-gray-500 text-center py-4">No jobs</p>
+                      )}
+                    </div>
+                  </div>
                 )
               })}
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -4941,15 +5875,30 @@ Only respond with the JSON array, no other text.` }
               <div className="bg-dark-700/50 rounded-lg p-4 space-y-3">
                 <div>
                   <label className="text-xs text-gray-400">Company Name</label>
-                  <input className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="Your Company Name" />
+                  <input
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                    placeholder="Your Company Name"
+                    value={companySettings.company_name}
+                    onChange={(e) => setCompanySettings({ ...companySettings, company_name: e.target.value })}
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-gray-400">Phone Number</label>
-                  <input className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="(555) 000-0000" />
+                  <input
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                    placeholder="Phone Number"
+                    value={companySettings.company_phone}
+                    onChange={(e) => setCompanySettings({ ...companySettings, company_phone: e.target.value })}
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-gray-400">License Number</label>
-                  <input className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="License #" />
+                  <input
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                    placeholder="License #"
+                    value={companySettings.license_number}
+                    onChange={(e) => setCompanySettings({ ...companySettings, license_number: e.target.value })}
+                  />
                 </div>
               </div>
             </section>
@@ -4960,11 +5909,22 @@ Only respond with the JSON array, no other text.` }
               <div className="bg-dark-700/50 rounded-lg p-4 space-y-3">
                 <div>
                   <label className="text-xs text-gray-400">Home Office City</label>
-                  <input className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="Huntsville, AL" />
+                  <input
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                    placeholder="Huntsville, AL"
+                    value={companySettings.home_city}
+                    onChange={(e) => setCompanySettings({ ...companySettings, home_city: e.target.value })}
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-gray-400">Service Radius (miles)</label>
-                  <input type="number" className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="50" />
+                  <input
+                    type="number"
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                    placeholder="25"
+                    value={companySettings.service_radius}
+                    onChange={(e) => setCompanySettings({ ...companySettings, service_radius: e.target.value })}
+                  />
                 </div>
               </div>
             </section>
@@ -4975,22 +5935,37 @@ Only respond with the JSON array, no other text.` }
               <div className="bg-dark-700/50 rounded-lg p-4 space-y-3">
                 <div>
                   <label className="text-xs text-gray-400">Default Tax Rate (%)</label>
-                  <input type="number" step="0.1" className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white" placeholder="0" />
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                    placeholder="8.5"
+                    value={companySettings.tax_rate}
+                    onChange={(e) => setCompanySettings({ ...companySettings, tax_rate: e.target.value })}
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-gray-400">Default Payment Terms</label>
-                  <select className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white">
-                    <option>50% deposit, 50% on completion</option>
-                    <option>100% on completion</option>
-                    <option>Net 30</option>
+                  <select
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                    value={companySettings.payment_terms}
+                    onChange={(e) => setCompanySettings({ ...companySettings, payment_terms: e.target.value })}
+                  >
+                    <option value="50_50">50% deposit, 50% on completion</option>
+                    <option value="100_completion">100% on completion</option>
+                    <option value="net_30">Net 30</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400">Warranty Period</label>
-                  <select className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white">
-                    <option>1 year workmanship</option>
-                    <option>2 year workmanship</option>
-                    <option>5 year workmanship</option>
+                  <select
+                    className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                    value={companySettings.warranty_period}
+                    onChange={(e) => setCompanySettings({ ...companySettings, warranty_period: e.target.value })}
+                  >
+                    <option value="1">1 year workmanship</option>
+                    <option value="2">2 year workmanship</option>
+                    <option value="5">5 year workmanship</option>
                   </select>
                 </div>
               </div>
@@ -5001,21 +5976,52 @@ Only respond with the JSON array, no other text.` }
               <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Notifications</h3>
               <div className="bg-dark-700/50 rounded-lg p-4 space-y-4">
                 {[
-                  { label: 'Storm alerts in territory', desc: 'Get notified when severe weather hits your zip codes' },
-                  { label: 'New leads from Michael AI', desc: 'Daily lead recommendations from the AI engine' },
-                  { label: 'Proposal viewed by client', desc: 'When a client opens your proposal' },
-                ].map(({ label, desc }) => (
-                  <div key={label} className="flex items-start justify-between gap-4">
+                  { key: 'storm', label: 'Storm alerts in territory', desc: 'Get notified when severe weather hits your zip codes' },
+                  { key: 'leads', label: 'New leads from Michael AI', desc: 'Daily lead recommendations from the AI engine' },
+                  { key: 'status', label: 'Proposal viewed by client', desc: 'When a client opens your proposal' },
+                ].map(({ key, label, desc }) => (
+                  <div key={key} className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-sm text-white">{label}</p>
                       <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
                     </div>
-                    <div className="w-10 h-5 bg-cyan/30 rounded-full flex-shrink-0 relative cursor-pointer">
-                      <div className="absolute right-0.5 top-0.5 w-4 h-4 bg-cyan rounded-full" />
-                    </div>
+                    <button
+                      onClick={() => {
+                        if (key === 'storm') setCompanySettings({ ...companySettings, notify_storm: !companySettings.notify_storm })
+                        else if (key === 'leads') setCompanySettings({ ...companySettings, notify_leads: !companySettings.notify_leads })
+                        else if (key === 'status') setCompanySettings({ ...companySettings, notify_status: !companySettings.notify_status })
+                      }}
+                      className={`w-10 h-5 rounded-full flex-shrink-0 relative cursor-pointer transition-all ${
+                        (key === 'storm' ? companySettings.notify_storm : key === 'leads' ? companySettings.notify_leads : companySettings.notify_status)
+                          ? 'bg-cyan/30'
+                          : 'bg-white/10'
+                      }`}
+                    >
+                      <div
+                        className={`absolute w-4 h-4 bg-cyan rounded-full transition-all ${
+                          (key === 'storm' ? companySettings.notify_storm : key === 'leads' ? companySettings.notify_leads : companySettings.notify_status)
+                            ? 'right-0.5 top-0.5'
+                            : 'left-0.5 top-0.5'
+                        }`}
+                      />
+                    </button>
                   </div>
                 ))}
               </div>
+            </section>
+
+            {/* Save Button */}
+            <section className="mb-8">
+              <button
+                onClick={() => {
+                  localStorage.setItem('directive_company_settings', JSON.stringify(companySettings))
+                  setSettingsSaved(true)
+                  setTimeout(() => setSettingsSaved(false), 2000)
+                }}
+                className="px-6 py-3 bg-cyan/20 text-cyan rounded-lg text-sm font-semibold hover:bg-cyan/30 transition-all"
+              >
+                {settingsSaved ? 'Saved!' : 'Save Settings'}
+              </button>
             </section>
           </div>
         </div>

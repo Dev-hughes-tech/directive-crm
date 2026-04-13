@@ -56,6 +56,16 @@ export interface Property {
     lastWindDate: string | null
     stormRiskLevel: string
   } | null
+  roof_area_sqft: number | null
+  roof_pitch: string | null
+  roof_pitch_degrees: number | null
+  pitch_multiplier: number | null
+  roofing_squares: number | null
+  roof_segments: number | null
+  roof_segment_details: Array<{ name: string; area: number }> | null
+  satellite_image_url: string | null
+  roof_imagery_date: string | null
+  roof_imagery_quality: string | null
 }
 
 export interface Territory {
