@@ -53,7 +53,7 @@ import { signOut } from '@/lib/authHooks'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
-import { getClients, saveClient, deleteClient, saveActivity, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile } from '@/lib/storage'
+import { getClients, saveClient, deleteClient, saveActivity, getProposals, saveProposal, deleteProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile } from '@/lib/storage'
 import type { UserProfile } from '@/lib/storage'
 import { canAccess, getTierConfig, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
@@ -4835,13 +4835,15 @@ Only respond with the JSON array, no other text.` }
                     <select
                       value={selectedProposal.status}
                       onChange={async (e) => {
-                        const newStatus = e.target.value as any
+                        const newStatus = e.target.value as Proposal['status']
                         const updated = { ...selectedProposal, status: newStatus }
                         setSelectedProposal(updated)
                         const idx = proposals.findIndex(p => p.id === selectedProposal.id)
                         const newProposals = [...proposals]
                         newProposals[idx] = updated
                         setProposals(newProposals)
+                        await saveProposal(updated)
+                        addNotification(`Proposal marked as ${newStatus}`, 'info')
 
                         // Auto-convert accepted proposal to job
                         if (newStatus === 'accepted') {
@@ -4903,81 +4905,81 @@ Only respond with the JSON array, no other text.` }
                       <thead>
                         <tr className="border-b border-white/10">
                           <th className="text-left py-2 text-gray-400">Description</th>
-                          <th className="text-right py-2 text-gray-400 w-16">Qty</th>
-                          <th className="text-right py-2 text-gray-400 w-20">Price</th>
-                          <th className="text-right py-2 text-gray-400 w-20">Total</th>
+                          <th className="text-right py-2 text-gray-400 w-14">Qty</th>
+                          <th className="text-right py-2 text-gray-400 w-18">Price</th>
+                          <th className="text-right py-2 text-gray-400 w-18">Total</th>
+                          <th className="w-6" />
                         </tr>
                       </thead>
-                      <tbody className="space-y-1">
+                      <tbody>
                         {selectedProposal.line_items.map((lineItem) => {
+                          const updateLineItem = (changes: Partial<ProposalLineItem>) => {
+                            const merged = { ...lineItem, ...changes }
+                            merged.total = merged.quantity * merged.unit_price
+                            const newItems = selectedProposal.line_items.map(li => li.id === lineItem.id ? merged : li)
+                            const updated = { ...selectedProposal, line_items: newItems, total: newItems.reduce((s, li) => s + li.total, 0) }
+                            setSelectedProposal(updated)
+                            const idx = proposals.findIndex(p => p.id === selectedProposal.id)
+                            const newProposals = [...proposals]; newProposals[idx] = updated; setProposals(newProposals)
+                          }
                           return (
-                            <tr key={lineItem.id}>
-                              <td className="py-2 text-gray-300">{lineItem.description}</td>
-                              <td className="text-right">
+                            <tr key={lineItem.id} className="border-b border-white/5">
+                              <td className="py-1.5 pr-2">
                                 <input
-                                  type="number"
-                                  min="0"
+                                  type="text"
+                                  value={lineItem.description}
+                                  onChange={(e) => updateLineItem({ description: e.target.value })}
+                                  className="w-full bg-dark-700 border border-white/10 rounded px-2 py-1 text-white text-xs"
+                                />
+                              </td>
+                              <td className="text-right py-1.5 pr-1">
+                                <input
+                                  type="number" min="0"
                                   value={lineItem.quantity}
-                                  onChange={(e) => {
-                                    const newQty = parseInt(e.target.value) || 0
-                                    const newTotal = newQty * lineItem.unit_price
-                                    const updated = {
-                                      ...selectedProposal,
-                                      line_items: selectedProposal.line_items.map(li =>
-                                        li.id === lineItem.id
-                                          ? { ...li, quantity: newQty, total: newTotal }
-                                          : li
-                                      ),
-                                      total: selectedProposal.line_items.reduce((sum, li) =>
-                                        sum + (li.id === lineItem.id ? newTotal : li.total), 0
-                                      )
-                                    }
-                                    setSelectedProposal(updated)
-                                    const idx = proposals.findIndex(p => p.id === selectedProposal.id)
-                                    const newProposals = [...proposals]
-                                    newProposals[idx] = updated
-                                    setProposals(newProposals)
-                                  }}
-                                  className="w-14 bg-dark-700 border border-white/10 rounded px-2 py-1 text-white"
-                                  placeholder="0"
+                                  onChange={(e) => updateLineItem({ quantity: parseInt(e.target.value) || 0 })}
+                                  className="w-14 bg-dark-700 border border-white/10 rounded px-2 py-1 text-white text-right"
                                 />
                               </td>
-                              <td className="text-right">
+                              <td className="text-right py-1.5 pr-1">
                                 <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
+                                  type="number" min="0" step="0.01"
                                   value={lineItem.unit_price}
-                                  onChange={(e) => {
-                                    const newPrice = parseFloat(e.target.value) || 0
-                                    const newTotal = lineItem.quantity * newPrice
-                                    const updated = {
-                                      ...selectedProposal,
-                                      line_items: selectedProposal.line_items.map(li =>
-                                        li.id === lineItem.id
-                                          ? { ...li, unit_price: newPrice, total: newTotal }
-                                          : li
-                                      ),
-                                      total: selectedProposal.line_items.reduce((sum, li) =>
-                                        sum + (li.id === lineItem.id ? newTotal : li.total), 0
-                                      )
-                                    }
-                                    setSelectedProposal(updated)
-                                    const idx = proposals.findIndex(p => p.id === selectedProposal.id)
-                                    const newProposals = [...proposals]
-                                    newProposals[idx] = updated
-                                    setProposals(newProposals)
-                                  }}
-                                  className="w-20 bg-dark-700 border border-white/10 rounded px-2 py-1 text-white"
-                                  placeholder="0"
+                                  onChange={(e) => updateLineItem({ unit_price: parseFloat(e.target.value) || 0 })}
+                                  className="w-18 bg-dark-700 border border-white/10 rounded px-2 py-1 text-white text-right"
                                 />
                               </td>
-                              <td className="text-right text-cyan font-semibold">${lineItem.total.toFixed(2)}</td>
+                              <td className="text-right py-1.5 text-cyan font-semibold pr-1">${lineItem.total.toFixed(2)}</td>
+                              <td className="py-1.5">
+                                <button
+                                  onClick={() => {
+                                    const newItems = selectedProposal.line_items.filter(li => li.id !== lineItem.id)
+                                    const updated = { ...selectedProposal, line_items: newItems, total: newItems.reduce((s, li) => s + li.total, 0) }
+                                    setSelectedProposal(updated)
+                                    const idx = proposals.findIndex(p => p.id === selectedProposal.id)
+                                    const newProposals = [...proposals]; newProposals[idx] = updated; setProposals(newProposals)
+                                  }}
+                                  className="text-gray-600 hover:text-red-400 transition-colors px-1"
+                                  title="Remove line item"
+                                >✕</button>
+                              </td>
                             </tr>
                           )
                         })}
                       </tbody>
                     </table>
+                    <button
+                      onClick={() => {
+                        const newItem: ProposalLineItem = { id: crypto.randomUUID(), description: 'New Line Item', quantity: 1, unit: 'ea', unit_price: 0, total: 0 }
+                        const newItems = [...selectedProposal.line_items, newItem]
+                        const updated = { ...selectedProposal, line_items: newItems }
+                        setSelectedProposal(updated)
+                        const idx = proposals.findIndex(p => p.id === selectedProposal.id)
+                        const newProposals = [...proposals]; newProposals[idx] = updated; setProposals(newProposals)
+                      }}
+                      className="mt-2 w-full text-xs py-1.5 border border-dashed border-white/20 rounded text-gray-400 hover:text-white hover:border-white/40 transition-all"
+                    >
+                      + Add Line Item
+                    </button>
                   </div>
 
                   <div>
@@ -4992,6 +4994,7 @@ Only respond with the JSON array, no other text.` }
                         newProposals[idx] = updated
                         setProposals(newProposals)
                       }}
+                      onBlur={async () => { await saveProposal(selectedProposal) }}
                       className="w-full h-16 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
                       placeholder="Add notes..."
                     />
@@ -5023,7 +5026,7 @@ Only respond with the JSON array, no other text.` }
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={async () => {
                       const idx = proposals.findIndex(p => p.id === selectedProposal.id)
@@ -5031,8 +5034,9 @@ Only respond with the JSON array, no other text.` }
                       newProposals[idx] = selectedProposal
                       setProposals(newProposals)
                       await saveProposal(selectedProposal)
+                      addNotification('Proposal saved', 'success')
                     }}
-                    className="flex-1 bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90"
+                    className="flex-1 bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90 min-w-24"
                   >
                     Save Draft
                   </button>
@@ -5045,16 +5049,40 @@ Only respond with the JSON array, no other text.` }
                       setProposals(newProposals)
                       await saveProposal(updated)
                       setSelectedProposal(updated)
+                      // Auto-update linked client status to proposal_sent
+                      if (updated.client_id) {
+                        const ci = clients.findIndex(c => c.id === updated.client_id)
+                        if (ci !== -1) {
+                          const updatedClient: Client = { ...clients[ci], status: 'proposal_sent', last_contact: new Date().toISOString() }
+                          const newClients = [...clients]; newClients[ci] = updatedClient; setClients(newClients)
+                          await saveClient(updatedClient)
+                        }
+                      }
+                      addNotification('Proposal marked as sent', 'success')
                     }}
-                    className="flex-1 bg-green/20 text-green py-2 rounded-lg font-medium hover:bg-green/30"
+                    className="flex-1 bg-green/20 text-green py-2 rounded-lg font-medium hover:bg-green/30 min-w-24"
                   >
                     Mark Sent
                   </button>
                   <button
                     onClick={() => window.print()}
-                    className="flex-1 bg-amber/20 text-amber py-2 rounded-lg font-medium hover:bg-amber/30 transition-all"
+                    className="flex-1 bg-amber/20 text-amber py-2 rounded-lg font-medium hover:bg-amber/30 transition-all min-w-24"
                   >
                     Export PDF
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Delete this proposal?')) return
+                      const id = selectedProposal.id
+                      setProposals(prev => prev.filter(p => p.id !== id))
+                      setSelectedProposal(null)
+                      await deleteProposal(id)
+                      addNotification('Proposal deleted', 'info')
+                    }}
+                    className="px-3 py-2 bg-red/10 text-red-400 border border-red/20 rounded-lg hover:bg-red/20 transition-all"
+                    title="Delete proposal"
+                  >
+                    🗑
                   </button>
                 </div>
               </>

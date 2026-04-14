@@ -181,6 +181,15 @@ export async function saveProposal(proposal: Proposal): Promise<void> {
   }
 }
 
+export async function deleteProposal(id: string): Promise<void> {
+  try {
+    await supabase.from('proposal_line_items').delete().eq('proposal_id', id)
+    await supabase.from('proposals').delete().eq('id', id)
+  } catch {
+    // Fail silently
+  }
+}
+
 // ── MATERIALS ────────────────────────────────────────────────────────────────
 
 export async function getMaterials(): Promise<Material[]> {
