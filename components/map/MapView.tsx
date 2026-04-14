@@ -12,6 +12,8 @@ export interface MapMarker {
   onClick?: () => void
 }
 
+type RadarProduct = 'n0q' | 'n0r' | 'n0s' | 'net' | 'n0z'
+
 interface MapViewProps {
   lat: number
   lng: number
@@ -23,7 +25,16 @@ interface MapViewProps {
   onModeChange?: (mode: 'dark' | 'satellite' | '3d') => void
   geoJsonData?: object | null
   radarOverlay?: boolean
+  radarProduct?: RadarProduct
 }
+
+const RADAR_PRODUCTS: { key: RadarProduct; label: string; desc: string }[] = [
+  { key: 'n0q', label: 'Reflectivity HD', desc: 'High-res base reflectivity (256 levels)' },
+  { key: 'n0r', label: 'Reflectivity', desc: 'Standard base reflectivity (16 levels)' },
+  { key: 'n0s', label: 'Storm Velocity', desc: 'Storm-relative mean radial velocity' },
+  { key: 'net', label: 'Echo Tops', desc: 'Maximum echo height (storm tops)' },
+  { key: 'n0z', label: 'Long Range', desc: 'Long-range base reflectivity (248nm)' },
+]
 
 const containerStyle = { width: '100%', height: '100vh' }
 
@@ -69,6 +80,7 @@ function MapInner({
   onModeChange,
   geoJsonData,
   radarOverlay,
+  radarProduct = 'n0q',
 }: MapViewProps & { apiKey: string }) {
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'directive-crm-map',
@@ -82,6 +94,7 @@ function MapInner({
   const [photoTileSession, setPhotoTileSession] = useState<string | null>(null)
   const [loadingPhotoTiles, setLoadingPhotoTiles] = useState(false)
   const [showViewPicker, setShowViewPicker] = useState(false)
+  const [isStreetView, setIsStreetView] = useState(false)
   const mapRef = useRef<google.maps.Map | null>(null)
 
   const center = { lat, lng }
@@ -175,24 +188,27 @@ function MapInner({
     }
   }, [geoJsonData])
 
-  // NOAA NEXRAD radar overlay
+  // NOAA NEXRAD Doppler radar overlay — supports multiple products
   useEffect(() => {
     if (!mapRef.current) return
-    if (!radarOverlay) {
-      mapRef.current.overlayMapTypes.clear()
-      return
-    }
+    // Clear any existing radar overlays
+    mapRef.current.overlayMapTypes.clear()
+    if (!radarOverlay) return
+
+    // IEM tile URL — product name maps directly to tile layer
+    // n0q = 256-level base reflectivity (highest res), n0r = 16-level, n0s = storm velocity, net = echo tops, n0z = long range
+    const tileLayer = `nexrad-${radarProduct}-900913`
     const radarMapType = new google.maps.ImageMapType({
       getTileUrl: (coord: google.maps.Point, zoom: number) =>
-        `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/${zoom}/${coord.x}/${coord.y}.png`,
+        `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/${tileLayer}/${zoom}/${coord.x}/${coord.y}.png`,
       tileSize: new google.maps.Size(256, 256),
-      maxZoom: 12,
+      maxZoom: 19,
       minZoom: 0,
-      opacity: 0.5,
-      name: 'NEXRAD',
+      opacity: 0.65,
+      name: 'NEXRAD-Doppler',
     })
     mapRef.current.overlayMapTypes.insertAt(0, radarMapType)
-  }, [radarOverlay])
+  }, [radarOverlay, radarProduct])
 
   if (loadError) {
     return (
@@ -227,11 +243,25 @@ function MapInner({
     } catch { /* silent */ } finally { setLoadingPhotoTiles(false) }
   }
 
+  const exitStreetView = () => {
+    if (!mapRef.current) return
+    const sv = mapRef.current.getStreetView()
+    if (sv) sv.setVisible(false)
+    setIsStreetView(false)
+  }
+
   const handleMapLoad = (map: google.maps.Map) => {
     mapRef.current = map
     // Set initial 3D tilt for globe mode (Google Earth feel)
     if (viewMode === 'globe') {
       map.setTilt(45)
+    }
+    // Listen for street view activation/deactivation
+    const sv = map.getStreetView()
+    if (sv) {
+      sv.addListener('visible_changed', () => {
+        setIsStreetView(sv.getVisible())
+      })
     }
     // Add photo tiles if session exists
     if (photoTileSession) {
@@ -245,16 +275,17 @@ function MapInner({
       })
       map.overlayMapTypes.insertAt(0, imageMapType)
     }
-    // Add radar overlay if enabled
+    // Add Doppler radar overlay if enabled
     if (radarOverlay) {
+      const tileLayer = `nexrad-${radarProduct}-900913`
       const radarMapType = new google.maps.ImageMapType({
         getTileUrl: (coord: google.maps.Point, zoom: number) =>
-          `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/${zoom}/${coord.x}/${coord.y}.png`,
+          `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/${tileLayer}/${zoom}/${coord.x}/${coord.y}.png`,
         tileSize: new google.maps.Size(256, 256),
-        maxZoom: 12,
+        maxZoom: 19,
         minZoom: 0,
-        opacity: 0.5,
-        name: 'NEXRAD',
+        opacity: 0.65,
+        name: 'NEXRAD-Doppler',
       })
       map.overlayMapTypes.insertAt(0, radarMapType)
     }
@@ -283,6 +314,18 @@ function MapInner({
 
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
+      {/* Street View exit button — prominent, above nav bar */}
+      {isStreetView && (
+        <button
+          onClick={exitStreetView}
+          className="absolute top-24 right-4 z-50 flex items-center gap-2 px-5 py-3 bg-red-600 hover:bg-red-500 text-white font-bold text-sm rounded-xl shadow-2xl shadow-red-600/40 transition-all border border-red-400/30"
+          style={{ animation: 'stormPulse 2s ease-in-out infinite' }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+          Exit Street View
+        </button>
+      )}
+
       {/* Map view controls — horizontally centered at bottom */}
       <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-10 flex flex-col items-center gap-2">
         {/* View picker dropdown (appears above controls) */}

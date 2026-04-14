@@ -43,6 +43,9 @@ import {
   Bell,
   Globe,
   ExternalLink,
+  Voicemail,
+  Inbox,
+  CheckCircle,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
@@ -633,8 +636,13 @@ export default function Dashboard() {
   const [stormLoading, setStormLoading] = useState(false)
   const [stormRisk, setStormRisk] = useState<{ level: 'High' | 'Moderate' | 'Low'; eventCount: number } | null>(null)
   const [showRadar, setShowRadar] = useState(false)
+  const [radarProduct, setRadarProduct] = useState<'n0q' | 'n0r' | 'n0s' | 'net' | 'n0z'>('n0q')
   const [stormLocation, setStormLocation] = useState('')
   const [stormCenter, setStormCenter] = useState({ lat: HQ_LAT, lng: HQ_LNG })
+  // HWEL — Historical Weather Event Library
+  const [hwelData, setHwelData] = useState<any>(null)
+  const [hwelLoading, setHwelLoading] = useState(false)
+  const [hwelTab, setHwelTab] = useState<'summary' | 'timeline' | 'events'>('summary')
 
   // Pin drop state (GPS Sweep)
   const [pinDropLat, setPinDropLat] = useState<number | null>(null)
@@ -870,17 +878,19 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchWeather = async () => {
       try {
-        const [weatherRes, alertsRes, forecastRes, hailRes] = await Promise.all([
+        const [weatherRes, alertsRes, forecastRes, hailRes, hwelRes] = await Promise.all([
           fetch(`/api/weather/current?lat=${HQ_LAT}&lng=${HQ_LNG}`),
           fetch(`/api/weather/alerts?lat=${HQ_LAT}&lng=${HQ_LNG}`),
           fetch(`/api/weather/forecast?lat=${HQ_LAT}&lng=${HQ_LNG}`),
           fetch(`/api/noaa/hail?lat=${HQ_LAT}&lng=${HQ_LNG}&days=3650`),
+          fetch(`/api/noaa/hwel?lat=${HQ_LAT}&lng=${HQ_LNG}&years=10`),
         ])
 
         if (weatherRes.ok) setWeather(await weatherRes.json())
         if (alertsRes.ok) setAlerts(await alertsRes.json())
         if (forecastRes.ok) setForecast(await forecastRes.json())
         if (hailRes.ok) setHailEvents(await hailRes.json())
+        if (hwelRes.ok) setHwelData(await hwelRes.json())
       } catch (error) {
         console.error('Error fetching weather:', error)
       } finally {
@@ -1452,6 +1462,7 @@ export default function Dashboard() {
   // Handle StormScope location search
   const handleStormLocationSearch = async (query: string) => {
     if (!query.trim()) return
+    setStormLoading(true)
 
     try {
       const geocodeRes = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`)
@@ -1460,14 +1471,36 @@ export default function Dashboard() {
       setStormCenter({ lat, lng })
       setMapCenter({ lat, lng })
       setMapZoom(12)
-      // Auto-fetch 10-year hail data for new location
-      const hailRes = await fetch(`/api/noaa/hail?lat=${lat}&lng=${lng}&days=3650`)
+
+      // Fetch ALL weather data + HWEL for the new location in parallel
+      const [weatherRes, alertsRes, forecastRes, hailRes, hwelRes] = await Promise.all([
+        fetch(`/api/weather/current?lat=${lat}&lng=${lng}`),
+        fetch(`/api/weather/alerts?lat=${lat}&lng=${lng}`),
+        fetch(`/api/weather/forecast?lat=${lat}&lng=${lng}`),
+        fetch(`/api/noaa/hail?lat=${lat}&lng=${lng}&days=3650`),
+        fetch(`/api/noaa/hwel?lat=${lat}&lng=${lng}&years=10`),
+      ])
+
+      if (weatherRes.ok) setWeather(await weatherRes.json())
+      if (alertsRes.ok) setAlerts(await alertsRes.json())
+      if (forecastRes.ok) setForecast(await forecastRes.json())
       if (hailRes.ok) {
         const hailData = await hailRes.json()
         setHailEvents(hailData)
+
+        // Auto-calculate storm risk for the searched location
+        const eventCount = hailData.length
+        let level: 'High' | 'Moderate' | 'Low'
+        if (eventCount >= 15) level = 'High'
+        else if (eventCount >= 5) level = 'Moderate'
+        else level = 'Low'
+        setStormRisk({ level, eventCount })
       }
+      if (hwelRes.ok) setHwelData(await hwelRes.json())
     } catch (error) {
       console.error('Storm location search error:', error)
+    } finally {
+      setStormLoading(false)
     }
   }
 
@@ -1487,9 +1520,12 @@ export default function Dashboard() {
       const hailData = await hailRes.json()
 
       const eventCount = hailData.length
+      // Check for severe events (2"+ hail or tornado reports)
+      const severeCount = hailData.filter((e: any) => e.size && e.size >= 2.0).length
       let level: 'High' | 'Moderate' | 'Low'
-      if (eventCount > 5) level = 'High'
-      else if (eventCount > 2) level = 'Moderate'
+      // Calibrated for real storm data — areas like Huntsville AL are genuinely volatile
+      if (eventCount >= 15 || severeCount >= 3) level = 'High'
+      else if (eventCount >= 5 || severeCount >= 1) level = 'Moderate'
       else level = 'Low'
 
       setStormRisk({ level, eventCount })
@@ -1737,6 +1773,7 @@ Only respond with the JSON array, no other text.` }
               onModeChange={setMapMode}
               geoJsonData={activeScreen === 'territory' ? mapGeoJson : null}
               radarOverlay={activeScreen === 'stormscope' && showRadar}
+              radarProduct={radarProduct}
               onMapClick={activeScreen === 'sweep' ? handleSweepMapClick : undefined}
             />
 
@@ -1746,14 +1783,14 @@ Only respond with the JSON array, no other text.` }
 
       {/* Top Navigation Bar */}
       <nav className="absolute top-0 left-0 right-0 z-40 glass m-4 rounded-lg">
-        <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center justify-between px-6 py-2">
           <div className="flex items-center gap-2 flex-shrink-0">
             <Image
               src="/directive-wordmark.png"
               alt="Directive CRM"
-              width={160}
-              height={48}
-              className="h-12 w-auto object-contain"
+              width={480}
+              height={144}
+              className="h-36 w-auto object-contain"
             />
           </div>
 
@@ -3339,12 +3376,184 @@ Only respond with the JSON array, no other text.` }
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {hailEvents.slice(0, 5).map((event, idx) => (
                   <div key={idx} className="bg-dark-700/50 rounded-lg p-2 text-xs">
-                    <p className="font-medium text-white">{event.size.toFixed(2)}" hail</p>
+                    <p className="font-medium text-white">{event.size ? `${event.size.toFixed(2)}" hail` : 'Hail'}</p>
                     <p className="text-gray-400">{event.date}</p>
                     <p className="text-amber">{event.severity}</p>
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* HWEL — Historical Weather Event Library */}
+            <div className="glass p-5 rounded-xl border border-cyan/20" style={{
+              background: 'linear-gradient(135deg, rgba(6,182,212,0.05), rgba(13,17,23,0.9))',
+            }}>
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-cyan tracking-wide">HWEL DATABASE</h3>
+                  <p className="text-[10px] text-gray-500">Historical Weather Event Library • 10yr</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan animate-pulse" />
+                  <span className="text-[10px] text-cyan/70">ARCHIVE</span>
+                </div>
+              </div>
+
+              {hwelLoading ? (
+                <div className="py-4 text-center">
+                  <Loader2 className="w-5 h-5 text-cyan animate-spin mx-auto" />
+                  <p className="text-[10px] text-gray-500 mt-1">Loading archive...</p>
+                </div>
+              ) : hwelData?.summary ? (
+                <>
+                  {/* HWEL Tabs */}
+                  <div className="flex gap-1 mb-3 bg-dark-700/50 p-1 rounded-lg">
+                    {([
+                      { key: 'summary', label: 'Summary' },
+                      { key: 'timeline', label: 'Timeline' },
+                      { key: 'events', label: 'Events' },
+                    ] as const).map(t => (
+                      <button
+                        key={t.key}
+                        onClick={() => setHwelTab(t.key)}
+                        className={`flex-1 py-1.5 text-[10px] font-semibold rounded transition-all ${
+                          hwelTab === t.key ? 'bg-cyan text-dark' : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {hwelTab === 'summary' && (
+                    <div className="space-y-2">
+                      <div className={`p-3 rounded-lg border ${
+                        hwelData.summary.riskLevel === 'Critical' ? 'bg-red-500/10 border-red-500/30' :
+                        hwelData.summary.riskLevel === 'High' ? 'bg-amber-500/10 border-amber-500/30' :
+                        hwelData.summary.riskLevel === 'Moderate' ? 'bg-yellow-500/10 border-yellow-500/30' :
+                        'bg-green-500/10 border-green-500/30'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-400">Risk Level</span>
+                          <span className={`text-lg font-bold ${
+                            hwelData.summary.riskLevel === 'Critical' ? 'text-red-400' :
+                            hwelData.summary.riskLevel === 'High' ? 'text-amber' :
+                            hwelData.summary.riskLevel === 'Moderate' ? 'text-yellow-400' :
+                            'text-green-400'
+                          }`}>{hwelData.summary.riskLevel}</span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-1">Score: {hwelData.summary.riskScore} • {hwelData.summary.totalEvents} total events</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-dark-700/50 rounded-lg p-2">
+                          <p className="text-[10px] text-gray-500">Hail Events</p>
+                          <p className="text-lg font-bold text-amber">{hwelData.summary.hailEvents}</p>
+                          <p className="text-[10px] text-gray-500">{hwelData.summary.severeHailEvents} severe (2"+)</p>
+                        </div>
+                        <div className="bg-dark-700/50 rounded-lg p-2">
+                          <p className="text-[10px] text-gray-500">Tornadoes</p>
+                          <p className="text-lg font-bold text-red-400">{hwelData.summary.tornadoEvents}</p>
+                          <p className="text-[10px] text-gray-500">confirmed</p>
+                        </div>
+                        <div className="bg-dark-700/50 rounded-lg p-2">
+                          <p className="text-[10px] text-gray-500">High Wind</p>
+                          <p className="text-lg font-bold text-cyan">{hwelData.summary.windEvents}</p>
+                          <p className="text-[10px] text-gray-500">reports</p>
+                        </div>
+                        <div className="bg-dark-700/50 rounded-lg p-2">
+                          <p className="text-[10px] text-gray-500">Max Hail</p>
+                          <p className="text-lg font-bold text-amber">{hwelData.summary.maxHailSize.toFixed(2)}"</p>
+                          <p className="text-[10px] text-gray-500">diameter</p>
+                        </div>
+                      </div>
+
+                      {hwelData.summary.peakMonths?.length > 0 && (
+                        <div className="bg-dark-700/50 rounded-lg p-2 mt-2">
+                          <p className="text-[10px] text-gray-500 mb-1">Peak Storm Months</p>
+                          <div className="flex gap-1">
+                            {hwelData.summary.peakMonths.map((m: any, i: number) => (
+                              <div key={i} className="flex-1 bg-cyan/10 rounded px-2 py-1 text-center">
+                                <p className="text-xs font-bold text-cyan">{m.month}</p>
+                                <p className="text-[10px] text-gray-500">{m.count}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {hwelTab === 'timeline' && hwelData.yearSummary && (
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                      {Object.entries(hwelData.yearSummary)
+                        .sort((a, b) => b[0].localeCompare(a[0]))
+                        .map(([year, stats]: [string, any]) => {
+                          const maxTotal = Math.max(...Object.values(hwelData.yearSummary).map((s: any) => s.total))
+                          const pct = maxTotal > 0 ? (stats.total / maxTotal) * 100 : 0
+                          return (
+                            <div key={year} className="bg-dark-700/50 rounded-lg p-2">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-semibold text-white">{year}</span>
+                                <span className="text-xs text-cyan">{stats.total} events</span>
+                              </div>
+                              <div className="h-1.5 bg-dark-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-gradient-to-r from-cyan to-amber" style={{ width: `${pct}%` }} />
+                              </div>
+                              <div className="flex gap-2 mt-1 text-[10px] text-gray-500">
+                                {stats.hail > 0 && <span>🧊 {stats.hail}</span>}
+                                {stats.tornado > 0 && <span className="text-red-400">🌀 {stats.tornado}</span>}
+                                {stats.wind > 0 && <span>💨 {stats.wind}</span>}
+                                {stats.radar_hail > 0 && <span className="text-amber">📡 {stats.radar_hail}</span>}
+                              </div>
+                            </div>
+                          )
+                        })}
+                    </div>
+                  )}
+
+                  {hwelTab === 'events' && hwelData.events && (
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                      {hwelData.events.slice(0, 30).map((e: any, i: number) => (
+                        <div key={i} className="bg-dark-700/50 rounded-lg p-2 border-l-2"
+                          style={{
+                            borderColor: e.type === 'tornado' ? '#ef4444' :
+                                        e.type === 'hail' || e.type === 'radar_hail' ? '#f59e0b' :
+                                        e.type === 'mesocyclone' ? '#a855f7' : '#06b6d4'
+                          }}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-white capitalize">
+                                {e.type === 'radar_hail' ? '📡 Radar Hail' :
+                                 e.type === 'mesocyclone' ? '🌀 Mesocyclone' :
+                                 e.type === 'tornado' ? '🌪️ Tornado' :
+                                 e.type === 'hail' ? '🧊 Hail' :
+                                 '💨 Wind'}
+                              </p>
+                              <p className="text-[10px] text-gray-400 truncate">{e.description}</p>
+                              {(e.city || e.state) && (
+                                <p className="text-[10px] text-gray-500">{[e.city, e.state].filter(Boolean).join(', ')}</p>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-gray-500 whitespace-nowrap">
+                              {e.date ? e.date.substring(0, 4) + '-' + e.date.substring(4, 6) + '-' + e.date.substring(6, 8) : ''}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      {hwelData.events.length > 30 && (
+                        <p className="text-[10px] text-center text-gray-500 py-2">
+                          + {hwelData.events.length - 30} more events in database
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-gray-500 text-center py-4">
+                  Search a location to load historical data
+                </p>
+              )}
             </div>
           </div>
 
@@ -3372,12 +3581,12 @@ Only respond with the JSON array, no other text.` }
               </button>
             </div>
 
-            {/* Live Radar Toggle */}
+            {/* Live Doppler Radar Toggle + Product Selector */}
             <div className="glass p-4 rounded-xl">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Radio className="w-4 h-4 text-cyan" />
-                  <span className="text-sm font-semibold">Live NEXRAD Radar</span>
+                  <span className="text-sm font-semibold">Live Doppler Radar</span>
                 </div>
                 <button
                   onClick={() => setShowRadar(!showRadar)}
@@ -3387,7 +3596,30 @@ Only respond with the JSON array, no other text.` }
                 </button>
               </div>
               {showRadar && (
-                <p className="text-xs text-cyan/70 mt-2">NOAA NEXRAD radar overlay active</p>
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-cyan/70">NOAA NEXRAD Doppler radar active</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { key: 'n0q' as const, label: 'HD Reflectivity', desc: '256-level (best)' },
+                      { key: 'n0r' as const, label: 'Reflectivity', desc: 'Standard 16-level' },
+                      { key: 'n0s' as const, label: 'Storm Velocity', desc: 'Wind speed/direction' },
+                      { key: 'net' as const, label: 'Echo Tops', desc: 'Storm height' },
+                    ].map(p => (
+                      <button
+                        key={p.key}
+                        onClick={() => setRadarProduct(p.key)}
+                        className={`text-left p-2 rounded-lg border transition-all text-xs ${
+                          radarProduct === p.key
+                            ? 'border-cyan bg-cyan/20 text-cyan'
+                            : 'border-white/10 bg-dark-700/50 text-gray-400 hover:border-white/20'
+                        }`}
+                      >
+                        <div className="font-semibold">{p.label}</div>
+                        <div className="text-[10px] opacity-70 mt-0.5">{p.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 
@@ -5168,24 +5400,49 @@ Only respond with the JSON array, no other text.` }
                   <Phone className="w-4 h-4 text-cyan" />
                   Google Voice
                 </h3>
-                <p className="text-xs text-gray-400 mt-1">Free calls & texts — sign in with your Google account</p>
+                <p className="text-xs text-gray-400 mt-1">Call and text clients directly from your Google Voice number</p>
               </div>
-              <div className="flex-1 overflow-hidden rounded-lg border border-white/10">
-                <iframe
-                  src="https://voice.google.com"
-                  className="w-full h-full"
-                  allow="microphone; camera"
-                />
-              </div>
-              {/* Fallback Button */}
-              <div className="mt-3 text-center">
-                <button
-                  onClick={() => window.open('https://voice.google.com', '_blank')}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-cyan/20 text-cyan rounded-lg hover:bg-cyan/30 transition-all text-sm"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Open Google Voice in New Tab
-                </button>
+              <div className="flex-1 flex flex-col items-center justify-center gap-6">
+                <div className="w-20 h-20 rounded-full bg-cyan/10 border border-cyan/30 flex items-center justify-center">
+                  <Phone className="w-10 h-10 text-cyan" />
+                </div>
+                <div className="text-center max-w-sm">
+                  <h4 className="text-white font-semibold mb-2">Google Voice Integration</h4>
+                  <p className="text-gray-400 text-sm mb-1">Make calls, send texts, and manage voicemails from your Google Voice number.</p>
+                  <p className="text-gray-500 text-xs">Google Voice opens in a new tab for full functionality including call recording and voicemail transcription.</p>
+                </div>
+                <div className="flex flex-col gap-3 w-full max-w-xs">
+                  <button
+                    onClick={() => window.open('https://voice.google.com/calls', '_blank')}
+                    className="flex items-center justify-center gap-2 px-6 py-3 bg-cyan text-dark rounded-xl hover:bg-cyan/90 transition-all text-sm font-bold shadow-lg shadow-cyan/20"
+                  >
+                    <Phone className="w-4 h-4" />
+                    Open Google Voice
+                  </button>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => window.open('https://voice.google.com/calls', '_blank')}
+                      className="flex flex-col items-center gap-1 p-3 bg-dark-700/50 rounded-lg border border-white/10 hover:border-cyan/30 transition-all"
+                    >
+                      <Phone className="w-4 h-4 text-cyan" />
+                      <span className="text-[10px] text-gray-400">Calls</span>
+                    </button>
+                    <button
+                      onClick={() => window.open('https://voice.google.com/messages', '_blank')}
+                      className="flex flex-col items-center gap-1 p-3 bg-dark-700/50 rounded-lg border border-white/10 hover:border-cyan/30 transition-all"
+                    >
+                      <MessageSquare className="w-4 h-4 text-cyan" />
+                      <span className="text-[10px] text-gray-400">Texts</span>
+                    </button>
+                    <button
+                      onClick={() => window.open('https://voice.google.com/voicemail', '_blank')}
+                      className="flex flex-col items-center gap-1 p-3 bg-dark-700/50 rounded-lg border border-white/10 hover:border-cyan/30 transition-all"
+                    >
+                      <Voicemail className="w-4 h-4 text-cyan" />
+                      <span className="text-[10px] text-gray-400">Voicemail</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -5198,23 +5455,49 @@ Only respond with the JSON array, no other text.` }
                   <Mail className="w-4 h-4 text-gold" />
                   Gmail
                 </h3>
-                <p className="text-xs text-gray-400 mt-1">Send emails directly to clients</p>
+                <p className="text-xs text-gray-400 mt-1">Send emails and manage client communications</p>
               </div>
-              <div className="flex-1 overflow-hidden rounded-lg border border-white/10">
-                <iframe
-                  src="https://mail.google.com"
-                  className="w-full h-full"
-                />
-              </div>
-              {/* Fallback Button */}
-              <div className="mt-3 text-center">
-                <button
-                  onClick={() => window.open('https://mail.google.com', '_blank')}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-gold/20 text-gold rounded-lg hover:bg-gold/30 transition-all text-sm"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Open Gmail in New Tab
-                </button>
+              <div className="flex-1 flex flex-col items-center justify-center gap-6">
+                <div className="w-20 h-20 rounded-full bg-gold/10 border border-gold/30 flex items-center justify-center">
+                  <Mail className="w-10 h-10 text-gold" />
+                </div>
+                <div className="text-center max-w-sm">
+                  <h4 className="text-white font-semibold mb-2">Gmail Integration</h4>
+                  <p className="text-gray-400 text-sm mb-1">Send proposals, follow-ups, and invoices directly to your clients.</p>
+                  <p className="text-gray-500 text-xs">Gmail opens in a new tab for full email functionality including attachments and signatures.</p>
+                </div>
+                <div className="flex flex-col gap-3 w-full max-w-xs">
+                  <button
+                    onClick={() => window.open('https://mail.google.com', '_blank')}
+                    className="flex items-center justify-center gap-2 px-6 py-3 bg-gold text-dark rounded-xl hover:bg-gold/90 transition-all text-sm font-bold shadow-lg shadow-gold/20"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Open Gmail
+                  </button>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => window.open('https://mail.google.com/#inbox', '_blank')}
+                      className="flex flex-col items-center gap-1 p-3 bg-dark-700/50 rounded-lg border border-white/10 hover:border-gold/30 transition-all"
+                    >
+                      <Inbox className="w-4 h-4 text-gold" />
+                      <span className="text-[10px] text-gray-400">Inbox</span>
+                    </button>
+                    <button
+                      onClick={() => window.open('https://mail.google.com/#compose', '_blank')}
+                      className="flex flex-col items-center gap-1 p-3 bg-dark-700/50 rounded-lg border border-white/10 hover:border-gold/30 transition-all"
+                    >
+                      <Send className="w-4 h-4 text-gold" />
+                      <span className="text-[10px] text-gray-400">Compose</span>
+                    </button>
+                    <button
+                      onClick={() => window.open('https://mail.google.com/#sent', '_blank')}
+                      className="flex flex-col items-center gap-1 p-3 bg-dark-700/50 rounded-lg border border-white/10 hover:border-gold/30 transition-all"
+                    >
+                      <CheckCircle className="w-4 h-4 text-gold" />
+                      <span className="text-[10px] text-gray-400">Sent</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}

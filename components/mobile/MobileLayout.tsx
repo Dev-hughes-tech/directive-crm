@@ -135,129 +135,129 @@ export default function MobileLayout(props: MobileLayoutProps) {
 
   const renderDashboard = () => (
     <div className="flex-1 overflow-y-auto pb-24">
-      {/* Hero Stats */}
-      <div className="px-4 pt-4 grid grid-cols-2 gap-3">
-        <div className="bg-[#0d1117] border border-white/10 rounded-2xl p-4">
-          <p className="text-3xl font-bold text-cyan-400">{properties.length}</p>
-          <p className="text-xs text-gray-400 mt-1">Properties Scanned</p>
+      {/* Hero Stats — compact 9:16 grid */}
+      <div className="px-3 pt-3 grid grid-cols-2 gap-2">
+        <div className="bg-[#0d1117] border border-white/10 rounded-xl p-3">
+          <p className="text-2xl font-bold text-cyan-400 leading-none">{properties.length}</p>
+          <p className="text-[10px] text-gray-400 mt-1.5 leading-tight">Properties Scanned</p>
         </div>
-        <div className="bg-[#0d1117] border border-white/10 rounded-2xl p-4">
-          <p className="text-3xl font-bold text-green-400">
+        <div className="bg-[#0d1117] border border-white/10 rounded-xl p-3">
+          <p className="text-2xl font-bold text-green-400 leading-none">
             {properties.filter(p => p.roof_age_years !== null && p.roof_age_years >= 15).length}
           </p>
-          <p className="text-xs text-gray-400 mt-1">Qualifying Roofs</p>
+          <p className="text-[10px] text-gray-400 mt-1.5 leading-tight">Qualifying Roofs</p>
         </div>
-        <div className="bg-[#0d1117] border border-white/10 rounded-2xl p-4">
-          <p className="text-3xl font-bold text-amber-400">
+        <div className="bg-[#0d1117] border border-white/10 rounded-xl p-3">
+          <p className="text-2xl font-bold text-amber-400 leading-none">
             {properties.length > 0
               ? Math.round(properties.reduce((s, p) => s + (p.roof_age_years || 0), 0) / properties.length)
               : '—'}
           </p>
-          <p className="text-xs text-gray-400 mt-1">Avg Roof Age (yr)</p>
+          <p className="text-[10px] text-gray-400 mt-1.5 leading-tight">Avg Roof Age (yr)</p>
         </div>
-        <div className="bg-[#0d1117] border border-white/10 rounded-2xl p-4">
-          <p className="text-3xl font-bold text-red-400">
+        <div className="bg-[#0d1117] border border-white/10 rounded-xl p-3">
+          <p className="text-2xl font-bold text-red-400 leading-none">
             {properties.filter(p => p.roof_age_years !== null && p.roof_age_years >= 20).length}
           </p>
-          <p className="text-xs text-gray-400 mt-1">Critical (20+ yr)</p>
+          <p className="text-[10px] text-gray-400 mt-1.5 leading-tight">Critical (20+ yr)</p>
         </div>
       </div>
 
-      {/* Weather Alert Banner */}
+      {/* Weather Alert Banner — 9:16 compact */}
       {alerts.length > 0 && (
-        <div className="mx-4 mt-3 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-amber-300">{alerts[0].event}</p>
-            <p className="text-xs text-amber-400/70 mt-0.5 line-clamp-2">{alerts[0].headline}</p>
+        <div className="mx-3 mt-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-amber-300 truncate">{alerts[0].event}</p>
+            <p className="text-[10px] text-amber-400/70 mt-0.5 line-clamp-2">{alerts[0].headline}</p>
           </div>
         </div>
       )}
 
-      {/* Current Weather */}
+      {/* Current Weather — 9:16 compact */}
       {weather && (
-        <div className="mx-4 mt-3 bg-[#0d1117] border border-white/10 rounded-2xl p-4">
-          <div className="flex justify-between items-center mb-2">
-            <p className="text-xs text-gray-400 uppercase tracking-wide">Current Weather</p>
-            <Cloud className="w-4 h-4 text-cyan-400" />
+        <div className="mx-3 mt-2 bg-[#0d1117] border border-white/10 rounded-xl p-3">
+          <div className="flex justify-between items-center mb-1.5">
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Current Weather</p>
+            <Cloud className="w-3.5 h-3.5 text-cyan-400" />
           </div>
-          <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="grid grid-cols-3 gap-2 text-center">
             <div>
-              <p className="text-2xl font-bold text-white">{weather.temperature_f}°</p>
-              <p className="text-xs text-gray-500">Temp</p>
+              <p className="text-xl font-bold text-white leading-none">{weather.temperature_f}°</p>
+              <p className="text-[10px] text-gray-500 mt-1">Temp</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-cyan-400">{weather.wind_speed_mph}</p>
-              <p className="text-xs text-gray-500">mph</p>
+              <p className="text-xl font-bold text-cyan-400 leading-none">{weather.wind_speed_mph}</p>
+              <p className="text-[10px] text-gray-500 mt-1">mph</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-blue-400">{weather.humidity_pct}%</p>
-              <p className="text-xs text-gray-500">Humidity</p>
+              <p className="text-xl font-bold text-blue-400 leading-none">{weather.humidity_pct}%</p>
+              <p className="text-[10px] text-gray-500 mt-1">Humidity</p>
             </div>
           </div>
-          {weather.conditions && <p className="text-xs text-gray-400 mt-2 text-center">{weather.conditions}</p>}
+          {weather.conditions && <p className="text-[10px] text-gray-400 mt-1.5 text-center truncate">{weather.conditions}</p>}
         </div>
       )}
 
-      {/* Quick Actions */}
-      <div className="px-4 mt-4">
-        <p className="text-xs text-gray-400 uppercase tracking-wide mb-3">Quick Actions</p>
-        <div className="grid grid-cols-2 gap-3">
+      {/* Quick Actions — 9:16 compact */}
+      <div className="px-3 mt-3">
+        <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Quick Actions</p>
+        <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => navigate('sweep', 'sweep')}
-            className="bg-cyan-400/10 border border-cyan-400/20 rounded-2xl p-4 flex flex-col items-start gap-2 active:scale-95 transition-transform"
+            className="bg-cyan-400/10 border border-cyan-400/20 rounded-xl p-3 flex flex-col items-start gap-1 active:scale-95 transition-transform"
           >
-            <Navigation className="w-6 h-6 text-cyan-400" />
-            <p className="text-sm font-semibold text-white">GPS Sweep</p>
-            <p className="text-xs text-gray-400">Research any address</p>
+            <Navigation className="w-5 h-5 text-cyan-400" />
+            <p className="text-xs font-semibold text-white">GPS Sweep</p>
+            <p className="text-[10px] text-gray-400 truncate w-full">Research address</p>
           </button>
           <button
             onClick={() => navigate('michael', 'michael')}
-            className="bg-purple-500/10 border border-purple-500/20 rounded-2xl p-4 flex flex-col items-start gap-2 active:scale-95 transition-transform"
+            className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 flex flex-col items-start gap-1 active:scale-95 transition-transform"
           >
-            <Brain className="w-6 h-6 text-purple-400" />
-            <p className="text-sm font-semibold text-white">Michael AI</p>
-            <p className="text-xs text-gray-400">ZIP lead search</p>
+            <Brain className="w-5 h-5 text-purple-400" />
+            <p className="text-xs font-semibold text-white">Michael AI</p>
+            <p className="text-[10px] text-gray-400 truncate w-full">ZIP leads</p>
           </button>
           <button
             onClick={() => navigate('clients', 'clients')}
-            className="bg-green-500/10 border border-green-500/20 rounded-2xl p-4 flex flex-col items-start gap-2 active:scale-95 transition-transform"
+            className="bg-green-500/10 border border-green-500/20 rounded-xl p-3 flex flex-col items-start gap-1 active:scale-95 transition-transform"
           >
-            <Users className="w-6 h-6 text-green-400" />
-            <p className="text-sm font-semibold text-white">Clients</p>
-            <p className="text-xs text-gray-400">{clients.length} in pipeline</p>
+            <Users className="w-5 h-5 text-green-400" />
+            <p className="text-xs font-semibold text-white">Clients</p>
+            <p className="text-[10px] text-gray-400 truncate w-full">{clients.length} in pipeline</p>
           </button>
           <button
             onClick={() => { setShowMore(true); setMobileTab('more') }}
-            className="bg-gray-700/30 border border-white/10 rounded-2xl p-4 flex flex-col items-start gap-2 active:scale-95 transition-transform"
+            className="bg-gray-700/30 border border-white/10 rounded-xl p-3 flex flex-col items-start gap-1 active:scale-95 transition-transform"
           >
-            <MoreHorizontal className="w-6 h-6 text-gray-400" />
-            <p className="text-sm font-semibold text-white">More</p>
-            <p className="text-xs text-gray-400">All features</p>
+            <MoreHorizontal className="w-5 h-5 text-gray-400" />
+            <p className="text-xs font-semibold text-white">More</p>
+            <p className="text-[10px] text-gray-400 truncate w-full">All features</p>
           </button>
         </div>
       </div>
 
-      {/* Hot Leads */}
+      {/* Hot Leads — 9:16 compact */}
       {hotLeads.length > 0 && (
-        <div className="px-4 mt-4 mb-4">
-          <p className="text-xs text-gray-400 uppercase tracking-wide mb-3">Hot Leads — Aging Roofs</p>
-          <div className="space-y-2">
+        <div className="px-3 mt-3 mb-3">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Hot Leads — Aging Roofs</p>
+          <div className="space-y-1.5">
             {hotLeads.map(p => (
               <button
                 key={p.id}
                 onClick={() => { setSweepAddress(p.address); navigate('sweep', 'sweep') }}
-                className="w-full bg-[#0d1117] border border-white/10 rounded-xl p-4 text-left flex justify-between items-center active:bg-white/5 transition-colors"
+                className="w-full bg-[#0d1117] border border-white/10 rounded-lg p-3 text-left flex justify-between items-center gap-2 active:bg-white/5 transition-colors"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-white truncate">{p.address}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{p.owner_name || 'Unknown owner'}</p>
+                  <p className="text-xs font-medium text-white truncate">{p.address}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5 truncate">{p.owner_name || 'Unknown owner'}</p>
                 </div>
-                <div className="flex-shrink-0 ml-3 text-right">
-                  <p className={`text-lg font-bold ${p.roof_age_years! >= 20 ? 'text-red-400' : 'text-amber-400'}`}>
+                <div className="flex-shrink-0 text-right">
+                  <p className={`text-base font-bold leading-none ${p.roof_age_years! >= 20 ? 'text-red-400' : 'text-amber-400'}`}>
                     {p.roof_age_years}yr
                   </p>
-                  <p className="text-xs text-gray-500">roof age</p>
+                  <p className="text-[9px] text-gray-500 mt-0.5">roof age</p>
                 </div>
               </button>
             ))}
@@ -308,17 +308,17 @@ export default function MobileLayout(props: MobileLayoutProps) {
 
       {/* Result Card */}
       {sweepResult && !sweepLoading && (
-        <div className="px-4 mt-4 space-y-3">
+        <div className="px-3 mt-3 space-y-2.5">
           {/* Address Header */}
-          <div className="bg-[#161b22] border border-cyan-400/20 rounded-2xl p-5">
-            <div className="flex justify-between items-start mb-3">
+          <div className="bg-[#161b22] border border-cyan-400/20 rounded-xl p-3.5">
+            <div className="flex justify-between items-start mb-2.5 gap-2">
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-cyan-400 uppercase tracking-wide mb-1">Property Research</p>
-                <p className="text-base font-semibold text-white leading-tight">{sweepResult.address}</p>
+                <p className="text-[10px] text-cyan-400 uppercase tracking-wide mb-0.5">Property Research</p>
+                <p className="text-sm font-semibold text-white leading-tight break-words">{sweepResult.address}</p>
               </div>
               <button
                 onClick={() => onSaveProperty(sweepResult)}
-                className="ml-3 bg-cyan-400 text-[#0d1117] text-xs font-bold px-3 py-1.5 rounded-lg flex-shrink-0 active:scale-95 transition-transform"
+                className="bg-cyan-400 text-[#0d1117] text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex-shrink-0 active:scale-95 transition-transform"
               >
                 Save Lead
               </button>
@@ -353,7 +353,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
           </div>
 
           {/* Property Stats Grid */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             {[
               { label: 'Roof Age', value: sweepResult.roof_age_years ? `${sweepResult.roof_age_years} yrs${sweepResult.roof_age_estimated ? ' (est.)' : ''}` : '—', highlight: sweepResult.roof_age_years !== null && sweepResult.roof_age_years >= 20 },
               { label: 'Year Built', value: sweepResult.year_built || '—', highlight: false },
@@ -364,9 +364,9 @@ export default function MobileLayout(props: MobileLayoutProps) {
               { label: 'Annual Tax', value: sweepResult.tax_annual ? `$${sweepResult.tax_annual.toLocaleString()}` : '—', highlight: false },
               { label: 'Parcel ID', value: sweepResult.parcel_id || '—', highlight: false },
             ].map(({ label, value, highlight }) => (
-              <div key={label} className={`bg-[#0d1117] border rounded-xl p-3 ${highlight ? 'border-red-400/30 bg-red-400/5' : 'border-white/10'}`}>
-                <p className="text-xs text-gray-400">{label}</p>
-                <p className={`text-base font-bold mt-0.5 ${highlight ? 'text-red-400' : 'text-white'}`}>{String(value)}</p>
+              <div key={label} className={`bg-[#0d1117] border rounded-lg p-2.5 ${highlight ? 'border-red-400/30 bg-red-400/5' : 'border-white/10'}`}>
+                <p className="text-[10px] text-gray-400 truncate">{label}</p>
+                <p className={`text-sm font-bold mt-0.5 truncate ${highlight ? 'text-red-400' : 'text-white'}`}>{String(value)}</p>
               </div>
             ))}
           </div>
@@ -450,55 +450,80 @@ export default function MobileLayout(props: MobileLayoutProps) {
 
   const renderMichael = () => (
     <div className="flex-1 overflow-y-auto pb-24">
-      {/* ZIP Search */}
-      <div className="px-4 pt-4">
+      {/* ZIP Search — 9:16 compact */}
+      <div className="px-3 pt-3">
         <div className="flex gap-2">
           <input
             type="text"
             value={michaelZip}
             onChange={e => setMichaelZip(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && michaelZip.trim().length >= 5 && onMichaelSearch(michaelZip.trim())}
-            placeholder="Enter ZIP code (e.g. 35801)..."
+            placeholder="Enter ZIP (e.g. 35801)..."
             maxLength={10}
-            className="flex-1 bg-[#161b22] border border-white/20 rounded-xl px-4 py-3.5 text-white placeholder-gray-500 focus:outline-none focus:border-purple-400/50 text-sm"
+            className="flex-1 bg-[#161b22] border border-white/20 rounded-lg px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-purple-400/50 text-sm"
           />
           <button
             onClick={() => michaelZip.trim().length >= 5 && onMichaelSearch(michaelZip.trim())}
             disabled={michaelLeadsLoading || michaelZip.trim().length < 5}
-            className="bg-purple-500 text-white w-12 rounded-xl flex items-center justify-center disabled:opacity-50 active:scale-95 transition-transform flex-shrink-0"
+            className="bg-purple-500 text-white w-11 rounded-lg flex items-center justify-center disabled:opacity-50 active:scale-95 transition-transform flex-shrink-0"
           >
-            {michaelLeadsLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Brain className="w-5 h-5" />}
+            {michaelLeadsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
           </button>
         </div>
-        <p className="text-xs text-gray-500 mt-2">Michael analyzes 10 years of NOAA storm data to find leads</p>
+        <p className="text-[10px] text-gray-500 mt-1.5">10-year NOAA analysis for lead generation</p>
       </div>
 
-      {/* Storm Summary */}
+      {/* Storm Summary — 9:16 compact */}
       {michaelStormData && (
-        <div className={`mx-4 mt-3 border rounded-2xl p-4 ${riskColor(michaelStormData.riskLevel)}`}>
-          <div className="flex justify-between items-center mb-3">
-            <div>
-              <p className="font-bold text-white">{michaelZip} — {michaelStormData.city}</p>
-              <p className="text-xs opacity-70">{michaelStormData.yearsAnalyzed}-year NOAA analysis</p>
+        <div className={`mx-3 mt-2 border rounded-xl p-3 ${riskColor(michaelStormData.riskLevel)}`}>
+          <div className="flex justify-between items-center mb-2 gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-white truncate">{michaelZip} — {michaelStormData.city}</p>
+              <p className="text-[10px] opacity-70">{michaelStormData.yearsAnalyzed}-year NOAA analysis</p>
             </div>
-            <span className="text-xs font-bold px-2 py-1 rounded-full border border-current">{michaelStormData.riskLevel}</span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-current whitespace-nowrap">{michaelStormData.riskLevel}</span>
           </div>
-          <div className="grid grid-cols-4 gap-2 text-center">
+          <div className="grid grid-cols-4 gap-1.5 text-center">
             <div>
-              <p className="text-xl font-bold text-amber-400">{michaelStormData.hailCount}</p>
-              <p className="text-xs opacity-60">Hail</p>
+              <p className="text-base font-bold text-amber-400 leading-none">{michaelStormData.hailCount}</p>
+              <p className="text-[10px] opacity-60 mt-1">Hail</p>
             </div>
             <div>
-              <p className="text-xl font-bold text-red-400">{michaelStormData.tornadoCount}</p>
-              <p className="text-xs opacity-60">Tornado</p>
+              <p className="text-base font-bold text-red-400 leading-none">{michaelStormData.tornadoCount}</p>
+              <p className="text-[10px] opacity-60 mt-1">Tornado</p>
             </div>
             <div>
-              <p className="text-xl font-bold text-cyan-400">{michaelStormData.severeHailCount}</p>
-              <p className="text-xs opacity-60">Severe</p>
+              <p className="text-base font-bold text-cyan-400 leading-none">{michaelStormData.severeHailCount}</p>
+              <p className="text-[10px] opacity-60 mt-1">Severe</p>
             </div>
             <div>
-              <p className="text-xl font-bold text-white">{michaelStormData.maxHailSize.toFixed(1)}"</p>
-              <p className="text-xs opacity-60">Max</p>
+              <p className="text-base font-bold text-white leading-none">{michaelStormData.maxHailSize.toFixed(1)}"</p>
+              <p className="text-[10px] opacity-60 mt-1">Max</p>
+            </div>
+          </div>
+
+          {/* Historical breakdown — matches HWEL visual language */}
+          <div className="mt-3 pt-3 border-t border-white/10">
+            <p className="text-[10px] text-cyan-400 uppercase tracking-wide mb-1.5 font-semibold">Historical Weather Event Archive</p>
+            <div className="grid grid-cols-3 gap-1.5 text-center">
+              <div className="bg-black/30 rounded p-1.5">
+                <p className="text-sm font-bold text-white leading-none">
+                  {Math.round((michaelStormData.hailCount + michaelStormData.tornadoCount) / michaelStormData.yearsAnalyzed)}
+                </p>
+                <p className="text-[9px] opacity-60 mt-0.5">Events/yr avg</p>
+              </div>
+              <div className="bg-black/30 rounded p-1.5">
+                <p className="text-sm font-bold text-amber-400 leading-none">
+                  {michaelStormData.hailCount > 0 ? ((michaelStormData.severeHailCount / michaelStormData.hailCount) * 100).toFixed(0) : 0}%
+                </p>
+                <p className="text-[9px] opacity-60 mt-0.5">Severe rate</p>
+              </div>
+              <div className="bg-black/30 rounded p-1.5">
+                <p className="text-sm font-bold text-red-400 leading-none">
+                  {michaelStormData.tornadoCount + michaelStormData.severeHailCount}
+                </p>
+                <p className="text-[9px] opacity-60 mt-0.5">Major events</p>
+              </div>
             </div>
           </div>
         </div>
@@ -870,24 +895,21 @@ export default function MobileLayout(props: MobileLayoutProps) {
 
   return (
     <div className="fixed inset-0 bg-[#0d1117] flex flex-col" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      {/* Top Bar */}
-      <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d1117]/95 backdrop-blur-md" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-cyan-400/20 rounded-lg flex items-center justify-center">
-            <span className="text-cyan-400 font-bold text-xs">D</span>
-          </div>
-          <div>
-            <span className="text-sm font-bold text-white">Directive</span>
-            <span className="text-xs text-cyan-400 ml-1">CRM</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5">
+      {/* Top Bar — 9:16 optimized */}
+      <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/10 bg-[#0d1117]/95 backdrop-blur-md" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}>
+        <img
+          src="/directive-wordmark.png"
+          alt="Directive CRM"
+          className="h-10 w-auto object-contain"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+        />
+        <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-xs text-green-400 font-medium">Live</span>
+            <span className="text-[10px] text-green-400 font-medium">LIVE</span>
           </div>
           <span
-            className="text-xs px-2 py-0.5 rounded-full font-bold border"
+            className="text-[10px] px-1.5 py-0.5 rounded-full font-bold border whitespace-nowrap"
             style={{
               color: getTierConfig(userRole).color,
               borderColor: getTierConfig(userRole).color + '40',
@@ -899,9 +921,9 @@ export default function MobileLayout(props: MobileLayoutProps) {
         </div>
       </div>
 
-      {/* Screen Title */}
-      <div className="flex-shrink-0 px-4 py-2 border-b border-white/5">
-        <h1 className="text-base font-bold text-white">
+      {/* Screen Title — 9:16 compact */}
+      <div className="flex-shrink-0 px-3 py-1.5 border-b border-white/5">
+        <h1 className="text-sm font-bold text-white">
           {mobileTab === 'dashboard' ? 'Dashboard' :
            mobileTab === 'sweep' ? 'GPS Sweep' :
            mobileTab === 'michael' ? 'Michael AI' :
@@ -922,7 +944,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
               <button
                 key={item.tab}
                 onClick={() => navigate(item.tab)}
-                className={`flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-colors active:opacity-70 ${active ? 'text-cyan-400' : 'text-gray-500'}`}
+                className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-colors active:opacity-70 relative ${active ? 'text-cyan-400' : 'text-gray-500'}`}
               >
                 <Icon className={`w-5 h-5 ${active ? 'text-cyan-400' : 'text-gray-500'}`} />
                 <span className={`text-[10px] font-medium ${active ? 'text-cyan-400' : 'text-gray-500'}`}>{item.label}</span>

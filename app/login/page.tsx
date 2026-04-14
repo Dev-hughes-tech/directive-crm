@@ -95,7 +95,7 @@ export default function LoginPage() {
         {/* Logo & Header */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-8">
-            <Image src="/directive-wordmark.png" alt="Directive CRM" width={240} height={72} className="h-16 w-auto object-contain" />
+            <Image src="/directive-wordmark.png" alt="Directive CRM" width={720} height={216} className="h-48 w-auto object-contain" />
           </div>
           <p className="text-sm text-gray-400">Roofing intelligence powered by Michael AI</p>
         </div>
