@@ -1,4 +1,6 @@
 import { Anthropic } from '@anthropic-ai/sdk'
+import { NextRequest } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 export const maxDuration = 30
 
@@ -13,6 +15,9 @@ interface ContextData {
   hotLeadCount: number
   alertCount: number
   weatherSummary: string | null
+  stormZip?: string
+  stormRisk?: string
+  stormEvents?: number
 }
 
 const client = new Anthropic()
@@ -47,7 +52,10 @@ async function groundLocation(text: string, apiKey: string): Promise<string | nu
   return null
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = await requireUser(req)
+  if (!auth.ok) return auth.response
+
   try {
     const body = await req.json()
     const { messages, context } = body as {
@@ -66,6 +74,10 @@ export async function POST(req: Request) {
     const apiKey = process.env.MAPS_API_KEY || ''
     const locationContext = await groundLocation(lastUserMessage, apiKey)
 
+    const stormContext = context?.stormZip
+      ? `\n- Active Storm ZIP: ${context.stormZip} | Risk: ${context.stormRisk || 'unknown'} | Events (10yr): ${context.stormEvents ?? 'unknown'}`
+      : ''
+
     const baseSystemPrompt = `You are Michael, the AI intelligence layer of Directive CRM — a roofing sales platform. You are composed, precise, and British in tone. You are not Claude — you are Michael, powered by Hughes Technologies.
 
 You help roofing sales reps with:
@@ -80,7 +92,7 @@ Current context:
 - Properties Tracked: ${context?.leadCount || 0}
 - Hot Leads (score 70+): ${context?.hotLeadCount || 0}
 - Active Weather Alerts: ${context?.alertCount || 0}
-- Weather: ${context?.weatherSummary || 'unknown'}
+- Weather: ${context?.weatherSummary || 'unknown'}${stormContext}
 
 Rules:
 - Never make up data. If you don't know, say so.

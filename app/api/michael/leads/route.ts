@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 export const maxDuration = 60
 
@@ -89,6 +90,9 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { zip } = await request.json()
   if (!zip?.trim()) return NextResponse.json({ error: 'ZIP code required' }, { status: 400 })
 

@@ -1602,6 +1602,9 @@ export default function Dashboard() {
             hotLeadCount: hotCount,
             alertCount: alerts.length,
             weatherSummary: weather ? `${weather.temperature_f}°F, ${weather.conditions}` : null,
+            stormZip: michaelStormData?.zip ?? undefined,
+            stormRisk: michaelStormData?.riskLevel ?? undefined,
+            stormEvents: michaelStormData?.totalEvents ?? undefined,
           },
         }),
       })
@@ -1753,6 +1756,34 @@ export default function Dashboard() {
       if (aRes.ok) setDashAlerts(await aRes.json())
     } catch (e) {
       console.error('Weather ZIP lookup error:', e)
+    }
+  }
+
+  // Michael AI ZIP lead search
+  const handleMichaelZipSearch = async (zip: string) => {
+    if (!zip.trim() || zip.trim().length < 5) return
+    setMichaelLeadsLoading(true)
+    setMichaelLeads([])
+    setMichaelStormData(null)
+    try {
+      const res = await authFetch('/api/michael/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zip: zip.trim() }),
+      })
+      const data = await res.json()
+      setMichaelLeads(data.leads || [])
+      setMichaelStormData(data)
+      if (data.lat && data.lng) setMapCenter({ lat: data.lat, lng: data.lng })
+      if (data.leads?.length) {
+        addNotification(`Michael found ${data.leads.length} leads for ZIP ${zip.trim()} — ${data.riskLevel} risk zone`, 'success')
+      } else {
+        addNotification('No leads generated for this ZIP. Try an area with more storm history.', 'info')
+      }
+    } catch {
+      addNotification('Lead search failed. Check your connection and try again.', 'warning')
+    } finally {
+      setMichaelLeadsLoading(false)
     }
   }
 
@@ -4038,25 +4069,7 @@ Only respond with the JSON array, no other text.` }
                   value={michaelZip}
                   onChange={e => setMichaelZip(e.target.value)}
                   onKeyDown={e => {
-                    if (e.key === 'Enter' && michaelZip.trim().length >= 5) {
-                      setMichaelLeadsLoading(true)
-                      setMichaelLeads([])
-                      setMichaelStormData(null)
-                      authFetch('/api/michael/leads', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ zip: michaelZip.trim() }),
-                      })
-                        .then(r => r.json())
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        .then((data: any) => {
-                          setMichaelLeads(data.leads || [])
-                          setMichaelStormData(data)
-                          if (data.lat && data.lng) setMapCenter({ lat: data.lat, lng: data.lng })
-                        })
-                        .catch(console.error)
-                        .finally(() => setMichaelLeadsLoading(false))
-                    }
+                    if (e.key === 'Enter') handleMichaelZipSearch(michaelZip)
                   }}
                   placeholder="e.g. 35801"
                   maxLength={10}
@@ -4064,25 +4077,7 @@ Only respond with the JSON array, no other text.` }
                 />
                 <button
                   disabled={michaelLeadsLoading || michaelZip.trim().length < 5}
-                  onClick={() => {
-                    setMichaelLeadsLoading(true)
-                    setMichaelLeads([])
-                    setMichaelStormData(null)
-                    authFetch('/api/michael/leads', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ zip: michaelZip.trim() }),
-                    })
-                      .then(r => r.json())
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      .then((data: any) => {
-                        setMichaelLeads(data.leads || [])
-                        setMichaelStormData(data)
-                        if (data.lat && data.lng) setMapCenter({ lat: data.lat, lng: data.lng })
-                      })
-                      .catch(console.error)
-                      .finally(() => setMichaelLeadsLoading(false))
-                  }}
+                  onClick={() => handleMichaelZipSearch(michaelZip)}
                   className="bg-cyan text-dark px-4 py-2 rounded-lg font-bold text-sm hover:bg-cyan/90 transition-all disabled:opacity-50"
                 >
                   {michaelLeadsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
