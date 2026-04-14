@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 export async function GET(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const address = request.nextUrl.searchParams.get('address')
   if (!address) return NextResponse.json({ error: 'Address required' }, { status: 400 })
 

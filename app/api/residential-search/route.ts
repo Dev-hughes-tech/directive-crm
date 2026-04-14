@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 // Generate grid points around a center for reverse geocoding
 function generateGrid(lat: number, lng: number, radiusMeters: number, count: number) {
@@ -22,6 +23,9 @@ function generateGrid(lat: number, lng: number, radiusMeters: number, count: num
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { lat, lng, radius = 1609 } = await request.json()
   const apiKey = process.env.MAPS_API_KEY
   if (!apiKey) return NextResponse.json({ error: 'No API key' }, { status: 500 })

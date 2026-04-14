@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 // Step 1: Create an upload URL for a photo
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { action } = await request.json()
   const apiKey = process.env.MAPS_API_KEY
   if (!apiKey) return NextResponse.json({ error: 'No key' }, { status: 500 })

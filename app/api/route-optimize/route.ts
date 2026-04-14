@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 interface Waypoint {
   id: string
@@ -8,6 +9,9 @@ interface Waypoint {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { waypoints, origin, avoidTolls = false } = await request.json() as {
     waypoints: Waypoint[]
     origin: { lat: number; lng: number }

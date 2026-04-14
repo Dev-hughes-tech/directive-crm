@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireUser } from '@/lib/apiAuth'
 
 // Fast polling endpoint — reads job status from Supabase
 export const maxDuration = 10
@@ -10,6 +11,9 @@ const supabase = createClient(
 )
 
 export async function GET(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { searchParams } = new URL(request.url)
   const jobId = searchParams.get('jobId')
 

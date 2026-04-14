@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
+import { requireUser } from '@/lib/apiAuth'
 
 // This is the long-running research worker.
 // It is called fire-and-forget from /api/research/start.
@@ -35,6 +36,9 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lng: numb
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { jobId, address } = await request.json()
   if (!jobId || !address) {
     return NextResponse.json({ error: 'Missing jobId or address' }, { status: 400 })

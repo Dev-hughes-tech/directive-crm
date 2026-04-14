@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 export async function GET(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const lat = request.nextUrl.searchParams.get('lat')
   const lng = request.nextUrl.searchParams.get('lng')
   if (!lat || !lng) return NextResponse.json({ error: 'lat/lng required' }, { status: 400 })

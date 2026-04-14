@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 interface PropertyData {
   id: string
@@ -25,6 +26,9 @@ interface GeoJsonFeatureCollection {
 
 // Generate GeoJSON from property arrays for map overlay
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { properties, type } = await request.json() as {
     properties: PropertyData[]
     type: 'heatzone' | 'territory'

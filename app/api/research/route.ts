@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { requireUser } from '@/lib/apiAuth'
 
 export const maxDuration = 60
 
@@ -19,6 +20,9 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lng: numb
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (!anthropicKey) {
     console.error('ANTHROPIC_API_KEY not set')

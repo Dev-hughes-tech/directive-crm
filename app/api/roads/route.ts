@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 interface LatLng {
   lat: number
@@ -22,6 +23,9 @@ interface SpeedLimit {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { path, mode } = await request.json() as {
     path: LatLng[]
     mode: 'snapToRoads' | 'speedLimits'

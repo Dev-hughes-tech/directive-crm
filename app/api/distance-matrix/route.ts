@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { origin, destinations } = await request.json() as {
     origin: { lat: number; lng: number },
     destinations: Array<{ id: string; lat: number; lng: number }>

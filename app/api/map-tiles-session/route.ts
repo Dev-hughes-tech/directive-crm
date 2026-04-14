@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const apiKey = process.env.MAPS_API_KEY
   if (!apiKey) return NextResponse.json({ error: 'No key' }, { status: 500 })
 
