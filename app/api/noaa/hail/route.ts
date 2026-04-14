@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 export const maxDuration = 30
 
 const SWDI = 'https://www.ncei.noaa.gov/swdiws/json'
 
 export async function GET(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { searchParams } = new URL(request.url)
   const lat = parseFloat(searchParams.get('lat') || '')
   const lng = parseFloat(searchParams.get('lng') || '')

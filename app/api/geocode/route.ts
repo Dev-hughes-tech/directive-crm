@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/apiAuth'
 
 export async function GET(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   const { searchParams } = new URL(request.url)
   const q = searchParams.get('q')
 

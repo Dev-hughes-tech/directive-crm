@@ -689,6 +689,14 @@ export default function Dashboard() {
   const [pinDropLat, setPinDropLat] = useState<number | null>(null)
   const [pinDropLng, setPinDropLng] = useState<number | null>(null)
 
+  // Pin drop state (StormScope)
+  const [stormPinLat, setStormPinLat] = useState<number | null>(null)
+  const [stormPinLng, setStormPinLng] = useState<number | null>(null)
+
+  // Residential search mode
+  const [residentialSearchMode, setResidentialSearchMode] = useState<'location' | 'zip'>('location')
+  const [residentialZip, setResidentialZip] = useState('')
+
   // Clients screen state
   const [clients, setClients] = useState<Client[]>([])
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
@@ -1407,6 +1415,83 @@ export default function Dashboard() {
     }
   }
 
+  // Handle map click for StormScope pin drop
+  const handleStormMapClick = (lat: number, lng: number) => {
+    setStormPinLat(lat)
+    setStormPinLng(lng)
+    setStormCenter({ lat, lng })
+    setMapCenter({ lat, lng })
+    addNotification('Pin dropped — hit "Search This Area" to load storm data', 'info')
+  }
+
+  // Search storm data at the dropped pin location
+  const handleStormSearchPin = async () => {
+    if (stormPinLat === null || stormPinLng === null) {
+      addNotification('Drop a pin on the map first by clicking anywhere on it.', 'info')
+      return
+    }
+    setStormLoading(true)
+    try {
+      const lat = stormPinLat
+      const lng = stormPinLng
+      const [weatherRes, alertsRes, forecastRes, hailRes, hwelRes] = await Promise.all([
+        authFetch(`/api/weather/current?lat=${lat}&lng=${lng}`),
+        authFetch(`/api/weather/alerts?lat=${lat}&lng=${lng}`),
+        authFetch(`/api/weather/forecast?lat=${lat}&lng=${lng}`),
+        authFetch(`/api/noaa/hail?lat=${lat}&lng=${lng}&days=3650`),
+        authFetch(`/api/noaa/hwel?lat=${lat}&lng=${lng}&years=10`),
+      ])
+      if (weatherRes.ok) setWeather(await weatherRes.json())
+      if (alertsRes.ok) setAlerts(await alertsRes.json())
+      if (forecastRes.ok) setForecast(await forecastRes.json())
+      if (hailRes.ok) {
+        const hailData = await hailRes.json()
+        setHailEvents(hailData)
+        const eventCount = hailData.length
+        let level: 'High' | 'Moderate' | 'Low'
+        if (eventCount >= 15) level = 'High'
+        else if (eventCount >= 5) level = 'Moderate'
+        else level = 'Low'
+        setStormRisk({ level, eventCount })
+      }
+      if (hwelRes.ok) setHwelData(await hwelRes.json())
+      addNotification('Storm data loaded for pinned location', 'success')
+    } catch {
+      addNotification('Storm data fetch failed. Try again.', 'warning')
+    } finally {
+      setStormLoading(false)
+    }
+  }
+
+  // Residential search by ZIP code
+  const handleSearchResidentialByZip = async () => {
+    if (!residentialZip.trim()) {
+      addNotification('Enter a ZIP code to search', 'info')
+      return
+    }
+    setResidentialLoading(true)
+    try {
+      const geocodeRes = await authFetch(`/api/geocode?q=${encodeURIComponent(residentialZip.trim() + ', USA')}`)
+      if (!geocodeRes.ok) throw new Error('ZIP not found')
+      const { lat, lng } = await geocodeRes.json()
+      setMapCenter({ lat, lng })
+      setMapZoom(14)
+      const res = await authFetch('/api/residential-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng, radius: residentialRadius }),
+      })
+      const data = await res.json()
+      setResidentialResults(data.places || [])
+      if (!data.places?.length) addNotification('No residential leads found in this ZIP code', 'info')
+    } catch {
+      addNotification('ZIP code search failed. Check the ZIP and try again.', 'warning')
+      setResidentialResults([])
+    } finally {
+      setResidentialLoading(false)
+    }
+  }
+
   // Save sweep result
   const handleSaveSweep = async () => {
     if (!sweepResult) return
@@ -1576,6 +1661,7 @@ export default function Dashboard() {
       if (hwelRes.ok) setHwelData(await hwelRes.json())
     } catch (error) {
       console.error('Storm location search error:', error)
+      addNotification('Location not found. Try a different city, ZIP, or address.', 'warning')
     } finally {
       setStormLoading(false)
     }
@@ -1606,8 +1692,10 @@ export default function Dashboard() {
       else level = 'Low'
 
       setStormRisk({ level, eventCount })
+      addNotification(`Storm assessment: ${level} risk — ${eventCount} events over 10 years`, 'success')
     } catch (error) {
       console.error('Storm assessment error:', error)
+      addNotification('Storm assessment failed. Check the address and try again.', 'warning')
     } finally {
       setStormLoading(false)
     }
@@ -1856,13 +1944,17 @@ Only respond with the JSON array, no other text.` }
                       ...(sweepResult ? [{ id: 'sweep-target', lat: sweepResult.lat, lng: sweepResult.lng, color: 'green' as const, label: sweepResult.address }] : []),
                       ...(pinDropLat && pinDropLng ? [{ id: 'pin-drop', lat: pinDropLat, lng: pinDropLng, color: 'amber' as const, label: '📍 Dropped Pin — 0.5mi sweep active' }] : []),
                     ]
+                  : activeScreen === 'stormscope'
+                  ? [
+                      ...(stormPinLat && stormPinLng ? [{ id: 'storm-pin', lat: stormPinLat, lng: stormPinLng, color: 'amber' as const, label: '⚡ Storm Analysis Pin' }] : []),
+                    ]
                   : []
               }
               onModeChange={setMapMode}
               geoJsonData={activeScreen === 'territory' ? mapGeoJson : null}
               radarOverlay={activeScreen === 'stormscope' && showRadar}
               radarProduct={radarProduct}
-              onMapClick={activeScreen === 'sweep' ? handleSweepMapClick : undefined}
+              onMapClick={activeScreen === 'sweep' ? handleSweepMapClick : activeScreen === 'stormscope' ? handleStormMapClick : undefined}
             />
 
           </>
@@ -3272,6 +3364,35 @@ Only respond with the JSON array, no other text.` }
               </div>
 
               <div className="space-y-3">
+                {/* Mode toggle */}
+                <div className="flex gap-1 bg-dark-700/40 rounded-lg p-0.5">
+                  <button
+                    onClick={() => setResidentialSearchMode('location')}
+                    className={`flex-1 text-xs py-1.5 rounded transition-all ${residentialSearchMode === 'location' ? 'bg-cyan text-dark font-medium' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    📍 My Location
+                  </button>
+                  <button
+                    onClick={() => setResidentialSearchMode('zip')}
+                    className={`flex-1 text-xs py-1.5 rounded transition-all ${residentialSearchMode === 'zip' ? 'bg-cyan text-dark font-medium' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    🔢 By ZIP Code
+                  </button>
+                </div>
+
+                {/* ZIP input (shown only in zip mode) */}
+                {residentialSearchMode === 'zip' && (
+                  <input
+                    type="text"
+                    placeholder="Enter ZIP code (e.g. 35801)"
+                    value={residentialZip}
+                    onChange={(e) => setResidentialZip(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearchResidentialByZip()}
+                    maxLength={5}
+                    className="w-full bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 tracking-widest"
+                  />
+                )}
+
                 <div>
                   <label className="text-xs text-gray-400 block mb-2">Radius</label>
                   <div className="flex gap-2">
@@ -3297,11 +3418,11 @@ Only respond with the JSON array, no other text.` }
                 </div>
 
                 <button
-                  onClick={handleSearchResidential}
+                  onClick={residentialSearchMode === 'zip' ? handleSearchResidentialByZip : handleSearchResidential}
                   disabled={residentialLoading}
                   className="w-full bg-cyan text-dark font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50"
                 >
-                  {residentialLoading ? 'Searching...' : 'Find Residential Leads'}
+                  {residentialLoading ? 'Searching...' : residentialSearchMode === 'zip' ? `Search ZIP ${residentialZip || '—'}` : 'Find Residential Leads'}
                 </button>
 
                 {residentialResults.length > 0 && (
@@ -3686,10 +3807,40 @@ Only respond with the JSON array, no other text.` }
               />
               <button
                 onClick={() => handleStormLocationSearch(stormLocation)}
-                className="w-full mt-2 bg-cyan text-dark text-xs font-medium py-1.5 rounded-lg hover:bg-cyan/90 transition-all"
+                disabled={stormLoading}
+                className="w-full mt-2 bg-cyan text-dark text-xs font-medium py-1.5 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50"
               >
-                Search
+                {stormLoading ? 'Loading...' : 'Search'}
               </button>
+            </div>
+
+            {/* Pin Drop */}
+            <div className="glass p-4 rounded-xl">
+              <div className="flex items-center gap-2 mb-1.5">
+                <MapPin className="w-4 h-4 text-amber" />
+                <span className="text-sm font-semibold">Drop a Pin</span>
+              </div>
+              <p className="text-xs text-gray-400 mb-3">Click anywhere on the map to place a storm analysis pin.</p>
+              {stormPinLat && stormPinLng ? (
+                <>
+                  <p className="text-xs text-cyan mb-2">📍 {stormPinLat.toFixed(4)}, {stormPinLng.toFixed(4)}</p>
+                  <button
+                    onClick={handleStormSearchPin}
+                    disabled={stormLoading}
+                    className="w-full bg-amber/20 hover:bg-amber/30 text-amber border border-amber/30 text-xs font-medium py-1.5 rounded-lg transition-all disabled:opacity-50"
+                  >
+                    {stormLoading ? 'Loading storm data...' : '⚡ Search This Area'}
+                  </button>
+                  <button
+                    onClick={() => { setStormPinLat(null); setStormPinLng(null) }}
+                    className="w-full mt-1.5 text-xs text-gray-500 hover:text-gray-300 py-1 transition-colors"
+                  >
+                    Clear pin
+                  </button>
+                </>
+              ) : (
+                <p className="text-xs text-cyan/40 italic">No pin placed — click the map</p>
+              )}
             </div>
 
             {/* Live Doppler Radar Toggle + Product Selector */}
