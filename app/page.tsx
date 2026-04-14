@@ -6479,21 +6479,44 @@ Only respond with the JSON array, no other text.` }
                           onChange={async (e) => {
                             const file = e.target.files?.[0]
                             if (!file) return
+                            const photoId = Math.random().toString(36).substr(2, 9)
+                            // Optimistically add a placeholder while uploading
                             const reader = new FileReader()
                             reader.onload = async (ev) => {
-                              const dataUrl = ev.target?.result as string
+                              const localUrl = ev.target?.result as string
                               const newPhoto: JobPhoto = {
-                                id: Math.random().toString(36).substr(2, 9),
+                                id: photoId,
                                 job_id: selectedJob.id,
                                 category: photoCategory,
-                                data_url: dataUrl,
+                                data_url: localUrl,
                                 caption: '',
                                 taken_at: new Date().toISOString()
                               }
-                              const updated = { ...selectedJob, photos: [...selectedJob.photos, newPhoto] }
-                              setSelectedJob(updated)
-                              setJobs(jobs.map(j => j.id === updated.id ? updated : j))
-                              await saveJob(updated)
+                              const optimistic = { ...selectedJob, photos: [...selectedJob.photos, newPhoto] }
+                              setSelectedJob(optimistic)
+                              setJobs(jobs.map(j => j.id === optimistic.id ? optimistic : j))
+
+                              // Upload to Supabase Storage
+                              try {
+                                const fd = new FormData()
+                                fd.append('file', file)
+                                fd.append('job_id', selectedJob.id)
+                                fd.append('photo_id', photoId)
+                                const res = await authFetch('/api/jobs/photos', { method: 'POST', body: fd })
+                                if (res.ok) {
+                                  const { url, path } = await res.json() as { url: string; path: string }
+                                  // Replace local base64 with remote URL
+                                  const withUrl = { ...newPhoto, data_url: url, caption: path }
+                                  const uploaded = { ...selectedJob, photos: [...selectedJob.photos, withUrl] }
+                                  setSelectedJob(uploaded)
+                                  setJobs(jobs.map(j => j.id === uploaded.id ? uploaded : j))
+                                  await saveJob(uploaded)
+                                  return
+                                }
+                              } catch { /* fall through to local save */ }
+
+                              // Fallback: save with local base64 (offline mode)
+                              await saveJob(optimistic)
                             }
                             reader.readAsDataURL(file)
                             e.target.value = ''
@@ -6518,6 +6541,14 @@ Only respond with the JSON array, no other text.` }
                             </div>
                             <button
                               onClick={async () => {
+                                // Remove from Storage if we have a path (stored in caption field)
+                                if (photo.caption && photo.caption.includes('/') && !photo.data_url.startsWith('data:')) {
+                                  authFetch('/api/jobs/photos', {
+                                    method: 'DELETE',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ path: photo.caption }),
+                                  }).catch(() => { /* silent */ })
+                                }
                                 const updated = { ...selectedJob, photos: selectedJob.photos.filter(p => p.id !== photo.id) }
                                 setSelectedJob(updated)
                                 setJobs(jobs.map(j => j.id === updated.id ? updated : j))
