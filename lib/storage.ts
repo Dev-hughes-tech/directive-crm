@@ -2,6 +2,29 @@ import { supabase } from './supabase'
 import type { Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job } from './types'
 import type { UserRole } from './tiers'
 
+// ── AUTH / OWNERSHIP HELPERS ────────────────────────────────────────────────
+// Every row in the hardened schema (Migration 002) carries an owner_id that
+// RLS policies check against auth.uid(). Client-side writes need to attach
+// the current user's id before hitting Postgres or the insert will be rejected.
+
+async function getOwnerId(): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getUser()
+    return data.user?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+// Attach owner_id + updated_at if missing. Returns the payload unchanged when
+// no user is signed in so that local-only tests don't throw; RLS will still
+// reject the write at the DB layer in that case.
+async function withOwner<T extends Record<string, unknown>>(row: T): Promise<T & { owner_id?: string }> {
+  const ownerId = await getOwnerId()
+  if (!ownerId) return row
+  return { owner_id: ownerId, ...row }
+}
+
 // ── USER PROFILE / ROLE ──────────────────────────────────────────────────────
 
 export interface UserProfile {
@@ -49,7 +72,8 @@ export async function getProperties(): Promise<Property[]> {
 
 export async function saveProperty(property: Property): Promise<void> {
   try {
-    await supabase.from('properties').upsert(property)
+    const payload = await withOwner(property as unknown as Record<string, unknown>)
+    await supabase.from('properties').upsert(payload)
   } catch {
     // Fail silently
   }
@@ -80,7 +104,8 @@ export async function getClients(): Promise<Client[]> {
 
 export async function saveClient(client: Client): Promise<void> {
   try {
-    await supabase.from('clients').upsert(client)
+    const payload = await withOwner(client as unknown as Record<string, unknown>)
+    await supabase.from('clients').upsert(payload)
   } catch {
     // Fail silently
   }
@@ -107,11 +132,16 @@ export async function getProposals(): Promise<Proposal[]> {
 export async function saveProposal(proposal: Proposal): Promise<void> {
   try {
     const { line_items, ...proposalData } = proposal
-    await supabase.from('proposals').upsert(proposalData)
+    const payload = await withOwner(proposalData as unknown as Record<string, unknown>)
+    await supabase.from('proposals').upsert(payload)
     if (line_items?.length) {
       await supabase.from('proposal_line_items').delete().eq('proposal_id', proposal.id)
       await supabase.from('proposal_line_items').insert(
-        line_items.map((item: ProposalLineItem) => ({ ...item, proposal_id: proposal.id }))
+        line_items.map((item: ProposalLineItem, idx: number) => ({
+          ...item,
+          proposal_id: proposal.id,
+          sort_order: idx,
+        }))
       )
     }
   } catch {
@@ -136,7 +166,8 @@ export async function getMaterials(): Promise<Material[]> {
 
 export async function saveMaterial(material: Material): Promise<void> {
   try {
-    await supabase.from('materials').upsert(material)
+    const payload = await withOwner(material as unknown as Record<string, unknown>)
+    await supabase.from('materials').upsert(payload)
   } catch {
     // Fail silently
   }
@@ -168,7 +199,11 @@ export async function getChatMessages(channel: string): Promise<ChatMessage[]> {
 
 export async function saveChatMessage(message: ChatMessage): Promise<void> {
   try {
-    await supabase.from('chat_messages').insert(message)
+    const ownerId = await getOwnerId()
+    const payload = ownerId
+      ? { ...message, owner_id: ownerId, sender_id: ownerId }
+      : message
+    await supabase.from('chat_messages').insert(payload)
   } catch {
     // Fail silently
   }
@@ -222,7 +257,8 @@ export async function saveJob(job: Job): Promise<void> {
   } catch { /* ignore */ }
 
   try {
-    await supabase.from('jobs').upsert(job)
+    const payload = await withOwner(job as unknown as Record<string, unknown>)
+    await supabase.from('jobs').upsert(payload)
   } catch { /* fail silently */ }
 }
 

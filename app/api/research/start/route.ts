@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
+import { requireUser } from '@/lib/apiAuth'
 
 export const maxDuration = 60
 
@@ -306,6 +307,12 @@ function parseEnformion(addressPlus: any, propertyV2: any): Record<string, any> 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   const t0 = Date.now()
+
+  // Require authenticated user so we can attach owner_id to the cache row.
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+  const ownerId = auth.user.id
+
   const { address } = await request.json()
   if (!address?.trim()) {
     return NextResponse.json({ error: 'Address required' }, { status: 400 })
@@ -545,9 +552,12 @@ sources: {"ownerName": "FastPeopleSearch"} etc.`
   if (supabase) {
     Promise.resolve(
       supabase.from('research_jobs').insert({
+        id: `research_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        owner_id: ownerId,
         address: formattedAddress,
         status: 'done',
         result: data,
+        finished_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
     ).catch(() => { /* table may not exist — non-critical */ })
