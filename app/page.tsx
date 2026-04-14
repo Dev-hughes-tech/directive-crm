@@ -565,8 +565,44 @@ function PropertyCard({ property }: PropertyCardProps) {
   )
 }
 
+const VALID_SCREENS: readonly Screen[] = [
+  'dashboard', 'territory', 'sweep', 'stormscope', 'michael',
+  'clients', 'proposals', 'materials', 'team', 'jobs', 'settings',
+] as const
+
+function readInitialScreen(): Screen {
+  if (typeof window === 'undefined') return 'dashboard'
+  const param = new URLSearchParams(window.location.search).get('screen')
+  return (VALID_SCREENS as readonly string[]).includes(param ?? '') ? (param as Screen) : 'dashboard'
+}
+
 export default function Dashboard() {
-  const [activeScreen, setActiveScreen] = useState<Screen>('dashboard')
+  const [activeScreen, setActiveScreen] = useState<Screen>(readInitialScreen)
+
+  // Sync activeScreen ↔ URL so refresh / back / forward / share-link work.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    const current = url.searchParams.get('screen')
+    if (activeScreen === 'dashboard') {
+      if (current !== null) {
+        url.searchParams.delete('screen')
+        window.history.replaceState({}, '', url.toString())
+      }
+    } else if (current !== activeScreen) {
+      url.searchParams.set('screen', activeScreen)
+      window.history.replaceState({}, '', url.toString())
+    }
+  }, [activeScreen])
+
+  // Respond to browser back/forward events by re-reading the URL.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = () => setActiveScreen(readInitialScreen())
+    window.addEventListener('popstate', handler)
+    return () => window.removeEventListener('popstate', handler)
+  }, [])
+
   const [weather, setWeather] = useState<WeatherCurrent | null>(null)
   const [alerts, setAlerts] = useState<WeatherAlert[]>([])
   const [forecast, setForecast] = useState<ForecastPeriod[]>([])
