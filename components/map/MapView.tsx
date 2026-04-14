@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api'
+import { authFetch } from '@/lib/authFetch'
 
 export interface MapMarker {
   id: string
@@ -237,7 +238,7 @@ function MapInner({
     if (photoTileSession) { setPhotoTileSession(null); return }
     setLoadingPhotoTiles(true)
     try {
-      const res = await fetch('/api/map-tiles-session', { method: 'POST' })
+      const res = await authFetch('/api/map-tiles-session', { method: 'POST' })
       const data = await res.json()
       if (data.session) setPhotoTileSession(data.session)
     } catch { /* silent */ } finally { setLoadingPhotoTiles(false) }
@@ -478,7 +479,7 @@ export default function MapView(props: MapViewProps) {
       return
     }
     // Fallback: fetch key from server at runtime
-    fetch('/api/maps-key')
+    authFetch('/api/maps-key')
       .then(r => r.json())
       .then(d => {
         if (d.key && d.key.length > 10) {

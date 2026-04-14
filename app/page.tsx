@@ -48,6 +48,7 @@ import {
   CheckCircle,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
@@ -793,7 +794,7 @@ export default function Dashboard() {
   // Fetch profile via server API (bypasses RLS)
   const fetchProfileServer = async (userId: string) => {
     try {
-      const res = await fetch(`/api/profile?userId=${userId}`)
+      const res = await authFetch(`/api/profile?userId=${userId}`)
       const data = await res.json()
       if (data.profile) {
         setUserProfile(data.profile)
@@ -879,11 +880,11 @@ export default function Dashboard() {
     const fetchWeather = async () => {
       try {
         const [weatherRes, alertsRes, forecastRes, hailRes, hwelRes] = await Promise.all([
-          fetch(`/api/weather/current?lat=${HQ_LAT}&lng=${HQ_LNG}`),
-          fetch(`/api/weather/alerts?lat=${HQ_LAT}&lng=${HQ_LNG}`),
-          fetch(`/api/weather/forecast?lat=${HQ_LAT}&lng=${HQ_LNG}`),
-          fetch(`/api/noaa/hail?lat=${HQ_LAT}&lng=${HQ_LNG}&days=3650`),
-          fetch(`/api/noaa/hwel?lat=${HQ_LAT}&lng=${HQ_LNG}&years=10`),
+          authFetch(`/api/weather/current?lat=${HQ_LAT}&lng=${HQ_LNG}`),
+          authFetch(`/api/weather/alerts?lat=${HQ_LAT}&lng=${HQ_LNG}`),
+          authFetch(`/api/weather/forecast?lat=${HQ_LAT}&lng=${HQ_LNG}`),
+          authFetch(`/api/noaa/hail?lat=${HQ_LAT}&lng=${HQ_LNG}&days=3650`),
+          authFetch(`/api/noaa/hwel?lat=${HQ_LAT}&lng=${HQ_LNG}&years=10`),
         ])
 
         if (weatherRes.ok) setWeather(await weatherRes.json())
@@ -976,7 +977,7 @@ export default function Dashboard() {
 
     // Fallback: Google Geolocation API (IP-based, less accurate)
     try {
-      const res = await fetch('/api/geolocate', { method: 'POST' })
+      const res = await authFetch('/api/geolocate', { method: 'POST' })
       const data = await res.json()
       if (data.lat && data.lng) return data
     } catch { /* fall through */ }
@@ -1002,7 +1003,7 @@ export default function Dashboard() {
 
     setCommercialLoading(true)
     try {
-      const res = await fetch('/api/places-search', {
+      const res = await authFetch('/api/places-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius: commercialRadius, type: 'commercial' })
@@ -1080,7 +1081,7 @@ export default function Dashboard() {
 
     setResidentialLoading(true)
     try {
-      const res = await fetch('/api/residential-search', {
+      const res = await authFetch('/api/residential-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius: residentialRadius })
@@ -1149,7 +1150,7 @@ export default function Dashboard() {
     setUserLocation(loc)
     setSweepLocationAccuracy(loc.accuracy || null)
 
-    const res = await fetch('/api/distance-matrix', {
+    const res = await authFetch('/api/distance-matrix', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1178,7 +1179,7 @@ export default function Dashboard() {
 
     try {
       // Phase 0: Validate & normalize address
-      const validateRes = await fetch('/api/validate-address', {
+      const validateRes = await authFetch('/api/validate-address', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: sweepAddress })
@@ -1187,7 +1188,7 @@ export default function Dashboard() {
       const addressToResearch = validation.canonical || sweepAddress
 
       // Phase 1: Geocode — get coordinates immediately so map can fly there
-      const geocodeRes = await fetch(`/api/geocode?q=${encodeURIComponent(addressToResearch)}`)
+      const geocodeRes = await authFetch(`/api/geocode?q=${encodeURIComponent(addressToResearch)}`)
       if (!geocodeRes.ok) throw new Error('Geocoding failed')
       const { lat, lng, display_name } = await geocodeRes.json()
 
@@ -1198,7 +1199,7 @@ export default function Dashboard() {
       setSweepPhase('researching')
 
       // Phase 2: Research — returns data directly (synchronous within 60s timeout)
-      const startRes = await fetch('/api/research/start', {
+      const startRes = await authFetch('/api/research/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: addressToResearch }),
@@ -1226,7 +1227,7 @@ export default function Dashboard() {
           const poll = async () => {
             attempts++
             try {
-              const statusRes = await fetch(`/api/research/status?jobId=${startJson.jobId}`)
+              const statusRes = await authFetch(`/api/research/status?jobId=${startJson.jobId}`)
               const status = await statusRes.json()
               if (status.status === 'done') {
                 data = status.data || {}
@@ -1302,7 +1303,7 @@ export default function Dashboard() {
 
       // Phase 5: Fetch roof measurements from Google Solar API
       try {
-        const roofRes = await fetch(`/api/roof-measure?lat=${lat}&lng=${lng}`)
+        const roofRes = await authFetch(`/api/roof-measure?lat=${lat}&lng=${lng}`)
         if (roofRes.ok) {
           const roofData = await roofRes.json()
           if (roofData.success && roofData.roof) {
@@ -1345,7 +1346,7 @@ export default function Dashboard() {
     // Auto-trigger residential sweep at dropped pin
     setResidentialLoading(true)
     try {
-      const res = await fetch('/api/residential-search', {
+      const res = await authFetch('/api/residential-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lat, lng, radius: 804 }) // 0.5mi = 804m
@@ -1373,7 +1374,7 @@ export default function Dashboard() {
   // Handle GeoJSON overlay toggle
   const handleGeoJsonToggle = async (type: 'territory' | 'heatzone') => {
     if (geoJsonMode === type) { setGeoJsonMode('off'); setMapGeoJson(null); return }
-    const res = await fetch('/api/datasets', {
+    const res = await authFetch('/api/datasets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1397,7 +1398,7 @@ export default function Dashboard() {
     if (!selectedClient) { setClientTimezone(null); return }
     const clientProp = properties.find(p => p.id === selectedClient.property_id)
     if (!clientProp?.lat || !clientProp?.lng) return
-    fetch(`/api/timezone?lat=${clientProp.lat}&lng=${clientProp.lng}`)
+    authFetch(`/api/timezone?lat=${clientProp.lat}&lng=${clientProp.lng}`)
       .then(r => r.json())
       .then(data => { if (!data.error) setClientTimezone(data) })
       .catch(() => {})
@@ -1406,7 +1407,7 @@ export default function Dashboard() {
   // Handle snap to roads
   const handleSnapToRoads = async () => {
     if (sweepPath.length < 2) return
-    const res = await fetch('/api/roads', {
+    const res = await authFetch('/api/roads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: sweepPath, mode: 'snapToRoads' })
@@ -1426,7 +1427,7 @@ export default function Dashboard() {
 
     try {
       const hotCount = properties.filter((p) => calculateLeadScore(p) >= 70).length
-      const response = await fetch('/api/michael', {
+      const response = await authFetch('/api/michael', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1465,7 +1466,7 @@ export default function Dashboard() {
     setStormLoading(true)
 
     try {
-      const geocodeRes = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`)
+      const geocodeRes = await authFetch(`/api/geocode?q=${encodeURIComponent(query)}`)
       if (!geocodeRes.ok) throw new Error('Geocoding failed')
       const { lat, lng } = await geocodeRes.json()
       setStormCenter({ lat, lng })
@@ -1474,11 +1475,11 @@ export default function Dashboard() {
 
       // Fetch ALL weather data + HWEL for the new location in parallel
       const [weatherRes, alertsRes, forecastRes, hailRes, hwelRes] = await Promise.all([
-        fetch(`/api/weather/current?lat=${lat}&lng=${lng}`),
-        fetch(`/api/weather/alerts?lat=${lat}&lng=${lng}`),
-        fetch(`/api/weather/forecast?lat=${lat}&lng=${lng}`),
-        fetch(`/api/noaa/hail?lat=${lat}&lng=${lng}&days=3650`),
-        fetch(`/api/noaa/hwel?lat=${lat}&lng=${lng}&years=10`),
+        authFetch(`/api/weather/current?lat=${lat}&lng=${lng}`),
+        authFetch(`/api/weather/alerts?lat=${lat}&lng=${lng}`),
+        authFetch(`/api/weather/forecast?lat=${lat}&lng=${lng}`),
+        authFetch(`/api/noaa/hail?lat=${lat}&lng=${lng}&days=3650`),
+        authFetch(`/api/noaa/hwel?lat=${lat}&lng=${lng}&years=10`),
       ])
 
       if (weatherRes.ok) setWeather(await weatherRes.json())
@@ -1511,11 +1512,11 @@ export default function Dashboard() {
     setStormLoading(true)
 
     try {
-      const geocodeRes = await fetch(`/api/geocode?q=${encodeURIComponent(stormAddress)}`)
+      const geocodeRes = await authFetch(`/api/geocode?q=${encodeURIComponent(stormAddress)}`)
       if (!geocodeRes.ok) throw new Error('Geocoding failed')
       const { lat, lng } = await geocodeRes.json()
 
-      const hailRes = await fetch(`/api/noaa/hail?lat=${lat}&lng=${lng}&days=3650`)
+      const hailRes = await authFetch(`/api/noaa/hail?lat=${lat}&lng=${lng}&days=3650`)
       if (!hailRes.ok) throw new Error('Hail data failed')
       const hailData = await hailRes.json()
 
@@ -1548,7 +1549,7 @@ export default function Dashboard() {
     setRouteLoading(true)
     try {
       const waypoints = filteredProperties.map(p => ({ lat: p.lat, lng: p.lng, address: p.address, id: p.id }))
-      const res = await fetch('/api/route-optimize', {
+      const res = await authFetch('/api/route-optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ waypoints, origin: { lat: waypoints[0].lat, lng: waypoints[0].lng }, avoidTolls })
@@ -1566,12 +1567,12 @@ export default function Dashboard() {
   const handleWeatherZipLookup = async () => {
     if (!weatherZip.trim()) return
     try {
-      const geoRes = await fetch(`/api/geocode?q=${encodeURIComponent(weatherZip)}`)
+      const geoRes = await authFetch(`/api/geocode?q=${encodeURIComponent(weatherZip)}`)
       if (!geoRes.ok) return
       const { lat, lng } = await geoRes.json()
       const [wRes, aRes] = await Promise.all([
-        fetch(`/api/weather/current?lat=${lat}&lng=${lng}`),
-        fetch(`/api/weather/alerts?lat=${lat}&lng=${lng}`),
+        authFetch(`/api/weather/current?lat=${lat}&lng=${lng}`),
+        authFetch(`/api/weather/alerts?lat=${lat}&lng=${lng}`),
       ])
       if (wRes.ok) setDashWeather(await wRes.json())
       if (aRes.ok) setDashAlerts(await aRes.json())
@@ -1584,7 +1585,7 @@ export default function Dashboard() {
   const runMichaelLeadEngine = async () => {
     setMichaelLeadsLoading(true)
     try {
-      const response = await fetch('/api/michael', {
+      const response = await authFetch('/api/michael', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1715,7 +1716,7 @@ Only respond with the JSON array, no other text.` }
           setMichaelLeadsLoading(true)
           setMichaelLeads([])
           setMichaelStormData(null)
-          fetch('/api/michael/leads', {
+          authFetch('/api/michael/leads', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ zip }),
@@ -3780,7 +3781,7 @@ Only respond with the JSON array, no other text.` }
                       setMichaelLeadsLoading(true)
                       setMichaelLeads([])
                       setMichaelStormData(null)
-                      fetch('/api/michael/leads', {
+                      authFetch('/api/michael/leads', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ zip: michaelZip.trim() }),
@@ -3806,7 +3807,7 @@ Only respond with the JSON array, no other text.` }
                     setMichaelLeadsLoading(true)
                     setMichaelLeads([])
                     setMichaelStormData(null)
-                    fetch('/api/michael/leads', {
+                    authFetch('/api/michael/leads', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ zip: michaelZip.trim() }),

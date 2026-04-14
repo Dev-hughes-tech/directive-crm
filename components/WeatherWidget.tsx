@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { Cloud, AlertTriangle, Wind, Droplets, Gauge } from 'lucide-react'
+import { authFetch } from '@/lib/authFetch'
 
 interface WeatherData {
   conditions: string | null
@@ -28,7 +29,7 @@ export default function WeatherWidget({ lat, lng, compact = false }: WeatherWidg
     if (!lat || !lng) return
     setLoading(true)
     setError(false)
-    fetch(`/api/google-weather?lat=${lat}&lng=${lng}`)
+    authFetch(`/api/google-weather?lat=${lat}&lng=${lng}`)
       .then(r => r.json())
       .then(data => {
         if (!data.error) setWeather(data)

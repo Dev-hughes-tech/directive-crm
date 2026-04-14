@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { authFetch } from '@/lib/authFetch'
 
 interface AerialViewProps {
   address: string
@@ -16,7 +17,7 @@ export default function AerialView({ address, className = '' }: AerialViewProps)
     setLoading(true)
     setUnavailable(false)
 
-    fetch(`/api/aerial-view?address=${encodeURIComponent(address)}`)
+    authFetch(`/api/aerial-view?address=${encodeURIComponent(address)}`)
       .then(r => r.json())
       .then(data => {
         if (data.videoUri) {
