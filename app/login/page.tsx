@@ -20,15 +20,30 @@ export default function LoginPage() {
   // If already signed in, bounce to the app.
   useEffect(() => {
     let cancelled = false
-    supabase.auth.getSession().then(({ data }) => {
-      if (cancelled) return
-      if (data.session?.user) {
-        router.replace('/')
-      } else {
-        setCheckingSession(false)
-      }
-    })
-    return () => { cancelled = true }
+    const timeout = setTimeout(() => {
+      // Safety net: if Supabase doesn't respond in 4s, show the login form
+      if (!cancelled) setCheckingSession(false)
+    }, 4000)
+
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        if (cancelled) return
+        clearTimeout(timeout)
+        if (data.session?.user) {
+          router.replace('/')
+        } else {
+          setCheckingSession(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCheckingSession(false)
+        clearTimeout(timeout)
+      })
+
+    return () => {
+      cancelled = true
+      clearTimeout(timeout)
+    }
   }, [router])
 
   const handleSignIn = async (e: React.FormEvent) => {
