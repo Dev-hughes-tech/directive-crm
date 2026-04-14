@@ -53,7 +53,7 @@ import { signOut } from '@/lib/authHooks'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
-import { getClients, saveClient, deleteClient, saveActivity, getProposals, saveProposal, deleteProposal, getMaterials, saveMaterial, deleteMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile } from '@/lib/storage'
+import { getClients, saveClient, deleteClient, saveActivity, getProposals, saveProposal, deleteProposal, getMaterials, saveMaterial, deleteMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile, getCompanySettings, saveCompanySettings } from '@/lib/storage'
 import type { UserProfile } from '@/lib/storage'
 import { canAccess, getTierConfig, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
@@ -897,16 +897,35 @@ export default function Dashboard() {
     return () => subscription.unsubscribe()
   }, [router])
 
-  // Load company settings from localStorage on mount
+  // Load company settings — Supabase first, localStorage fallback
   useEffect(() => {
-    const saved = localStorage.getItem('directive_company_settings')
-    if (saved) {
-      try {
-        setCompanySettings(JSON.parse(saved))
-      } catch (e) {
-        console.error('Failed to load company settings:', e)
+    const loadSettings = async () => {
+      // Try localStorage immediately (fast)
+      const saved = localStorage.getItem('directive_company_settings')
+      if (saved) {
+        try { setCompanySettings(JSON.parse(saved)) } catch { /* ignore */ }
+      }
+      // Then hydrate from Supabase (authoritative)
+      const remote = await getCompanySettings()
+      if (remote) {
+        const merged = {
+          company_name: remote.company_name || '',
+          company_phone: remote.company_phone || '',
+          license_number: remote.license_number || '',
+          home_city: (remote.notification_prefs?.home_city as string) || '',
+          service_radius: String(remote.service_radius_miles || 25),
+          tax_rate: String(Math.round((remote.tax_rate || 0) * 1000) / 10), // 0.085 → "8.5"
+          payment_terms: remote.default_payment_terms || '50_50',
+          warranty_period: String(remote.default_warranty_years || 2),
+          notify_storm: (remote.notification_prefs?.notify_storm as boolean) ?? true,
+          notify_leads: (remote.notification_prefs?.notify_leads as boolean) ?? true,
+          notify_status: (remote.notification_prefs?.notify_status as boolean) ?? true,
+        }
+        setCompanySettings(merged)
+        localStorage.setItem('directive_company_settings', JSON.stringify(merged))
       }
     }
+    loadSettings()
   }, [])
 
   // Helper: gate a feature — shows upgrade modal if locked
@@ -6645,12 +6664,31 @@ Only respond with the JSON array, no other text.` }
                     <p className="text-xs text-gray-400">{user?.email}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => signOut()}
-                  className="px-4 py-2 bg-red/20 text-red-400 rounded-lg text-sm hover:bg-red/30 transition-all"
-                >
-                  Sign Out
-                </button>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={async () => {
+                      if (!user?.email) return
+                      try {
+                        const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+                          redirectTo: `${window.location.origin}/login?reset=1`,
+                        })
+                        if (error) throw error
+                        addNotification('Password reset email sent — check your inbox', 'success')
+                      } catch {
+                        addNotification('Could not send reset email', 'warning')
+                      }
+                    }}
+                    className="px-4 py-2 bg-white/10 text-gray-300 rounded-lg text-sm hover:bg-white/20 transition-all"
+                  >
+                    Reset Password
+                  </button>
+                  <button
+                    onClick={() => signOut()}
+                    className="px-4 py-2 bg-red/20 text-red-400 rounded-lg text-sm hover:bg-red/30 transition-all"
+                  >
+                    Sign Out
+                  </button>
+                </div>
               </div>
             </section>
 
@@ -6798,14 +6836,33 @@ Only respond with the JSON array, no other text.` }
             {/* Save Button */}
             <section className="mb-8">
               <button
-                onClick={() => {
+                onClick={async () => {
+                  // Save to localStorage immediately
                   localStorage.setItem('directive_company_settings', JSON.stringify(companySettings))
+                  // Persist to Supabase
+                  await saveCompanySettings({
+                    company_name: companySettings.company_name,
+                    company_phone: companySettings.company_phone,
+                    company_email: '',
+                    license_number: companySettings.license_number,
+                    service_radius_miles: parseInt(companySettings.service_radius) || 25,
+                    tax_rate: parseFloat(companySettings.tax_rate) / 100 || 0,
+                    default_warranty_years: parseInt(companySettings.warranty_period) || 2,
+                    default_payment_terms: companySettings.payment_terms,
+                    notification_prefs: {
+                      home_city: companySettings.home_city,
+                      notify_storm: companySettings.notify_storm,
+                      notify_leads: companySettings.notify_leads,
+                      notify_status: companySettings.notify_status,
+                    },
+                  })
+                  await saveActivity({ entityType: 'settings', entityId: 'company', action: 'update' })
                   setSettingsSaved(true)
                   setTimeout(() => setSettingsSaved(false), 2000)
                 }}
                 className="px-6 py-3 bg-cyan/20 text-cyan rounded-lg text-sm font-semibold hover:bg-cyan/30 transition-all"
               >
-                {settingsSaved ? 'Saved!' : 'Save Settings'}
+                {settingsSaved ? '✓ Saved!' : 'Save Settings'}
               </button>
             </section>
           </div>

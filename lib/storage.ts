@@ -55,6 +55,46 @@ export async function upsertUserProfile(profile: Partial<UserProfile> & { id: st
   } catch { /* silent */ }
 }
 
+// ── COMPANY SETTINGS ─────────────────────────────────────────────────────────
+
+export interface CompanySettings {
+  company_name: string
+  company_phone: string
+  company_email: string
+  license_number: string
+  service_radius_miles: number
+  tax_rate: number        // stored as decimal 0–1 in DB (e.g. 0.085 = 8.5%)
+  default_warranty_years: number
+  default_payment_terms: string
+  notification_prefs: Record<string, unknown>
+}
+
+export async function getCompanySettings(): Promise<CompanySettings | null> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return null
+    const { data, error } = await supabase
+      .from('company_settings')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .maybeSingle()
+    if (error || !data) return null
+    return data as CompanySettings
+  } catch { return null }
+}
+
+export async function saveCompanySettings(settings: Partial<CompanySettings>): Promise<void> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return
+    await supabase.from('company_settings').upsert({
+      owner_id: ownerId,
+      ...settings,
+      updated_at: new Date().toISOString(),
+    })
+  } catch { /* fail silently */ }
+}
+
 // ── PROPERTIES ──────────────────────────────────────────────────────────────
 
 export async function getProperties(): Promise<Property[]> {
