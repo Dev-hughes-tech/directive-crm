@@ -111,6 +111,38 @@ export async function saveClient(client: Client): Promise<void> {
   }
 }
 
+export async function deleteClient(id: string): Promise<void> {
+  try {
+    await supabase.from('clients').delete().eq('id', id)
+  } catch {
+    // Fail silently
+  }
+}
+
+// ── ACTIVITY LOG ─────────────────────────────────────────────────────────────
+
+export async function saveActivity(params: {
+  entityType: 'property' | 'client' | 'proposal' | 'job' | 'claim' | 'settings'
+  entityId: string
+  action: 'create' | 'update' | 'delete' | 'status_change' | 'login' | 'ai_call' | string
+  metadata?: Record<string, unknown>
+}): Promise<void> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return
+    await supabase.from('activity_log').insert({
+      owner_id: ownerId,
+      actor_id: ownerId,
+      entity_type: params.entityType,
+      entity_id: params.entityId,
+      action: params.action,
+      metadata: params.metadata ?? {},
+    })
+  } catch {
+    // Fail silently — activity log is non-critical
+  }
+}
+
 // ── PROPOSALS ────────────────────────────────────────────────────────────────
 
 export async function getProposals(): Promise<Proposal[]> {

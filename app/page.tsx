@@ -53,7 +53,7 @@ import { signOut } from '@/lib/authHooks'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
-import { getClients, saveClient, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile } from '@/lib/storage'
+import { getClients, saveClient, deleteClient, saveActivity, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile } from '@/lib/storage'
 import type { UserProfile } from '@/lib/storage'
 import { canAccess, getTierConfig, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
@@ -148,6 +148,8 @@ function logClientActivity(clientId: string, action: string, activities: Record<
   if (!newActivities[clientId]) newActivities[clientId] = []
   newActivities[clientId] = [...newActivities[clientId], { action, timestamp }]
   localStorage.setItem('directive_client_activities', JSON.stringify(newActivities))
+  // Also persist to Supabase activity_log (fire-and-forget)
+  saveActivity({ entityType: 'client', entityId: clientId, action: 'update', metadata: { note: action } }).catch(() => {})
   return newActivities
 }
 
@@ -4515,8 +4517,9 @@ Only respond with the JSON array, no other text.` }
                             <select
                               value={selectedClient.status}
                               onChange={async (e) => {
-                                const newStatus = e.target.value as any
-                                const updated = { ...selectedClient, status: newStatus }
+                                const newStatus = e.target.value as Client['status']
+                                const now = new Date().toISOString()
+                                const updated: Client = { ...selectedClient, status: newStatus, last_contact: now }
                                 setSelectedClient(updated)
                                 const idx = clients.findIndex(c => c.id === selectedClient.id)
                                 const newClients = [...clients]
@@ -4542,7 +4545,11 @@ Only respond with the JSON array, no other text.` }
 
                           <div>
                             <p className="text-xs text-gray-400 uppercase tracking-wide">Last Contact</p>
-                            <p className="mt-1 text-sm text-white">{selectedClient.last_contact || '—'}</p>
+                            <p className="mt-1 text-sm text-white">
+                              {selectedClient.last_contact
+                                ? new Date(selectedClient.last_contact).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                : '—'}
+                            </p>
                           </div>
                         </div>
 
@@ -4578,7 +4585,52 @@ Only respond with the JSON array, no other text.` }
 
                       {/* Activity Log */}
                       <div className="mb-4">
-                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-3">Activity</p>
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Activity Log</p>
+                        {/* Quick log input */}
+                        <div className="flex gap-2 mb-3">
+                          <input
+                            type="text"
+                            id="client-activity-input"
+                            placeholder="Log a call, visit, or note..."
+                            className="flex-1 bg-dark-700 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                            onKeyDown={async (e) => {
+                              if (e.key !== 'Enter') return
+                              const input = e.currentTarget
+                              const note = input.value.trim()
+                              if (!note) return
+                              const now = new Date().toISOString()
+                              const updatedClient: Client = { ...selectedClient, last_contact: now }
+                              setSelectedClient(updatedClient)
+                              const idx = clients.findIndex(c => c.id === selectedClient.id)
+                              const newClients = [...clients]; newClients[idx] = updatedClient; setClients(newClients)
+                              await saveClient(updatedClient)
+                              const newActivities = logClientActivity(selectedClient.id, note, clientActivities)
+                              setClientActivities(newActivities)
+                              input.value = ''
+                              addNotification('Activity logged', 'success')
+                            }}
+                          />
+                          <button
+                            onClick={async () => {
+                              const input = document.getElementById('client-activity-input') as HTMLInputElement | null
+                              const note = input?.value.trim()
+                              if (!note) return
+                              const now = new Date().toISOString()
+                              const updatedClient: Client = { ...selectedClient, last_contact: now }
+                              setSelectedClient(updatedClient)
+                              const idx = clients.findIndex(c => c.id === selectedClient.id)
+                              const newClients = [...clients]; newClients[idx] = updatedClient; setClients(newClients)
+                              await saveClient(updatedClient)
+                              const newActivities = logClientActivity(selectedClient.id, note, clientActivities)
+                              setClientActivities(newActivities)
+                              if (input) input.value = ''
+                              addNotification('Activity logged', 'success')
+                            }}
+                            className="bg-cyan text-dark px-3 py-1.5 rounded text-xs font-medium hover:bg-cyan/90 transition-all"
+                          >
+                            Log
+                          </button>
+                        </div>
                         <div className="space-y-2 max-h-32 overflow-y-auto">
                           {clientActivities[selectedClient.id] && clientActivities[selectedClient.id].length > 0 ? (
                             [...(clientActivities[selectedClient.id] || [])].reverse().map((activity, idx) => {
@@ -4593,7 +4645,7 @@ Only respond with the JSON array, no other text.` }
                               )
                             })
                           ) : (
-                            <p className="text-xs text-gray-500">No activity yet</p>
+                            <p className="text-xs text-gray-500">No activity yet — log a call or visit above</p>
                           )}
                         </div>
                       </div>
@@ -4610,12 +4662,28 @@ Only respond with the JSON array, no other text.` }
                         </div>
                       )}
 
-                      <button
-                        onClick={() => setActiveScreen('proposals')}
-                        className="w-full bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90"
-                      >
-                        Generate Proposal
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setActiveScreen('proposals')}
+                          className="flex-1 bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90"
+                        >
+                          Generate Proposal
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm('Remove this client from your pipeline?')) return
+                            const id = selectedClient.id
+                            setClients(prev => prev.filter(c => c.id !== id))
+                            setSelectedClient(null)
+                            await deleteClient(id)
+                            addNotification('Client removed from pipeline', 'info')
+                          }}
+                          className="px-3 py-2 bg-red/10 text-red-400 border border-red/20 rounded-lg hover:bg-red/20 transition-all text-sm"
+                          title="Remove client"
+                        >
+                          🗑
+                        </button>
+                      </div>
                     </>
                   )
                 })()}
