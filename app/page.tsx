@@ -53,7 +53,7 @@ import { signOut } from '@/lib/authHooks'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
-import { getClients, saveClient, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile } from '@/lib/storage'
+import { getClients, saveClient, getProposals, saveProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile } from '@/lib/storage'
 import type { UserProfile } from '@/lib/storage'
 import { canAccess, getTierConfig, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
@@ -658,6 +658,8 @@ export default function Dashboard() {
   } | null>(null)
   const [mapGeoJson, setMapGeoJson] = useState<object | null>(null)
   const [geoJsonMode, setGeoJsonMode] = useState<'off' | 'heatzone' | 'territory'>('off')
+  const [geoJsonLoading, setGeoJsonLoading] = useState(false)
+  const [routeError, setRouteError] = useState<string | null>(null)
   const [clientTimezone, setClientTimezone] = useState<{
     localTime: string; timeZoneName: string; goodTimeToCall: boolean; callAdvice: string
   } | null>(null)
@@ -1419,23 +1421,30 @@ export default function Dashboard() {
   // Handle GeoJSON overlay toggle
   const handleGeoJsonToggle = async (type: 'territory' | 'heatzone') => {
     if (geoJsonMode === type) { setGeoJsonMode('off'); setMapGeoJson(null); return }
-    const res = await authFetch('/api/datasets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        properties: properties.map(p => ({
-          id: p.id,
-          lat: p.lat,
-          lng: p.lng,
-          score: calculateLeadScore(p),
-          roof_age_years: p.roof_age_years,
-          address: p.address
-        })),
-        type
+    setGeoJsonLoading(true)
+    try {
+      const res = await authFetch('/api/datasets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          properties: properties.map(p => ({
+            id: p.id,
+            lat: p.lat,
+            lng: p.lng,
+            score: calculateLeadScore(p),
+            roof_age_years: p.roof_age_years,
+            address: p.address
+          })),
+          type
+        })
       })
-    })
-    const data = await res.json()
-    if (data.geojson) { setMapGeoJson(data.geojson); setGeoJsonMode(type) }
+      const data = await res.json()
+      if (data.geojson) { setMapGeoJson(data.geojson); setGeoJsonMode(type) }
+    } catch {
+      /* silent — map just won't show overlay */
+    } finally {
+      setGeoJsonLoading(false)
+    }
   }
 
   // Fetch client timezone when selected
@@ -1584,28 +1593,39 @@ export default function Dashboard() {
 
   // Handle route optimization
   const handlePlanRoute = async () => {
-    const filteredProperties = properties.filter((p) => {
+    const routeProps = properties.filter((p) => {
       if (territoryFilter === 'hot') return calculateLeadScore(p) >= 70
-      if (territoryFilter === 'researched') return p.sources && Object.keys(p.sources).length > 0
+      if (territoryFilter === 'researched') return p.sources && typeof p.sources === 'object' && Object.keys(p.sources).length > 0
       return true
     })
 
-    if (filteredProperties.length < 2) return
+    if (routeProps.length < 2) return
     setRouteLoading(true)
+    setRouteError(null)
     try {
-      const waypoints = filteredProperties.map(p => ({ lat: p.lat, lng: p.lng, address: p.address, id: p.id }))
+      const waypoints = routeProps.map(p => ({ lat: p.lat, lng: p.lng, address: p.address, id: p.id }))
       const res = await authFetch('/api/route-optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ waypoints, origin: { lat: waypoints[0].lat, lng: waypoints[0].lng }, avoidTolls })
       })
       const data = await res.json()
-      if (data.orderedWaypoints) setRouteResult(data)
+      if (data.orderedWaypoints) {
+        setRouteResult(data)
+      } else {
+        setRouteError('Route optimization failed. Try again.')
+      }
     } catch {
-      /* silent */
+      setRouteError('Could not reach routing service. Check your connection.')
     } finally {
       setRouteLoading(false)
     }
+  }
+
+  const handleDeleteProperty = async (id: string) => {
+    setProperties(prev => prev.filter(p => p.id !== id))
+    setSelectedProperty(null)
+    await deleteProperty(id)
   }
 
   // Dashboard: Fetch weather by ZIP code
@@ -1694,7 +1714,7 @@ Only respond with the JSON array, no other text.` }
   // Filtered properties for territory
   const filteredProperties = properties.filter((p) => {
     if (territoryFilter === 'hot') return calculateLeadScore(p) >= 70
-    if (territoryFilter === 'researched') return p.sources && Object.keys(p.sources).length > 0
+    if (territoryFilter === 'researched') return p.sources && typeof p.sources === 'object' && Object.keys(p.sources).length > 0
     return true
   })
 
@@ -2807,23 +2827,25 @@ Only respond with the JSON array, no other text.` }
                 <div className="flex gap-2 mb-4">
                   <button
                     onClick={() => handleGeoJsonToggle('territory')}
-                    className={`flex-1 text-xs px-3 py-1.5 rounded border transition-colors ${
+                    disabled={geoJsonLoading}
+                    className={`flex-1 text-xs px-3 py-1.5 rounded border transition-colors disabled:opacity-50 ${
                       geoJsonMode === 'territory'
                         ? 'bg-cyan-500/30 text-cyan-400 border-cyan-500/40'
                         : 'bg-white/10 text-white/60 border-white/20 hover:bg-white/20'
                     }`}
                   >
-                    Territory Zone
+                    {geoJsonLoading && geoJsonMode !== 'territory' ? '...' : 'Territory Zone'}
                   </button>
                   <button
                     onClick={() => handleGeoJsonToggle('heatzone')}
-                    className={`flex-1 text-xs px-3 py-1.5 rounded border transition-colors ${
+                    disabled={geoJsonLoading}
+                    className={`flex-1 text-xs px-3 py-1.5 rounded border transition-colors disabled:opacity-50 ${
                       geoJsonMode === 'heatzone'
                         ? 'bg-amber-500/30 text-amber-400 border-amber-500/40'
                         : 'bg-white/10 text-white/60 border-white/20 hover:bg-white/20'
                     }`}
                   >
-                    Score Heatmap
+                    {geoJsonLoading && geoJsonMode !== 'heatzone' ? '...' : 'Score Heatmap'}
                   </button>
                 </div>
               )}
@@ -2884,6 +2906,13 @@ Only respond with the JSON array, no other text.` }
                 </div>
               )}
 
+              {/* Route Error */}
+              {routeError && (
+                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  <p className="text-xs text-red-300">{routeError}</p>
+                </div>
+              )}
+
               {/* ZIP Breakdown */}
               {properties.length > 0 && (
                 <div className="space-y-2">
@@ -2936,11 +2965,10 @@ Only respond with the JSON array, no other text.` }
                     return (
                       <div
                         key={prop.id}
-                        onClick={() => setSelectedProperty(prop)}
-                        className="bg-dark-700/50 rounded-lg p-3 cursor-pointer hover:bg-dark-700 transition-all"
+                        className="bg-dark-700/50 rounded-lg p-3 hover:bg-dark-700 transition-all"
                       >
                         <div className="flex items-center justify-between text-sm">
-                          <div className="flex-1 min-w-0">
+                          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setSelectedProperty(prop)}>
                             <p className="text-white truncate">{prop.address}</p>
                             <p className="text-xs text-gray-400">
                               {prop.roof_age_years || '—'}y
@@ -2955,7 +2983,13 @@ Only respond with the JSON array, no other text.` }
                             <span className={`text-xs font-bold px-2 py-1 rounded ${getScoreBadgeColor(score)}`}>
                               {score}
                             </span>
-                            <ChevronRight className="w-4 h-4 text-gray-500" />
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteProperty(prop.id) }}
+                              className="p-1 text-gray-600 hover:text-red-400 transition-colors"
+                              title="Remove from territory"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
                       </div>
