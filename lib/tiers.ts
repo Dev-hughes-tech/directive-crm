@@ -46,7 +46,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
   },
   enterprise_manager: {
     name: 'Enterprise',
-    price: 1299,
+    price: 1200,
     color: '#8b5cf6',
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: true,
@@ -72,7 +72,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
   },
   pro: {
     name: 'Pro',
-    price: 599,
+    price: 575,
     color: '#06b6d4',
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: true,
@@ -85,7 +85,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
   },
   plus: {
     name: 'Plus',
-    price: 399,
+    price: 325,
     color: '#22c55e',
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: true,
@@ -98,7 +98,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
   },
   basic: {
     name: 'Basic',
-    price: 199,
+    price: 175,
     color: '#94a3b8',
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: false,
@@ -138,7 +138,7 @@ export const TIER_DESCRIPTIONS = [
   {
     role: 'basic' as UserRole,
     name: 'Basic',
-    price: 199,
+    price: 175,
     color: '#94a3b8',
     tagline: 'Get started with roofing intelligence',
     perks: [
@@ -153,7 +153,7 @@ export const TIER_DESCRIPTIONS = [
   {
     role: 'plus' as UserRole,
     name: 'Plus',
-    price: 399,
+    price: 325,
     color: '#22c55e',
     tagline: 'AI-powered lead generation included',
     perks: [
@@ -169,7 +169,7 @@ export const TIER_DESCRIPTIONS = [
   {
     role: 'pro' as UserRole,
     name: 'Pro',
-    price: 599,
+    price: 575,
     color: '#06b6d4',
     tagline: 'Full platform — solo closer',
     perks: [
@@ -184,7 +184,7 @@ export const TIER_DESCRIPTIONS = [
   {
     role: 'enterprise_manager' as UserRole,
     name: 'Enterprise',
-    price: 1299,
+    price: 1200,
     color: '#8b5cf6',
     tagline: '4 sales reps + 1 manager account',
     perks: [
