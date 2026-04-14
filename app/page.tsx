@@ -49,6 +49,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
+import { signOut } from '@/lib/authHooks'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
@@ -820,19 +821,27 @@ export default function Dashboard() {
         await fetchProfileServer(session.user.id)
       } else {
         setUser(null)
+        // No session → redirect to /login instead of flashing the app shell.
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          router.replace('/login')
+        }
       }
       setAuthLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email })
         await fetchProfileServer(session.user.id)
       } else {
         setUser(null); setUserRole('trial')
+        // Sign-out or session expired anywhere in the app → land on /login.
+        if (event === 'SIGNED_OUT' && typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          router.replace('/login')
+        }
       }
     })
     return () => subscription.unsubscribe()
-  }, [])
+  }, [router])
 
   // Load company settings from localStorage on mount
   useEffect(() => {
@@ -1676,7 +1685,7 @@ Only respond with the JSON array, no other text.` }
       <MobileLayout
         user={user}
         userRole={userRole}
-        onSignOut={() => supabase.auth.signOut().then(() => router.push('/login'))}
+        onSignOut={() => signOut()}
         activeScreen={activeScreen}
         setActiveScreen={setActiveScreen}
         properties={properties}
@@ -1904,7 +1913,7 @@ Only respond with the JSON array, no other text.` }
               )}
             </div>
             <button
-              onClick={() => supabase.auth.signOut().then(() => router.push('/login'))}
+              onClick={() => signOut()}
               className="px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-dark-700/50 rounded transition-all"
             >
               Sign Out
@@ -6248,7 +6257,7 @@ Only respond with the JSON array, no other text.` }
                   </div>
                 </div>
                 <button
-                  onClick={() => supabase.auth.signOut().then(() => router.push('/login'))}
+                  onClick={() => signOut()}
                   className="px-4 py-2 bg-red/20 text-red-400 rounded-lg text-sm hover:bg-red/30 transition-all"
                 >
                   Sign Out

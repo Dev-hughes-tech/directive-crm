@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Image from 'next/image'
@@ -15,6 +15,21 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [checkingSession, setCheckingSession] = useState(true)
+
+  // If already signed in, bounce to the app.
+  useEffect(() => {
+    let cancelled = false
+    supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return
+      if (data.session?.user) {
+        router.replace('/')
+      } else {
+        setCheckingSession(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [router])
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -35,7 +50,7 @@ export default function LoginPage() {
       }
 
       if (data?.session) {
-        router.push('/')
+        router.replace('/')
       }
     } catch (err) {
       setError('An unexpected error occurred')
@@ -87,6 +102,14 @@ export default function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-cyan" />
+      </div>
+    )
   }
 
   return (
