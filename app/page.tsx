@@ -643,6 +643,7 @@ export default function Dashboard() {
   const [territoryFilter, setTerritoryFilter] = useState<'all' | 'hot' | 'researched'>('all')
   const [distanceResults, setDistanceResults] = useState<Map<string, { distanceMeters: number; distanceMiles: string; durationMinutes: number }>>(new Map())
   const [sortByDistance, setSortByDistance] = useState(false)
+  const [snapLoading, setSnapLoading] = useState(false)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null)
   const [showSatelliteSnapshot, setShowSatelliteSnapshot] = useState(false)
@@ -1034,31 +1035,30 @@ export default function Dashboard() {
 
   // Handle commercial building search
   const handleSearchCommercial = async () => {
-    if (!sweepUserLocation) {
-      // Get current location first
-      const loc = await getAccurateLocation()
-      if (!loc) {
-        console.error('Could not determine location')
+    let useLoc = sweepUserLocation
+    if (!useLoc) {
+      const fresh = await getAccurateLocation()
+      if (!fresh) {
+        addNotification('Could not get your location. Please allow location access and try again.', 'warning')
         return
       }
-      setSweepUserLocation(loc)
-      setSweepLocationAccuracy(loc.accuracy || null)
+      setSweepUserLocation({ lat: fresh.lat, lng: fresh.lng })
+      setSweepLocationAccuracy(fresh.accuracy || null)
+      useLoc = { lat: fresh.lat, lng: fresh.lng }
     }
-
-    const loc = sweepUserLocation || await getAccurateLocation()
-    if (!loc) return
 
     setCommercialLoading(true)
     try {
       const res = await authFetch('/api/places-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius: commercialRadius, type: 'commercial' })
+        body: JSON.stringify({ lat: useLoc.lat, lng: useLoc.lng, radius: commercialRadius, type: 'commercial' })
       })
       const data = await res.json()
       setCommercialResults(data.places || [])
-    } catch (error) {
-      console.error('Commercial search error:', error)
+      if (!data.places?.length) addNotification('No commercial leads found in this radius', 'info')
+    } catch {
+      addNotification('Commercial search failed. Try again.', 'warning')
       setCommercialResults([])
     } finally {
       setCommercialLoading(false)
@@ -1070,7 +1070,7 @@ export default function Dashboard() {
     if (!place.lat || !place.lng) return
 
     const newProperty: Property = {
-      id: `prop_${Date.now()}`,
+      id: `prop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       address: place.address || '',
       lat: place.lat,
       lng: place.lng,
@@ -1113,30 +1113,30 @@ export default function Dashboard() {
 
   // Handle residential property search
   const handleSearchResidential = async () => {
-    if (!sweepUserLocation) {
-      const loc = await getAccurateLocation()
-      if (!loc) {
-        console.error('Could not determine location')
+    let useLoc = sweepUserLocation
+    if (!useLoc) {
+      const fresh = await getAccurateLocation()
+      if (!fresh) {
+        addNotification('Could not get your location. Please allow location access and try again.', 'warning')
         return
       }
-      setSweepUserLocation(loc)
-      setSweepLocationAccuracy(loc.accuracy || null)
+      setSweepUserLocation({ lat: fresh.lat, lng: fresh.lng })
+      setSweepLocationAccuracy(fresh.accuracy || null)
+      useLoc = { lat: fresh.lat, lng: fresh.lng }
     }
-
-    const loc = sweepUserLocation || await getAccurateLocation()
-    if (!loc) return
 
     setResidentialLoading(true)
     try {
       const res = await authFetch('/api/residential-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius: residentialRadius })
+        body: JSON.stringify({ lat: useLoc.lat, lng: useLoc.lng, radius: residentialRadius })
       })
       const data = await res.json()
       setResidentialResults(data.places || [])
-    } catch (error) {
-      console.error('Residential search error:', error)
+      if (!data.places?.length) addNotification('No residential leads found in this radius', 'info')
+    } catch {
+      addNotification('Residential search failed. Try again.', 'warning')
       setResidentialResults([])
     } finally {
       setResidentialLoading(false)
@@ -1148,7 +1148,7 @@ export default function Dashboard() {
     if (!place.lat || !place.lng) return
 
     const newProperty: Property = {
-      id: `prop_${Date.now()}`,
+      id: `prop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       address: place.address || '',
       lat: place.lat,
       lng: place.lng,
@@ -1295,7 +1295,7 @@ export default function Dashboard() {
 
       // Phase 4: Build property from whatever research returned
       const newProperty: Property = {
-        id: `prop_${Date.now()}`,
+        id: `prop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         address: display_name || sweepAddress,
         lat,
         lng,
@@ -1410,6 +1410,16 @@ export default function Dashboard() {
   // Save sweep result
   const handleSaveSweep = async () => {
     if (!sweepResult) return
+    // Duplicate guard — check by address (case-insensitive)
+    const alreadyExists = properties.some(
+      p => p.address.toLowerCase() === sweepResult.address.toLowerCase()
+    )
+    if (alreadyExists) {
+      addNotification('Property already in your pipeline', 'info')
+      setSweepResult(null)
+      setSweepAddress('')
+      return
+    }
     const updated = [...properties, sweepResult]
     setProperties(updated)
     await saveProperty(sweepResult)
@@ -1461,13 +1471,25 @@ export default function Dashboard() {
   // Handle snap to roads
   const handleSnapToRoads = async () => {
     if (sweepPath.length < 2) return
-    const res = await authFetch('/api/roads', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: sweepPath, mode: 'snapToRoads' })
-    })
-    const data = await res.json()
-    if (data.snappedPoints) setSnappedPath(data.snappedPoints)
+    setSnapLoading(true)
+    try {
+      const res = await authFetch('/api/roads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: sweepPath, mode: 'snapToRoads' })
+      })
+      const data = await res.json()
+      if (data.snappedPoints) {
+        setSnappedPath(data.snappedPoints)
+        addNotification(`Path snapped to ${data.snappedPoints.length} road points`, 'success')
+      } else {
+        addNotification('Could not snap path to roads', 'warning')
+      }
+    } catch {
+      addNotification('Snap to roads failed. Try again.', 'warning')
+    } finally {
+      setSnapLoading(false)
+    }
   }
 
   // Handle Michael chat
@@ -3122,10 +3144,11 @@ Only respond with the JSON array, no other text.` }
                   {sweepPath.length >= 2 && (
                     <button
                       onClick={handleSnapToRoads}
-                      className="w-full mt-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-400 text-sm px-3 py-2 rounded-lg transition-all flex items-center justify-center gap-2"
+                      disabled={snapLoading}
+                      className="w-full mt-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-400 text-sm px-3 py-2 rounded-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                     >
-                      <span>🗺</span>
-                      Snap to Roads ({sweepPath.length})
+                      {snapLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🗺</span>}
+                      {snapLoading ? 'Snapping...' : `Snap to Roads (${sweepPath.length})`}
                     </button>
                   )}
                   {snappedPath.length > 0 && (
@@ -3321,7 +3344,15 @@ Only respond with the JSON array, no other text.` }
                     .map((prop) => {
                       const score = calculateLeadScore(prop)
                       return (
-                        <div key={prop.id} className="bg-dark-700/50 rounded-lg p-3 text-sm">
+                        <div
+                          key={prop.id}
+                          className="bg-dark-700/50 rounded-lg p-3 text-sm cursor-pointer hover:bg-dark-700 transition-all"
+                          onClick={() => {
+                            setMapCenter({ lat: prop.lat, lng: prop.lng })
+                            setMapZoom(18)
+                            setSelectedProperty(prop)
+                          }}
+                        >
                           <p className="text-white truncate">{prop.address}</p>
                           <div className="flex justify-between items-center mt-1">
                             <p className="text-xs text-gray-400">
