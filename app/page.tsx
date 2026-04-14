@@ -1960,7 +1960,7 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'dashboard' && (
         <>
           {/* Stats Bar */}
-          <div className="absolute left-4 right-4 top-24 z-30 glass rounded-lg px-6 py-4 flex gap-6 overflow-x-auto flex-nowrap">
+          <div className="absolute left-4 right-4 top-[184px] z-30 glass rounded-lg px-6 py-4 flex gap-6 overflow-x-auto flex-nowrap">
             {/* Properties Scanned */}
             <div className="text-center">
               <p className="text-3xl font-bold text-cyan">{properties.length}</p>
@@ -1997,7 +1997,7 @@ Only respond with the JSON array, no other text.` }
           </div>
 
           {/* Dashboard Tab Bar */}
-          <div className="absolute left-4 right-4 top-[188px] z-30 flex gap-2">
+          <div className="absolute left-4 right-4 top-[276px] z-30 flex gap-2">
             <button
               onClick={() => setDashboardTab('overview')}
               className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
@@ -2054,7 +2054,7 @@ Only respond with the JSON array, no other text.` }
           {dashboardTab === 'overview' && (
             <>
               {/* Left Panel */}
-              <div className="absolute left-4 top-[236px] bottom-16 w-80 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
+              <div className="absolute left-4 top-[324px] bottom-16 w-80 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
                 {/* Lead Pipeline Card */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -2183,12 +2183,12 @@ Only respond with the JSON array, no other text.` }
               </div>
 
               {/* Center Panel: PropertyGraph */}
-              <div className="absolute left-96 right-96 top-[236px] h-80 z-30">
+              <div className="absolute left-96 right-96 top-[324px] h-80 z-30">
                 <PropertyGraph properties={properties} center={mapCenter} />
               </div>
 
               {/* Right Panel */}
-              <div className="absolute right-4 top-[236px] bottom-16 w-72 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
+              <div className="absolute right-4 top-[324px] bottom-16 w-72 glass rounded-lg p-6 overflow-y-auto space-y-3 z-30">
                 {/* Search Toggle */}
                 <div className="flex gap-2 mb-4">
                   <button
@@ -2326,7 +2326,7 @@ Only respond with the JSON array, no other text.` }
 
           {/* STORM DAMAGE LEADS TAB */}
           {dashboardTab === 'storm-leads' && (
-            <div className="absolute left-4 right-4 top-[236px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+            <div className="absolute left-4 right-4 top-[324px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
               <h2 className="text-lg font-semibold text-cyan mb-4">Storm Damage Leads</h2>
               <div className="space-y-3">
                 {properties
@@ -2384,7 +2384,7 @@ Only respond with the JSON array, no other text.` }
 
           {/* MICHAEL AI LEADS TAB */}
           {dashboardTab === 'michael-leads' && (
-            <div className="absolute left-4 right-4 top-[236px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+            <div className="absolute left-4 right-4 top-[324px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-cyan">Michael's Daily Picks</h2>
                 <button
@@ -2439,7 +2439,7 @@ Only respond with the JSON array, no other text.` }
 
           {/* HISTORICAL WEATHER TAB */}
           {dashboardTab === 'historical' && (
-            <div className="absolute left-4 right-4 top-[236px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+            <div className="absolute left-4 right-4 top-[324px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
               <h2 className="text-lg font-semibold text-cyan mb-4">Historical Hail Events (Past Year)</h2>
 
               {hailEvents.length === 0 ? (
@@ -2487,7 +2487,7 @@ Only respond with the JSON array, no other text.` }
 
           {/* ANALYTICS TAB */}
           {dashboardTab === 'analytics' && (
-            <div className="absolute left-4 right-4 top-[236px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
+            <div className="absolute left-4 right-4 top-[324px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
               <h2 className="text-lg font-semibold text-cyan mb-6">Analytics & Reporting</h2>
 
               {/* Calculate metrics from existing data */}
@@ -2700,7 +2700,7 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'territory' && (
         <>
           {/* Left Panel */}
-          <div className="absolute left-4 top-20 bottom-4 w-80 overflow-y-auto space-y-3 z-30">
+          <div className="absolute left-4 top-[184px] bottom-4 w-80 overflow-y-auto space-y-3 z-30">
             {/* Territory Overview */}
             <div className="glass p-6 rounded-xl">
               <div className="flex items-center gap-2 mb-4">
@@ -2921,7 +2921,7 @@ Only respond with the JSON array, no other text.` }
 
           {/* Selected Property Detail */}
           {selectedProperty && (
-            <div className="absolute inset-4 top-20 z-30 flex items-center justify-center">
+            <div className="absolute inset-4 top-[184px] z-30 flex items-center justify-center">
               <div className="max-w-2xl w-full relative">
                 <button
                   onClick={() => setSelectedProperty(null)}
@@ -2977,7 +2977,7 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'sweep' && (
         <>
           {/* Left Panel */}
-          <div className="absolute left-4 top-20 bottom-4 w-96 overflow-y-auto space-y-3 z-30">
+          <div className="absolute left-4 top-[184px] bottom-4 w-96 overflow-y-auto space-y-3 z-30">
             {/* GPS Sweep Input */}
             <div className="glass p-6 rounded-xl">
               <div className="flex items-center gap-2 mb-4">
@@ -3265,7 +3265,7 @@ Only respond with the JSON array, no other text.` }
       {activeScreen === 'stormscope' && (
         <>
           {/* Left Panel */}
-          <div className="absolute left-4 top-20 bottom-4 w-80 overflow-y-auto space-y-3 z-30">
+          <div className="absolute left-4 top-[184px] bottom-4 w-80 overflow-y-auto space-y-3 z-30">
             {/* StormScope Animated Header */}
             <div className="relative mb-4 p-4 rounded-xl overflow-hidden" style={{
               background: 'linear-gradient(135deg, rgba(6,182,212,0.1) 0%, rgba(13,17,23,0.95) 50%, rgba(6,182,212,0.05) 100%)',
@@ -3558,7 +3558,7 @@ Only respond with the JSON array, no other text.` }
           </div>
 
           {/* Right Panel */}
-          <div className="absolute right-4 top-20 bottom-4 w-72 overflow-y-auto space-y-3 z-30">
+          <div className="absolute right-4 top-[184px] bottom-4 w-72 overflow-y-auto space-y-3 z-30">
             {/* Location Search */}
             <div className="glass p-4 rounded-xl">
               <div className="flex items-center gap-2 mb-2">
@@ -3748,7 +3748,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 5: MICHAEL AI */}
       {activeScreen === 'michael' && (
-        <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
+        <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
 
           {/* Left Panel — ZIP Lead Search */}
           <div className="w-full md:w-96 flex-shrink-0 glass rounded-xl p-6 flex flex-col gap-4 overflow-y-auto">
@@ -4064,7 +4064,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 6: CLIENTS */}
       {activeScreen === 'clients' && (
-        <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
+        <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
           {/* Left Panel: Client List */}
           <div className="w-full md:w-1/3 glass rounded-lg p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
@@ -4374,7 +4374,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 7: PROPOSALS */}
       {activeScreen === 'proposals' && (
-        <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
+        <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
           {/* Left Panel: Proposal List */}
           <div className="w-full md:w-1/3 glass rounded-lg p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
@@ -4744,7 +4744,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 8: MATERIALS */}
       {activeScreen === 'materials' && (
-        <div className="absolute inset-4 top-20 z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-120px)]">
+        <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
           {/* Roof Calculator */}
           {materialsTab === 'catalog' && (
             <>
@@ -5211,7 +5211,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 9: COMMUNICATIONS HUB */}
       {activeScreen === 'team' && (
-        <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)]">
+        <div className="absolute inset-4 top-[184px] z-30 flex flex-col h-[calc(100vh-224px)]">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -5506,7 +5506,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 10: JOBS */}
       {activeScreen === 'jobs' && (
-        <div className="absolute inset-4 top-20 z-30 flex flex-col h-[calc(100vh-120px)] gap-4">
+        <div className="absolute inset-4 top-[184px] z-30 flex flex-col h-[calc(100vh-224px)] gap-4">
 
           {/* Header row */}
           <div className="flex items-center justify-between">
@@ -6232,7 +6232,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN: SETTINGS */}
       {activeScreen === 'settings' && (
-        <div className="absolute inset-4 top-20 z-30 flex gap-4 h-[calc(100vh-120px)]">
+        <div className="absolute inset-4 top-[184px] z-30 flex gap-4 h-[calc(100vh-224px)]">
           <div className="w-full glass rounded-lg p-8 overflow-y-auto">
             <h2 className="text-2xl font-bold text-white mb-8">Settings</h2>
 
