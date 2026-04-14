@@ -53,7 +53,7 @@ import { signOut } from '@/lib/authHooks'
 import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
-import { getClients, saveClient, deleteClient, saveActivity, getProposals, saveProposal, deleteProposal, getMaterials, saveMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile } from '@/lib/storage'
+import { getClients, saveClient, deleteClient, saveActivity, getProposals, saveProposal, deleteProposal, getMaterials, saveMaterial, deleteMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile } from '@/lib/storage'
 import type { UserProfile } from '@/lib/storage'
 import { canAccess, getTierConfig, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
@@ -718,6 +718,11 @@ export default function Dashboard() {
   const [roofWidth, setRoofWidth] = useState('')
   const [roofLength, setRoofLength] = useState('')
   const [addingMaterial, setAddingMaterial] = useState(false)
+  const [newMatName, setNewMatName] = useState('')
+  const [newMatCategory, setNewMatCategory] = useState('')
+  const [newMatUnit, setNewMatUnit] = useState('')
+  const [newMatCost, setNewMatCost] = useState('')
+  const [newMatSupplier, setNewMatSupplier] = useState('')
   const [roofPitch, setRoofPitch] = useState<string>('6/12')
   const [wastePercent, setWastePercent] = useState<number>(10)
   const [dormerSqft, setDormerSqft] = useState<string>('')
@@ -5239,124 +5244,134 @@ Only respond with the JSON array, no other text.` }
                 {addingMaterial && (
                   <div className="mb-4 p-4 bg-dark-700/50 rounded-lg border border-white/10 space-y-3">
                     <h4 className="text-sm font-semibold text-white mb-3">New Material</h4>
-                <input
-                  id="mat-name"
-                  type="text"
-                  placeholder="Material name..."
-                  className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <select
-                    id="mat-category"
-                    className="bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
-                  >
-                    <option value="">Category</option>
-                    <option value="shingles">Shingles</option>
-                    <option value="underlayment">Underlayment</option>
-                    <option value="flashing">Flashing</option>
-                    <option value="ventilation">Ventilation</option>
-                    <option value="fasteners">Fasteners</option>
-                    <option value="sealant">Sealant</option>
-                    <option value="other">Other</option>
-                  </select>
-                  <select
-                    id="mat-unit"
-                    className="bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
-                  >
-                    <option value="">Unit</option>
-                    <option value="ea">Each</option>
-                    <option value="sq">Square</option>
-                    <option value="bundle">Bundle</option>
-                    <option value="roll">Roll</option>
-                    <option value="box">Box</option>
-                    <option value="lb">Pound</option>
-                  </select>
-                </div>
-                <input
-                  id="mat-cost"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="Unit cost..."
-                  className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
-                />
-                <input
-                  id="mat-supplier"
-                  type="text"
-                  placeholder="Supplier..."
-                  className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={async () => {
-                      const name = (document.getElementById('mat-name') as HTMLInputElement).value
-                      const category = (document.getElementById('mat-category') as HTMLSelectElement).value
-                      const unit = (document.getElementById('mat-unit') as HTMLSelectElement).value
-                      const cost = parseFloat((document.getElementById('mat-cost') as HTMLInputElement).value) || 0
-                      const supplier = (document.getElementById('mat-supplier') as HTMLInputElement).value
+                    <input
+                      type="text"
+                      value={newMatName}
+                      onChange={(e) => setNewMatName(e.target.value)}
+                      placeholder="Material name..."
+                      className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={newMatCategory}
+                        onChange={(e) => setNewMatCategory(e.target.value)}
+                        className="bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                      >
+                        <option value="">Category</option>
+                        <option value="shingles">Shingles</option>
+                        <option value="underlayment">Underlayment</option>
+                        <option value="flashing">Flashing</option>
+                        <option value="ventilation">Ventilation</option>
+                        <option value="fasteners">Fasteners</option>
+                        <option value="sealant">Sealant</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <select
+                        value={newMatUnit}
+                        onChange={(e) => setNewMatUnit(e.target.value)}
+                        className="bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                      >
+                        <option value="">Unit</option>
+                        <option value="ea">Each</option>
+                        <option value="sq">Square</option>
+                        <option value="bundle">Bundle</option>
+                        <option value="roll">Roll</option>
+                        <option value="box">Box</option>
+                        <option value="lb">Pound</option>
+                      </select>
+                    </div>
+                    <input
+                      type="number"
+                      value={newMatCost}
+                      onChange={(e) => setNewMatCost(e.target.value)}
+                      step="0.01" min="0"
+                      placeholder="Unit cost..."
+                      className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                    />
+                    <input
+                      type="text"
+                      value={newMatSupplier}
+                      onChange={(e) => setNewMatSupplier(e.target.value)}
+                      placeholder="Supplier..."
+                      className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          if (!newMatName.trim() || !newMatCategory || !newMatUnit) {
+                            addNotification('Name, category, and unit are required', 'info')
+                            return
+                          }
+                          const newMaterial: Material = {
+                            id: crypto.randomUUID(),
+                            name: newMatName.trim(),
+                            category: newMatCategory as Material['category'],
+                            unit: newMatUnit,
+                            unit_cost: parseFloat(newMatCost) || 0,
+                            supplier: newMatSupplier.trim(),
+                            supplier_phone: null,
+                            notes: '',
+                          }
+                          setMaterials(prev => [...prev, newMaterial])
+                          await saveMaterial(newMaterial)
+                          setAddingMaterial(false)
+                          setNewMatName(''); setNewMatCategory(''); setNewMatUnit(''); setNewMatCost(''); setNewMatSupplier('')
+                          addNotification(`${newMaterial.name} added to catalog`, 'success')
+                        }}
+                        className="flex-1 bg-cyan text-dark py-2 rounded font-medium hover:bg-cyan/90 text-sm"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => { setAddingMaterial(false); setNewMatName(''); setNewMatCategory(''); setNewMatUnit(''); setNewMatCost(''); setNewMatSupplier('') }}
+                        className="flex-1 bg-dark-700/50 text-gray-400 py-2 rounded font-medium hover:text-white text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-                      if (name && category && unit) {
-                        const newMaterial: Material = {
-                          id: crypto.randomUUID(),
-                          name,
-                          category: category as Material['category'],
-                          unit,
-                          unit_cost: cost,
-                          supplier,
-                          supplier_phone: null,
-                          notes: ''
-                        }
-                        const updated = [...materials, newMaterial]
-                        setMaterials(updated)
-                        await saveMaterial(newMaterial)
-                        setAddingMaterial(false)
-                        ;(document.getElementById('mat-name') as HTMLInputElement).value = ''
-                        ;(document.getElementById('mat-cost') as HTMLInputElement).value = ''
-                        ;(document.getElementById('mat-supplier') as HTMLInputElement).value = ''
-                      }
-                    }}
-                    className="flex-1 bg-cyan text-dark py-2 rounded font-medium hover:bg-cyan/90 text-sm"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={() => setAddingMaterial(false)}
-                    className="flex-1 bg-dark-700/50 text-gray-400 py-2 rounded font-medium hover:text-white text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {materials.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-gray-400">No materials added yet. Add your first material to build your catalog.</p>
-              </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left py-2 text-gray-400">Name</th>
-                    <th className="text-left py-2 text-gray-400">Category</th>
-                    <th className="text-left py-2 text-gray-400">Unit</th>
-                    <th className="text-right py-2 text-gray-400">Cost</th>
-                    <th className="text-left py-2 text-gray-400">Supplier</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {materials.map(mat => (
-                    <tr key={mat.id} className="hover:bg-dark-700/50">
-                      <td className="py-3 text-white">{mat.name}</td>
-                      <td className="py-3 text-gray-400 text-xs">{mat.category}</td>
-                      <td className="py-3 text-gray-400">{mat.unit}</td>
-                      <td className="py-3 text-right text-cyan font-semibold">${mat.unit_cost}</td>
-                      <td className="py-3 text-gray-400 text-sm">{mat.supplier}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                {materials.length === 0 ? (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-gray-400">No materials yet — add your first to build your catalog.</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-white/10">
+                        <th className="text-left py-2 text-gray-400">Name</th>
+                        <th className="text-left py-2 text-gray-400">Category</th>
+                        <th className="text-left py-2 text-gray-400">Unit</th>
+                        <th className="text-right py-2 text-gray-400">Cost</th>
+                        <th className="text-left py-2 text-gray-400">Supplier</th>
+                        <th className="w-6" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {materials.map(mat => (
+                        <tr key={mat.id} className="hover:bg-dark-700/50 group">
+                          <td className="py-3 text-white">{mat.name}</td>
+                          <td className="py-3 text-gray-400 text-xs capitalize">{mat.category}</td>
+                          <td className="py-3 text-gray-400">{mat.unit}</td>
+                          <td className="py-3 text-right text-cyan font-semibold">${mat.unit_cost.toFixed(2)}</td>
+                          <td className="py-3 text-gray-400 text-sm">{mat.supplier || '—'}</td>
+                          <td className="py-3">
+                            <button
+                              onClick={async () => {
+                                setMaterials(prev => prev.filter(m => m.id !== mat.id))
+                                await deleteMaterial(mat.id)
+                                addNotification(`${mat.name} removed`, 'info')
+                              }}
+                              className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all px-1"
+                              title="Delete material"
+                            >✕</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
             </div>
             </>
           )}
