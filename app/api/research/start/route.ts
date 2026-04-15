@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
-import { requireUser } from '@/lib/apiAuth'
+import { requireUser, requireTier } from '@/lib/apiAuth'
 
 export const maxDuration = 60
 
@@ -311,6 +311,8 @@ export async function POST(request: NextRequest) {
   // Require authenticated user so we can attach owner_id to the cache row.
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
+  const tierDenied = requireTier(auth, 'sweep')
+  if (tierDenied) return tierDenied
   const ownerId = auth.user.id
 
   const { address } = await request.json()

@@ -17,7 +17,6 @@ export interface TierConfig {
     proposals: boolean
     materials: boolean
     team: boolean
-    timeline: boolean
     settings: boolean
     // Limits
     maxProperties: number
@@ -39,7 +38,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: true,
       michael: true, jobs: true, clients: true, proposals: true,
-      materials: true, team: true, timeline: true, settings: true,
+      materials: true, team: true, settings: true,
       maxProperties: Infinity, maxProposals: Infinity, maxClients: Infinity,
       multiUser: true, exportPDF: true, smartEstimates: true,
       routeOptimize: true, apiAccess: true,
@@ -52,7 +51,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: true,
       michael: true, jobs: true, clients: true, proposals: true,
-      materials: true, team: true, timeline: true, settings: true,
+      materials: true, team: true, settings: true,
       maxProperties: Infinity, maxProposals: Infinity, maxClients: Infinity,
       multiUser: true, exportPDF: true, smartEstimates: true,
       routeOptimize: true, apiAccess: true,
@@ -65,7 +64,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: true,
       michael: true, jobs: true, clients: true, proposals: true,
-      materials: true, team: true, timeline: true, settings: false,
+      materials: true, team: true, settings: false,
       maxProperties: Infinity, maxProposals: Infinity, maxClients: Infinity,
       multiUser: false, exportPDF: true, smartEstimates: true,
       routeOptimize: true, apiAccess: false,
@@ -78,7 +77,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: true,
       michael: true, jobs: true, clients: true, proposals: true,
-      materials: true, team: true, timeline: true, settings: true,
+      materials: true, team: true, settings: true,
       maxProperties: 500, maxProposals: 200, maxClients: 200,
       multiUser: false, exportPDF: true, smartEstimates: true,
       routeOptimize: true, apiAccess: false,
@@ -91,7 +90,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: true,
       michael: true, jobs: true, clients: true, proposals: true,
-      materials: true, team: false, timeline: true, settings: true,
+      materials: true, team: false, settings: true,
       maxProperties: 200, maxProposals: 100, maxClients: 100,
       multiUser: false, exportPDF: true, smartEstimates: true,
       routeOptimize: false, apiAccess: false,
@@ -104,7 +103,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: false,
       michael: false, jobs: false, clients: true, proposals: true,
-      materials: true, team: false, timeline: false, settings: true,
+      materials: true, team: false, settings: true,
       maxProperties: 50, maxProposals: 25, maxClients: 50,
       multiUser: false, exportPDF: false, smartEstimates: false,
       routeOptimize: false, apiAccess: false,
@@ -117,7 +116,7 @@ export const TIER_CONFIGS: Record<UserRole, TierConfig> = {
     features: {
       dashboard: true, territory: true, sweep: true, stormscope: false,
       michael: false, jobs: false, clients: true, proposals: false,
-      materials: false, team: false, timeline: false, settings: true,
+      materials: false, team: false, settings: true,
       maxProperties: 10, maxProposals: 3, maxClients: 10,
       multiUser: false, exportPDF: false, smartEstimates: false,
       routeOptimize: false, apiAccess: false,

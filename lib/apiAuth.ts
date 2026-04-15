@@ -181,3 +181,39 @@ export async function canAccessOwner(
   }
   return false
 }
+
+/**
+ * Check that an authenticated user's plan tier grants access to a feature.
+ * Call after requireUser succeeds. Returns a 403 NextResponse if denied,
+ * or null if access is granted.
+ *
+ * Usage:
+ *   const auth = await requireUser(req)
+ *   if (!auth.ok) return auth.response
+ *   const tierDenied = requireTier(auth, 'stormscope')
+ *   if (tierDenied) return tierDenied
+ */
+export function requireTier(
+  ctx: AuthContext,
+  feature: string,
+): NextResponse | null {
+  if (ctx.isAdmin) return null
+  // Import canAccess inline to avoid circular deps
+  const TIER_FEATURES: Record<string, string[]> = {
+    admin:              ['dashboard','territory','sweep','stormscope','michael','jobs','clients','proposals','materials','team','settings'],
+    enterprise_manager: ['dashboard','territory','sweep','stormscope','michael','jobs','clients','proposals','materials','team','settings'],
+    enterprise_rep:     ['dashboard','territory','sweep','stormscope','michael','jobs','clients','proposals','materials','team'],
+    pro:                ['dashboard','territory','sweep','stormscope','michael','jobs','clients','proposals','materials','team','settings'],
+    plus:               ['dashboard','territory','sweep','stormscope','michael','jobs','clients','proposals','materials','settings'],
+    basic:              ['dashboard','territory','sweep','clients','proposals','materials','settings'],
+    trial:              ['dashboard','territory','sweep','clients','settings'],
+  }
+  const allowed = TIER_FEATURES[ctx.profile.role] ?? TIER_FEATURES.trial
+  if (!allowed.includes(feature)) {
+    return NextResponse.json(
+      { error: `Your plan does not include ${feature}. Upgrade at directivecrm.com.` },
+      { status: 403 },
+    )
+  }
+  return null
+}

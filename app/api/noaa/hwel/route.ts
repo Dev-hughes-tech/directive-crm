@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/apiAuth'
+import { requireUser, requireTier } from '@/lib/apiAuth'
 import { validateCoords } from '@/lib/validate'
 
 export const maxDuration = 45
@@ -11,6 +11,8 @@ const MESONET = 'https://mesonet.agron.iastate.edu/geojson/hail.php'
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
+  const tierDenied = requireTier(auth, 'stormscope')
+  if (tierDenied) return tierDenied
 
   const { searchParams } = new URL(request.url)
   const coords = validateCoords(searchParams.get('lat'), searchParams.get('lng'))

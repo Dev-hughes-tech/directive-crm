@@ -56,10 +56,10 @@ export async function POST(request: NextRequest) {
   if (type === 'territory') {
     // Coverage bounding region — axis-aligned bounding box padded by ~200m.
     // A true convex hull would require a geometry library; this is intentionally
-    // simpler and labeled honestly as a bounding region, not a hull.
+    // simpler and labeled honestly as a bounding region.
     if (properties.length < 3) return NextResponse.json({ geojson: null })
 
-    // Padded bounding box (not a convex hull)
+    // Padded bounding box
     const lats = properties.map(p => p.lat)
     const lngs = properties.map(p => p.lng)
     const minLat = Math.min(...lats) - 0.002

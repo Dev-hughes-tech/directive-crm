@@ -21,8 +21,20 @@ export async function POST(request: NextRequest) {
     'post_office', 'veterinary_care'
   ]
 
+  // Residential types — actual residential structure types from Places API (New)
+  const residentialTypes = [
+    'single_family_residence', 'housing_complex', 'apartment_complex',
+    'residential_area', 'neighborhood', 'real_estate_agent',
+  ]
+
+  const includedTypes = type === 'residential'
+    ? residentialTypes
+    : type === 'all'
+    ? [...commercialTypes, ...residentialTypes]
+    : commercialTypes
+
   const body = {
-    includedTypes: type === 'commercial' ? commercialTypes : commercialTypes,
+    includedTypes,
     maxResultCount: 20,
     locationRestriction: {
       circle: {

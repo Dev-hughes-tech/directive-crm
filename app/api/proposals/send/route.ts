@@ -2,7 +2,7 @@
 // Uses Resend if RESEND_API_KEY is set, otherwise returns a mailto: URI
 // so the frontend can open the user's default email client with content pre-filled.
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/apiAuth'
+import { requireUser, requireTier } from '@/lib/apiAuth'
 import { log } from '@/lib/logger'
 
 interface SendProposalBody {
@@ -22,6 +22,8 @@ interface SendProposalBody {
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req)
   if (!auth.ok) return auth.response
+  const tierDenied = requireTier(auth, 'proposals')
+  if (tierDenied) return tierDenied
 
   let body: SendProposalBody
   try {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { requireUser } from '@/lib/apiAuth'
+import { requireUser, requireTier } from '@/lib/apiAuth'
 import { log } from '@/lib/logger'
 
 export const maxDuration = 60
@@ -23,6 +23,8 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lng: numb
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
+  const tierDenied = requireTier(auth, 'sweep')
+  if (tierDenied) return tierDenied
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (!anthropicKey) {
