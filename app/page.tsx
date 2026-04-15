@@ -3996,7 +3996,7 @@ Only respond with the JSON array, no other text.` }
 
       {/* SCREEN 5: DIMENSIONS */}
       {activeScreen === 'dimensions' && (
-        <div className="absolute inset-4 top-[184px] z-30 h-[calc(100vh-224px)] overflow-y-auto">
+        <div className="absolute inset-0 top-[160px] z-30 h-[calc(100vh-160px)] bg-[#0a0e14] overflow-hidden flex flex-col">
           <Dimensions
             onExportToProposal={(data) => {
               // Build proposal line items from materials

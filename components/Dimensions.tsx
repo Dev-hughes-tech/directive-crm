@@ -141,6 +141,7 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
   const [address, setAddress] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadingStep, setLoadingStep] = useState('')
+  const [loadingDot, setLoadingDot] = useState(0)
   const [result, setResult] = useState<DimensionsResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'blueprint' | 'roof' | 'building' | 'materials' | 'satellite'>(
@@ -165,6 +166,13 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
     fetchKey()
   }, [])
 
+  // Animated loading dots
+  useEffect(() => {
+    if (!loading) return
+    const t = setInterval(() => setLoadingDot(d => (d + 1) % 4), 400)
+    return () => clearInterval(t)
+  }, [loading])
+
   const handleMeasure = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!address.trim()) {
@@ -176,11 +184,20 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
     setError(null)
     setResult(null)
 
+    const steps = [
+      'Locating address...',
+      'Querying Solar API...',
+      'Fetching building footprint...',
+      'Computing measurements...',
+    ]
+    let stepIdx = 0
+    setLoadingStep(steps[0])
+    const stepTimer = setInterval(() => {
+      stepIdx = Math.min(stepIdx + 1, steps.length - 1)
+      setLoadingStep(steps[stepIdx])
+    }, 2200)
+
     try {
-      setLoadingStep('Locating address...')
-      setLoadingStep('Analyzing roof from satellite...')
-      setLoadingStep('Fetching building footprint...')
-      setLoadingStep('Computing measurements...')
 
       const res = await authFetch('/api/dimensions/measure', {
         method: 'POST',
@@ -199,6 +216,7 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
     } catch (err: any) {
       setError(err.message || 'An error occurred')
     } finally {
+      clearInterval(stepTimer)
       setLoading(false)
       setLoadingStep('')
     }
@@ -212,100 +230,173 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
 
   if (!result) {
     return (
-      <div className="flex flex-col items-center justify-center gap-6 p-8">
-        <div className="flex flex-col items-center gap-2">
-          <img
-            src="/dimensions-logo.svg"
-            alt="Dimensions by Directive"
-            className="h-28 w-auto object-contain"
-          />
-          <p className="text-xs text-gray-400">
-            Aerial roof &amp; building measurement — powered by Google Solar + OpenStreetMap
-          </p>
+      <div className="flex flex-col h-full bg-[#0a0e14]">
+        {/* Toolbar */}
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-white/10 bg-[#0d1117] flex-shrink-0">
+          <img src="/dimensions-logo.svg" alt="Dimensions by Directive" className="h-9 w-auto object-contain" />
+          <div className="flex-1" />
+          <span className="text-xs text-gray-500">Aerial Measurement Tool</span>
         </div>
 
-        <form onSubmit={handleMeasure} className="w-full max-w-md space-y-3">
-          <input
-            type="text"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="Enter property address..."
-            className="w-full glass border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 transition"
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-cyan-500 text-slate-950 px-6 py-3 rounded-lg font-bold hover:bg-cyan-400 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {loadingStep}
-              </>
-            ) : (
-              <>
-                <Ruler className="w-4 h-4" />
-                Measure Property
-              </>
-            )}
-          </button>
-        </form>
+        {/* Search bar row */}
+        <div className="flex items-center gap-3 px-5 py-3 bg-[#0d1117]/60 border-b border-white/5 flex-shrink-0">
+          <form onSubmit={handleMeasure} className="flex items-center gap-2 flex-1 max-w-2xl">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Enter property address to measure..."
+                className="w-full bg-[#161b22] border border-white/15 rounded-lg pl-4 pr-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/60 transition text-sm"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="bg-cyan-500 text-slate-950 px-5 py-2.5 rounded-lg font-bold hover:bg-cyan-400 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm whitespace-nowrap flex-shrink-0"
+            >
+              {loading ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /><span>{loadingStep}<span className="opacity-60">{'.'.repeat(loadingDot)}</span></span></>
+              ) : (
+                <><Ruler className="w-4 h-4" /> Measure Property</>
+              )}
+            </button>
+          </form>
+        </div>
 
-        {error && (
-          <div className="w-full max-w-md glass border border-red-500/50 rounded-lg p-4 flex gap-3 items-start">
-            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-            <p className="text-red-300 text-sm">{error}</p>
-          </div>
-        )}
+        {/* Main content area */}
+        <div className="flex-1 flex flex-col items-center justify-center gap-8 p-8">
+          {loading ? (
+            <div className="flex flex-col items-center gap-6">
+              {/* Animated scanner */}
+              <div className="relative w-40 h-40">
+                <div className="absolute inset-0 rounded-full border-2 border-cyan-500/20 animate-ping" style={{ animationDuration: '2s' }} />
+                <div className="absolute inset-4 rounded-full border-2 border-cyan-500/40 animate-ping" style={{ animationDuration: '2s', animationDelay: '0.3s' }} />
+                <div className="absolute inset-8 rounded-full border border-cyan-500/60" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <img src="/dimensions-logo.svg" alt="" className="h-20 w-auto object-contain opacity-80" />
+                </div>
+                {/* Scan line */}
+                <div className="absolute inset-0 overflow-hidden rounded-full">
+                  <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-bounce" style={{ marginTop: '50%', animationDuration: '1.5s' }} />
+                </div>
+              </div>
+              <div className="text-center">
+                <p className="text-cyan-400 font-medium text-sm">{loadingStep}<span className="opacity-60">{'.'.repeat(loadingDot)}</span></p>
+                <p className="text-gray-500 text-xs mt-1">Querying Google Solar · OpenStreetMap · USGS</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <img src="/dimensions-logo.svg" alt="Dimensions by Directive" className="h-36 w-auto object-contain" />
+              <div className="text-center max-w-md">
+                <p className="text-gray-300 text-sm">Enter a property address above to generate aerial roof measurements, 3D structural analysis, and full material estimates.</p>
+                <div className="grid grid-cols-3 gap-3 mt-6">
+                  {[
+                    { icon: '📐', label: 'Roof Squares', sub: 'Precise sq footage' },
+                    { icon: '🏗️', label: '3D Blueprint', sub: 'Interactive model' },
+                    { icon: '🛰️', label: 'Satellite View', sub: 'Google imagery' },
+                  ].map(f => (
+                    <div key={f.label} className="glass border border-white/10 rounded-xl p-4 text-center">
+                      <div className="text-2xl mb-2">{f.icon}</div>
+                      <p className="text-white text-xs font-semibold">{f.label}</p>
+                      <p className="text-gray-500 text-[10px] mt-0.5">{f.sub}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {error && (
+            <div className="w-full max-w-lg bg-red-950/40 border border-red-500/40 rounded-xl p-4 flex gap-3 items-start">
+              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-red-300 text-sm font-medium">Measurement Failed</p>
+                <p className="text-red-400/70 text-xs mt-1">{error}</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer bar */}
+        <div className="flex items-center justify-center gap-6 px-5 py-2 border-t border-white/5 bg-[#0d1117]/40 flex-shrink-0">
+          <span className="text-[10px] text-gray-600">Powered by Google Solar API</span>
+          <span className="text-[10px] text-gray-700">•</span>
+          <span className="text-[10px] text-gray-600">OpenStreetMap</span>
+          <span className="text-[10px] text-gray-700">•</span>
+          <span className="text-[10px] text-gray-600">USGS 3DEP Elevation</span>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-full p-4 gap-3">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <img
-            src="/dimensions-logo.svg"
-            alt="Dimensions by Directive"
-            className="h-10 w-auto object-contain flex-shrink-0"
+    <div className="flex flex-col h-full bg-[#0a0e14]">
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 px-5 py-2.5 border-b border-white/10 bg-[#0d1117] flex-shrink-0">
+        <img src="/dimensions-logo.svg" alt="Dimensions by Directive" className="h-9 w-auto object-contain flex-shrink-0" />
+        {/* New search inline */}
+        <form onSubmit={handleMeasure} className="flex items-center gap-2 flex-1 max-w-xl ml-2">
+          <input
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Search another address..."
+            className="flex-1 bg-[#161b22] border border-white/10 rounded-lg px-3 py-1.5 text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/50 transition text-xs"
           />
-          <p className="text-xs text-gray-400 truncate max-w-xs">{result.address}</p>
-        </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-cyan-500/90 text-slate-950 px-3 py-1.5 rounded-lg font-bold hover:bg-cyan-400 transition disabled:opacity-40 text-xs flex items-center gap-1.5"
+          >
+            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Ruler className="w-3 h-3" />}
+            {loading ? loadingStep : 'Measure'}
+          </button>
+        </form>
+        <div className="flex-1" />
+        {result.imageryQuality.startsWith('ESTIMATED') && (
+          <span className="text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded px-2 py-0.5">Estimated</span>
+        )}
         <button
           onClick={() => onExportToProposal?.(result)}
-          className="flex-shrink-0 bg-cyan-500 text-slate-950 px-4 py-2 rounded-lg font-bold hover:bg-cyan-400 transition text-sm flex items-center gap-2"
+          className="flex-shrink-0 bg-cyan-500 text-slate-950 px-3 py-1.5 rounded-lg font-bold hover:bg-cyan-400 transition text-xs flex items-center gap-1.5"
         >
-          <FileText className="w-4 h-4" />
+          <FileText className="w-3 h-3" />
           Export to Proposal
         </button>
       </div>
 
+      {/* Address bar */}
+      <div className="flex items-center gap-2 px-5 py-1.5 bg-[#0d1117]/50 border-b border-white/5 flex-shrink-0">
+        <span className="text-[10px] text-gray-500">📍</span>
+        <span className="text-xs text-gray-400 truncate">{result.address}</span>
+      </div>
+
       {/* Full-width tab bar */}
-      <div className="flex gap-1 border-b border-white/10 flex-shrink-0">
+      <div className="flex gap-0 border-b border-white/10 bg-[#0d1117]/30 flex-shrink-0">
         {(['overview', 'blueprint', 'roof', 'building', 'materials', 'satellite'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition capitalize ${
+            className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition capitalize tracking-wide ${
               activeTab === tab
-                ? 'border-cyan-500 text-cyan-500'
-                : 'border-transparent text-gray-400 hover:text-gray-300'
+                ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5'
+                : 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-white/5'
             }`}
           >
-            {tab}
+            {tab === 'blueprint' ? '3D Blueprint' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
 
       {/* Blueprint: full-height 3D viewer — no scroll wrapper */}
       {activeTab === 'blueprint' && result && (
-        <div className="flex flex-col flex-1 min-h-0 gap-3">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col flex-1 min-h-0 gap-2 p-3">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <LayoutGrid className="w-4 h-4 text-cyan-400" />
             <h3 className="text-sm font-bold text-white">3D Roof Model</h3>
-            <span className="ml-auto text-xs text-gray-500">Drag to rotate · Scroll to zoom</span>
+            <span className="ml-auto text-xs text-gray-500">Drag to rotate · Scroll to zoom · Right-click to pan</span>
           </div>
           <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-white/10">
             <Roof3DViewer
@@ -334,7 +425,7 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
 
       {/* Satellite tab */}
       {activeTab === 'satellite' && (
-        <div className="flex-1 flex flex-col gap-4 overflow-y-auto">
+        <div className="flex-1 flex flex-col gap-4 overflow-y-auto p-4">
           {mapsApiKey ? (
             <img
               src={`https://maps.googleapis.com/maps/api/staticmap?center=${result.lat},${result.lng}&zoom=19&size=900x600&maptype=satellite&key=${mapsApiKey}`}
@@ -356,7 +447,7 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
 
       {/* Scrollable content for all other tabs */}
       {activeTab !== 'blueprint' && activeTab !== 'satellite' && (
-        <div className="flex-1 overflow-y-auto space-y-4">
+        <div className="flex-1 overflow-y-auto space-y-4 p-4">
             {/* Overview */}
             {activeTab === 'overview' && (
               <div className="space-y-4">

@@ -207,43 +207,141 @@ export async function POST(request: NextRequest) {
       solarRes = await fetchWithTimeout(solarUrlMedium, {}, 8000)
     }
 
-    if (!solarRes.ok) {
-      return NextResponse.json(
-        { error: 'Solar API data unavailable for this location' },
-        { status: 404 }
-      )
+    // Steps 3+4: OSM footprint and USGS elevation (fetch in parallel, needed for fallback too)
+    let osmBuilding: any = null
+    let elevData: any = { value: 0 }
+    try {
+      const [osmResult, elevResult] = await Promise.allSettled([
+        (async () => {
+          const osmBody = `[out:json];way["building"](around:60,${lat},${lng});out+geom;`
+          const osmRes = await fetchWithTimeout('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            body: osmBody,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          }, 8000)
+          if (osmRes.ok) {
+            const osmData = await osmRes.json()
+            if (osmData.elements && osmData.elements.length > 0) {
+              const way = osmData.elements.find((e: any) => e.geometry && e.geometry.length > 0)
+              if (way) osmBuilding = way
+            }
+          }
+        })(),
+        (async () => {
+          const elevRes = await fetchWithTimeout(
+            `https://epqs.nationalmap.gov/v1/json?x=${lng}&y=${lat}&wkid=4326&includeDate=false`,
+            {},
+            8000
+          )
+          if (elevRes.ok) elevData = await elevRes.json()
+        })(),
+      ])
+      void osmResult; void elevResult
+    } catch (_) { /* non-fatal */ }
+
+    // Build synthetic Solar data from OSM when Solar API has no coverage
+    function polygonAreaSqM(pts: Array<{ lat: number; lng: number }>): number {
+      if (pts.length < 3) return 0
+      const R = 6371000
+      const lat0 = (pts[0].lat * Math.PI) / 180
+      const m = pts.map(p => ({
+        x: (p.lng * Math.PI / 180) * R * Math.cos(lat0),
+        y: (p.lat * Math.PI / 180) * R,
+      }))
+      let area = 0
+      for (let i = 0; i < m.length; i++) {
+        const j = (i + 1) % m.length
+        area += m[i].x * m[j].y - m[j].x * m[i].y
+      }
+      return Math.abs(area / 2)
     }
 
-    const solar: SolarResponse = await solarRes.json()
+    let solar: SolarResponse
+    let isEstimated = false
 
-    // Step 3: Get building footprint from OpenStreetMap
-    let osmBuilding: any = null
-    try {
-      const osmBody = `[out:json];way["building"](around:60,${lat},${lng});out+geom;`
-      const osmRes = await fetchWithTimeout('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: osmBody,
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        signal: AbortSignal.timeout(8000),
-      })
-      if (osmRes.ok) {
-        const osmData = await osmRes.json()
-        if (osmData.elements && osmData.elements.length > 0) {
-          const way = osmData.elements.find((e: any) => e.geometry && e.geometry.length > 0)
-          if (way) osmBuilding = way
+    if (solarRes.ok) {
+      solar = await solarRes.json()
+    } else {
+      // ── Estimation fallback ──────────────────────────────────────────
+      isEstimated = true
+      const DEFAULT_PITCH_DEG = 22.0 // ≈ 5:12 — typical residential
+      const pitchRad = (DEFAULT_PITCH_DEG * Math.PI) / 180
+
+      // Calculate footprint from OSM polygon, or estimate from geocode bounds
+      let footprintSqM = 150 // fallback default ~1,600 sqft
+      if (osmBuilding?.geometry?.length >= 3) {
+        const osmPts = osmBuilding.geometry.map((g: any) => ({ lat: g.lat, lng: g.lon }))
+        const osmArea = polygonAreaSqM(osmPts)
+        if (osmArea > 20) footprintSqM = osmArea
+      } else {
+        const bounds = geocodeData.results[0]?.geometry?.viewport
+        if (bounds) {
+          const latM = (bounds.northeast.lat - bounds.southwest.lat) * 111000
+          const lngM = (bounds.northeast.lng - bounds.southwest.lng) * 111000 * Math.cos((lat * Math.PI) / 180)
+          // Estimate building is ~25% of parcel, clamped to 80–600 sqm
+          footprintSqM = Math.min(Math.max((latM * lngM) * 0.25, 80), 600)
         }
       }
-    } catch (e) {
-      // OSM failure is non-fatal
-    }
 
-    // Step 4: Get elevation from USGS
-    const elevRes = await fetchWithTimeout(
-      `https://epqs.nationalmap.gov/v1/json?x=${lng}&y=${lat}&wkid=4326&includeDate=false`,
-      {},
-      8000
-    )
-    const elevData = elevRes.ok ? await elevRes.json() : { value: 0 }
+      const halfFP = footprintSqM / 2
+      const roofHalfArea = halfFP / Math.cos(pitchRad)
+
+      // Determine dominant axis from longest OSM wall
+      let dominantAzimuth = 180 // default South/North gable
+      if (osmBuilding?.geometry?.length >= 2) {
+        let maxDist = 0
+        const geom = osmBuilding.geometry
+        for (let i = 0; i < geom.length - 1; i++) {
+          const dLat = geom[i + 1].lat - geom[i].lat
+          const dLng = geom[i + 1].lon - geom[i].lon
+          const d = Math.sqrt(dLat ** 2 + dLng ** 2)
+          if (d > maxDist) {
+            maxDist = d
+            // Wall runs E-W → roof faces N/S; Wall runs N-S → roof faces E/W
+            dominantAzimuth = Math.abs(dLng) > Math.abs(dLat) ? 180 : 90
+          }
+        }
+      }
+
+      const today = new Date()
+      solar = {
+        name: `estimated/${lat},${lng}`,
+        center: { latitude: lat, longitude: lng },
+        regionCode: 'US',
+        solarPotential: {
+          wholeRoofStats: {
+            areaMeters2: roofHalfArea * 2,
+            groundAreaMeters2: footprintSqM,
+          },
+          roofSegmentStats: [
+            {
+              pitchDegrees: DEFAULT_PITCH_DEG,
+              azimuthDegrees: dominantAzimuth,
+              stats: { areaMeters2: roofHalfArea },
+              center: { latitude: lat, longitude: lng },
+              boundingBox: {
+                sw: { latitude: lat - 0.0001, longitude: lng - 0.0002 },
+                ne: { latitude: lat + 0.0001, longitude: lng + 0.0002 },
+              },
+              planeHeightAtCenterMeters: 4.5,
+            },
+            {
+              pitchDegrees: DEFAULT_PITCH_DEG,
+              azimuthDegrees: (dominantAzimuth + 180) % 360,
+              stats: { areaMeters2: roofHalfArea },
+              center: { latitude: lat, longitude: lng },
+              boundingBox: {
+                sw: { latitude: lat - 0.0001, longitude: lng - 0.0002 },
+                ne: { latitude: lat + 0.0001, longitude: lng + 0.0002 },
+              },
+              planeHeightAtCenterMeters: 4.5,
+            },
+          ],
+        },
+        imageryDate: { year: today.getFullYear(), month: today.getMonth() + 1, day: today.getDate() },
+        imageryQuality: 'ESTIMATED',
+      }
+    }
 
     // Step 5: Compute all measurements
     const SQM_TO_SQFT = 10.7639
@@ -492,7 +590,7 @@ export async function POST(request: NextRequest) {
       lat,
       lng,
       imageryDate: `${solar.imageryDate.year}-${String(solar.imageryDate.month).padStart(2, '0')}-${String(solar.imageryDate.day).padStart(2, '0')}`,
-      imageryQuality: solar.imageryQuality,
+      imageryQuality: isEstimated ? 'ESTIMATED — No Solar coverage; measurements derived from building footprint' : solar.imageryQuality,
       roof: {
         totalRoofSqFt: Math.round(totalRoofSqFt),
         footprintSqFt: Math.round(footprintSqFt),
