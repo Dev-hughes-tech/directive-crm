@@ -337,6 +337,8 @@ export default function Dashboard() {
     impactPoints: Array<{ lat: number; lng: number; size: number; date: string | null; type: string; severity: string }>;
     yearsAnalyzed: number;
   } | null>(null)
+  const [michaelWeather, setMichaelWeather] = useState<WeatherCurrent | null>(null)
+  const [michaelAlerts, setMichaelAlerts] = useState<WeatherAlert[]>([])
   const [stormImpactZones, setStormImpactZones] = useState<Array<{
     zip: string; city: string; riskLevel: string; hailCount: number; tornadoCount: number;
     lat: number; lng: number; addedAt: string;
@@ -1428,10 +1430,13 @@ export default function Dashboard() {
             leadCount: properties.length,
             hotLeadCount: hotCount,
             alertCount: alerts.length,
-            weatherSummary: weather ? `${weather.temperature_f}°F, ${weather.conditions}` : null,
+            weatherSummary: michaelWeather
+              ? `${michaelWeather.temperature_f}°F, ${michaelWeather.conditions}, wind ${michaelWeather.wind_speed_mph}mph ${michaelWeather.wind_direction}`
+              : weather ? `${weather.temperature_f}°F, ${weather.conditions}` : null,
             stormZip: michaelStormData?.zip ?? undefined,
             stormRisk: michaelStormData?.riskLevel ?? undefined,
             stormEvents: michaelStormData?.totalEvents ?? undefined,
+            activeAlerts: (michaelAlerts.length > 0 ? michaelAlerts : alerts).length,
           },
         }),
       })
@@ -1549,6 +1554,8 @@ export default function Dashboard() {
     setMichaelLeadsLoading(true)
     setMichaelLeads([])
     setMichaelStormData(null)
+    setMichaelWeather(null)
+    setMichaelAlerts([])
     try {
       const res = await authFetch('/api/michael/leads', {
         method: 'POST',
@@ -1558,7 +1565,16 @@ export default function Dashboard() {
       const data = await res.json()
       setMichaelLeads(data.leads || [])
       setMichaelStormData(data)
-      if (data.lat && data.lng) setMapCenter({ lat: data.lat, lng: data.lng })
+      if (data.lat && data.lng) {
+        setMapCenter({ lat: data.lat, lng: data.lng })
+        // Fetch live weather + alerts for the searched ZIP location
+        const [wxRes, wxAlertRes] = await Promise.all([
+          authFetch(`/api/weather/current?lat=${data.lat}&lng=${data.lng}`),
+          authFetch(`/api/weather/alerts?lat=${data.lat}&lng=${data.lng}`),
+        ])
+        if (wxRes.ok) { const wx = await wxRes.json(); setMichaelWeather(wx) }
+        if (wxAlertRes.ok) { const wxa = await wxAlertRes.json(); setMichaelAlerts(wxa || []) }
+      }
       if (data.leads?.length) {
         addNotification(`Michael found ${data.leads.length} leads for ZIP ${zip.trim()} — ${data.riskLevel} risk zone`, 'success')
       } else {
@@ -4359,6 +4375,52 @@ Only respond with the JSON array, no other text.` }
               </div>
               <p className="text-xs text-gray-500">Michael analyzes 10 years of NOAA storm data to find your best roofing leads</p>
             </div>
+
+            {/* Live Weather Card */}
+            {michaelWeather && (
+              <div className="rounded-lg p-3 bg-dark-700/60 border border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-400 uppercase tracking-wide">Live Weather — {michaelStormData?.city || michaelZip}</p>
+                  {michaelAlerts.length > 0 && (
+                    <span className="text-xs bg-red/20 text-red-400 border border-red/30 px-2 py-0.5 rounded-full">
+                      ⚠ {michaelAlerts.length} Alert{michaelAlerts.length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-white">{michaelWeather.temperature_f ?? '—'}°F</p>
+                    <p className="text-xs text-gray-400 truncate">{michaelWeather.conditions || '—'}</p>
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    {michaelWeather.wind_speed_mph != null && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Wind</span>
+                        <span className="text-white">{michaelWeather.wind_speed_mph} mph {michaelWeather.wind_direction || ''}</span>
+                      </div>
+                    )}
+                    {michaelWeather.humidity_pct != null && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Humidity</span>
+                        <span className="text-white">{michaelWeather.humidity_pct}%</span>
+                      </div>
+                    )}
+                    {michaelWeather.pressure_inhg != null && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Pressure</span>
+                        <span className="text-white">{michaelWeather.pressure_inhg}"</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {michaelAlerts.slice(0, 2).map((a, i) => (
+                  <div key={i} className="text-xs bg-red/10 border border-red/20 rounded px-2 py-1.5">
+                    <span className="text-red-400 font-semibold">{a.event}</span>
+                    <span className="text-gray-400 ml-1">— {a.headline?.slice(0, 80)}{(a.headline?.length ?? 0) > 80 ? '…' : ''}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Storm Summary Card */}
             {michaelStormData && (
