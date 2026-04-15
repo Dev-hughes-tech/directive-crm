@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" width="900" height="500">
+  <defs>
+    <!-- Text gradient: blue to green -->
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#1a6fff;stop-opacity:1" />
+      <stop offset="40%" style="stop-color:#00aaff;stop-opacity:1" />
+      <stop offset="70%" style="stop-color:#55dd55;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#aaff00;stop-opacity:1" />
+    </linearGradient>
+    <!-- Roof gradient: blue to green -->
+    <linearGradient id="roofGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a88ff;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#00cc44;stop-opacity:0.9" />
+    </linearGradient>
+    <!-- Reticle gradient -->
+    <linearGradient id="reticleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffaa00;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ff6600;stop-opacity:1" />
+    </linearGradient>
+    <!-- Satellite gradient -->
+    <linearGradient id="satGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffdd00;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#88ff00;stop-opacity:1" />
+    </linearGradient>
+    <!-- House gradient -->
+    <linearGradient id="houseGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3399ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1155aa;stop-opacity:1" />
+    </linearGradient>
+    <!-- Clip path for roof grid -->
+    <clipPath id="roofClip">
+      <polygon points="340,110 560,110 610,200 290,200" />
+    </clipPath>
+    <!-- Grid pattern -->
+    <pattern id="gridPattern" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
+    </pattern>
+    <!-- Drop shadow filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="textGlow" x="-10%" y="-30%" width="120%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="500" fill="#000000"/>
+
+  <!-- ===== HOUSE BODY ===== -->
+  <!-- House walls -->
+  <rect x="350" y="200" width="200" height="120" fill="url(#houseGrad)" rx="2"/>
+  <!-- Door -->
+  <rect x="420" y="255" width="45" height="65" fill="rgba(10,30,80,0.9)" rx="2"/>
+  <!-- Door knob -->
+  <circle cx="460" cy="290" r="3" fill="#88aaff"/>
+  <!-- Windows -->
+  <rect x="362" y="215" width="35" height="30" fill="rgba(10,30,80,0.8)" rx="2"/>
+  <rect x="502" y="215" width="35" height="30" fill="rgba(10,30,80,0.8)" rx="2"/>
+  <!-- Window dividers -->
+  <line x1="379" y1="215" x2="379" y2="245" stroke="#88aaff" stroke-width="1"/>
+  <line x1="362" y1="230" x2="397" y2="230" stroke="#88aaff" stroke-width="1"/>
+  <line x1="519" y1="215" x2="519" y2="245" stroke="#88aaff" stroke-width="1"/>
+  <line x1="502" y1="230" x2="537" y2="230" stroke="#88aaff" stroke-width="1"/>
+
+  <!-- ===== ROOF ===== -->
+  <!-- Roof base shape (isometric/3D style) -->
+  <!-- Main roof face -->
+  <polygon points="320,205 450,110 580,205" fill="url(#roofGrad)" opacity="0.95"/>
+  <!-- Right roof overhang (3D depth) -->
+  <polygon points="580,205 620,220 490,125 450,110" fill="#007733" opacity="0.8"/>
+  <!-- Left roof underside -->
+  <polygon points="320,205 310,220 440,125 450,110" fill="#003388" opacity="0.7"/>
+
+  <!-- Blueprint grid on main roof face -->
+  <polygon points="320,205 450,110 580,205" fill="url(#gridPattern)" opacity="0.6"/>
+  <!-- Grid lines on right face -->
+  <polygon points="580,205 620,220 490,125 450,110" fill="url(#gridPattern)" opacity="0.4"/>
+
+  <!-- Roof outline glow -->
+  <polygon points="320,205 450,110 580,205" fill="none" stroke="rgba(100,200,255,0.8)" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="580,205 620,220 490,125 450,110" fill="none" stroke="rgba(100,255,150,0.6)" stroke-width="1"/>
+
+  <!-- Roof ridge line -->
+  <line x1="450" y1="110" x2="490" y2="125" stroke="white" stroke-width="2" opacity="0.9"/>
+  <!-- Roof hip/valley lines on blueprint -->
+  <line x1="450" y1="110" x2="400" y2="160" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+  <line x1="450" y1="110" x2="500" y2="160" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+  <line x1="400" y1="160" x2="400" y2="205" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>
+  <line x1="500" y1="160" x2="500" y2="205" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>
+  <!-- More blueprint grid lines -->
+  <line x1="360" y1="178" x2="540" y2="178" stroke="rgba(255,255,255,0.35)" stroke-width="0.8"/>
+
+  <!-- Floor shadow -->
+  <ellipse cx="465" cy="330" rx="180" ry="12" fill="rgba(0,80,200,0.2)"/>
+
+  <!-- ===== TARGETING RETICLE (left side) ===== -->
+  <!-- Outer circle -->
+  <circle cx="285" cy="185" r="52" fill="none" stroke="url(#reticleGrad)" stroke-width="3" filter="url(#glow)"/>
+  <!-- Inner circle -->
+  <circle cx="285" cy="185" r="32" fill="none" stroke="url(#reticleGrad)" stroke-width="2"/>
+  <!-- Center dot (blue) -->
+  <circle cx="285" cy="185" r="8" fill="#0088ff"/>
+  <circle cx="285" cy="185" r="4" fill="#44aaff"/>
+  <!-- Crosshair lines -->
+  <line x1="285" y1="125" x2="285" y2="153" stroke="url(#reticleGrad)" stroke-width="2.5"/>
+  <line x1="285" y1="217" x2="285" y2="245" stroke="url(#reticleGrad)" stroke-width="2.5"/>
+  <line x1="225" y1="185" x2="253" y2="185" stroke="url(#reticleGrad)" stroke-width="2.5"/>
+  <line x1="317" y1="185" x2="345" y2="185" stroke="url(#reticleGrad)" stroke-width="2.5"/>
+  <!-- Reticle tick marks -->
+  <line x1="285" y1="133" x2="285" y2="138" stroke="url(#reticleGrad)" stroke-width="2"/>
+  <line x1="285" y1="232" x2="285" y2="237" stroke="url(#reticleGrad)" stroke-width="2"/>
+  <!-- Corner arcs -->
+  <path d="M 250 152 A 38 38 0 0 1 270 143" fill="none" stroke="url(#reticleGrad)" stroke-width="2"/>
+  <path d="M 300 143 A 38 38 0 0 1 320 152" fill="none" stroke="url(#reticleGrad)" stroke-width="2"/>
+  <path d="M 250 218 A 38 38 0 0 0 270 227" fill="none" stroke="url(#reticleGrad)" stroke-width="2"/>
+  <path d="M 300 227 A 38 38 0 0 0 320 218" fill="none" stroke="url(#reticleGrad)" stroke-width="2"/>
+
+  <!-- ===== SATELLITE DISH (right side) ===== -->
+  <!-- Dish bowl -->
+  <ellipse cx="635" cy="195" rx="38" ry="22" fill="url(#satGrad)" opacity="0.9" transform="rotate(-20, 635, 195)"/>
+  <ellipse cx="635" cy="195" rx="38" ry="22" fill="none" stroke="url(#satGrad)" stroke-width="2" transform="rotate(-20, 635, 195)"/>
+  <!-- Dish inner -->
+  <ellipse cx="635" cy="195" rx="25" ry="14" fill="rgba(0,0,0,0.4)" transform="rotate(-20, 635, 195)"/>
+  <!-- Dish arm/mount -->
+  <line x1="635" y1="215" x2="635" y2="240" stroke="url(#satGrad)" stroke-width="3"/>
+  <line x1="620" y1="240" x2="650" y2="240" stroke="url(#satGrad)" stroke-width="3"/>
+  <!-- Signal waves -->
+  <path d="M 665 155 Q 685 165 680 185" fill="none" stroke="#88ff00" stroke-width="2.5" opacity="0.9"/>
+  <path d="M 675 145 Q 705 160 698 188" fill="none" stroke="#88ff00" stroke-width="2" opacity="0.7"/>
+  <path d="M 685 135 Q 725 155 716 191" fill="none" stroke="#88ff00" stroke-width="1.5" opacity="0.5"/>
+  <!-- Signal dot at dish center -->
+  <circle cx="647" cy="186" r="4" fill="#ffdd00"/>
+
+  <!-- ===== TEXT SECTION ===== -->
+  <!-- DIMENSIONS text with gradient -->
+  <text x="450" y="385"
+        font-family="'Arial Black', 'Impact', sans-serif"
+        font-size="82"
+        font-weight="900"
+        text-anchor="middle"
+        letter-spacing="8"
+        fill="url(#textGrad)"
+        filter="url(#textGlow)">DIMENSIONS</text>
+
+  <!-- "by Directive" badge -->
+  <rect x="340" y="400" width="220" height="38" rx="5" fill="#1a1a2e" stroke="rgba(100,100,150,0.4)" stroke-width="1"/>
+  <text x="450" y="425"
+        font-family="'Arial', sans-serif"
+        font-size="22"
+        font-weight="500"
+        text-anchor="middle"
+        fill="white"
+        letter-spacing="2">by Directive</text>
+
+  <!-- Subtle underline/shadow below DIMENSIONS text -->
+  <ellipse cx="450" cy="392" rx="280" ry="6" fill="rgba(0,100,255,0.15)"/>
+</svg>

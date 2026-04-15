@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { authFetch } from '@/lib/authFetch'
 import {
   Ruler,
@@ -17,6 +18,8 @@ import {
   AlertTriangle,
   LayoutGrid,
 } from 'lucide-react'
+
+const Roof3DViewer = dynamic(() => import('./Roof3DViewer'), { ssr: false })
 
 interface MaterialOption {
   name: string
@@ -210,18 +213,15 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
   if (!result) {
     return (
       <div className="flex flex-col items-center justify-center gap-6 p-8">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
-            <Ruler className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-white">
-              Dimensions <span className="text-cyan-500">by Directive</span>
-            </h1>
-            <p className="text-xs text-gray-400">
-              Aerial roof &amp; building measurement — powered by Google Solar + OpenStreetMap
-            </p>
-          </div>
+        <div className="flex flex-col items-center gap-2">
+          <img
+            src="/dimensions-logo.svg"
+            alt="Dimensions by Directive"
+            className="h-28 w-auto object-contain"
+          />
+          <p className="text-xs text-gray-400">
+            Aerial roof &amp; building measurement — powered by Google Solar + OpenStreetMap
+          </p>
         </div>
 
         <form onSubmit={handleMeasure} className="w-full max-w-md space-y-3">
@@ -264,14 +264,13 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
   return (
     <div className="flex flex-col h-full gap-6 p-6">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-2">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
-          <Ruler className="w-5 h-5 text-white" />
-        </div>
+      <div className="flex items-center gap-4 mb-2">
+        <img
+          src="/dimensions-logo.svg"
+          alt="Dimensions by Directive"
+          className="h-12 w-auto object-contain flex-shrink-0"
+        />
         <div>
-          <h1 className="text-xl font-bold text-white">
-            Dimensions <span className="text-cyan-500">by Directive</span>
-          </h1>
           <p className="text-xs text-gray-400">{result.address}</p>
         </div>
       </div>
@@ -386,114 +385,33 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
             )}
 
             {/* Blueprint */}
-            {activeTab === 'blueprint' && (
-              <div className="bg-[#0a0f15] rounded-xl p-4 border border-cyan/20">
-                <div className="flex items-center gap-2 mb-3">
+            {activeTab === 'blueprint' && result && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 mb-1">
                   <LayoutGrid className="w-4 h-4 text-cyan" />
-                  <h3 className="text-sm font-bold text-white">Roof Blueprint</h3>
-                  <span className="ml-auto text-xs text-gray-400">Segment layout from Google Solar API</span>
+                  <h3 className="text-sm font-bold text-white">3D Roof Model</h3>
+                  <span className="ml-auto text-xs text-gray-500">Powered by Google Solar API</span>
                 </div>
-
-                <svg viewBox="0 0 500 400" className="w-full border border-white/10 rounded-lg" style={{ background: '#0d1117' }}>
-                  {/* Grid lines */}
-                  {Array.from({ length: 10 }, (_, i) => (
-                    <line key={`h${i}`} x1="0" y1={i * 40} x2="500" y2={i * 40} stroke="#1a2332" strokeWidth="0.5" />
+                <Roof3DViewer
+                  segments={result.roof.segments}
+                  building={result.building}
+                  structural={result.structural}
+                  edges={result.roof.edges}
+                />
+                <div className="grid grid-cols-4 gap-2 mt-3">
+                  {[
+                    { color: '#ffffff', label: 'Ridge', value: `${result.roof.edges.ridgeFt} lf` },
+                    { color: '#22c55e', label: 'Valley', value: `${result.roof.edges.valleyFt} lf` },
+                    { color: '#f97316', label: 'Hip', value: `${result.roof.edges.hipFt} lf` },
+                    { color: '#38bdf8', label: 'Eave', value: `${result.roof.edges.eaveFt} lf` },
+                  ].map(item => (
+                    <div key={item.label} className="bg-[#0d1117] rounded-lg p-2 border border-white/10 text-center">
+                      <div className="w-full h-0.5 rounded mb-1.5" style={{ backgroundColor: item.color }} />
+                      <p className="text-xs font-bold text-white">{item.value}</p>
+                      <p className="text-[10px] text-gray-400">{item.label}</p>
+                    </div>
                   ))}
-                  {Array.from({ length: 13 }, (_, i) => (
-                    <line key={`v${i}`} x1={i * 40} y1="0" x2={i * 40} y2="400" stroke="#1a2332" strokeWidth="0.5" />
-                  ))}
-
-                  {/* Compass rose */}
-                  <text x="480" y="20" fill="#06b6d4" fontSize="10" textAnchor="middle">
-                    N
-                  </text>
-                  <text x="480" y="400" fill="#06b6d4" fontSize="10" textAnchor="middle">
-                    S
-                  </text>
-
-                  {/* Draw each roof segment as a positioned rectangle */}
-                  {result.roof.segments.map((seg, i) => {
-                    // Map lat/lng bounding box to SVG coordinates
-                    const allLats = result.roof.segments
-                      .map((s) => [s.boundingBox.sw.latitude, s.boundingBox.ne.latitude])
-                      .flat()
-                    const allLngs = result.roof.segments
-                      .map((s) => [s.boundingBox.sw.longitude, s.boundingBox.ne.longitude])
-                      .flat()
-                    const minLat = Math.min(...allLats)
-                    const maxLat = Math.max(...allLats)
-                    const minLng = Math.min(...allLngs)
-                    const maxLng = Math.max(...allLngs)
-                    const latRange = maxLat - minLat || 0.001
-                    const lngRange = maxLng - minLng || 0.001
-
-                    // Map to SVG (flip Y since lat increases upward)
-                    const x1 = ((seg.boundingBox.sw.longitude - minLng) / lngRange) * 460 + 20
-                    const y1 = (1 - (seg.boundingBox.ne.latitude - minLat) / latRange) * 360 + 20
-                    const x2 = ((seg.boundingBox.ne.longitude - minLng) / lngRange) * 460 + 20
-                    const y2 = (1 - (seg.boundingBox.sw.latitude - minLat) / latRange) * 360 + 20
-                    const w = Math.max(x2 - x1, 10)
-                    const h = Math.max(y2 - y1, 10)
-                    const cx = x1 + w / 2
-                    const cy = y1 + h / 2
-
-                    // Color by pitch
-                    const pitchColor = seg.pitchDegrees < 10 ? '#22d3ee' : seg.pitchDegrees < 20 ? '#fbbf24' : '#f87171'
-
-                    return (
-                      <g key={i}>
-                        <rect
-                          x={x1}
-                          y={y1}
-                          width={w}
-                          height={h}
-                          fill={pitchColor}
-                          fillOpacity={0.15}
-                          stroke={pitchColor}
-                          strokeWidth="1.5"
-                          rx="2"
-                        />
-                        {/* Rafter lines */}
-                        {Array.from({ length: Math.min(seg.rafterCount, 8) }, (_, ri) => (
-                          <line
-                            key={ri}
-                            x1={x1 + (ri / seg.rafterCount) * w}
-                            y1={y1}
-                            x2={x1 + (ri / seg.rafterCount) * w}
-                            y2={y2}
-                            stroke={pitchColor}
-                            strokeWidth="0.5"
-                            strokeOpacity="0.4"
-                          />
-                        ))}
-                        {/* Label */}
-                        <text x={cx} y={cy - 6} fill="white" fontSize="9" textAnchor="middle" fontWeight="bold">
-                          {seg.pitch12}:12
-                        </text>
-                        <text x={cx} y={cy + 6} fill="#9ca3af" fontSize="8" textAnchor="middle">
-                          {seg.areaSqFt} sqft
-                        </text>
-                        <text x={cx} y={cy + 16} fill={pitchColor} fontSize="8" textAnchor="middle">
-                          {seg.orientation}
-                        </text>
-                      </g>
-                    )
-                  })}
-
-                  {/* Legend */}
-                  <rect x="10" y="370" width="8" height="8" fill="#22d3ee" fillOpacity="0.3" stroke="#22d3ee" />
-                  <text x="22" y="378" fill="#9ca3af" fontSize="8">
-                    Low (&lt;10°)
-                  </text>
-                  <rect x="90" y="370" width="8" height="8" fill="#fbbf24" fillOpacity="0.3" stroke="#fbbf24" />
-                  <text x="102" y="378" fill="#9ca3af" fontSize="8">
-                    Med (10-20°)
-                  </text>
-                  <rect x="175" y="370" width="8" height="8" fill="#f87171" fillOpacity="0.3" stroke="#f87171" />
-                  <text x="187" y="378" fill="#9ca3af" fontSize="8">
-                    Steep (&gt;20°)
-                  </text>
-                </svg>
+                </div>
               </div>
             )}
 
