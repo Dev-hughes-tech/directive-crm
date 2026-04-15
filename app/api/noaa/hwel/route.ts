@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { validateCoords } from '@/lib/validate'
 
 export const maxDuration = 45
 
@@ -11,14 +12,11 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return auth.response
 
   const { searchParams } = new URL(request.url)
-  const lat = parseFloat(searchParams.get('lat') || '')
-  const lng = parseFloat(searchParams.get('lng') || '')
+  const coords = validateCoords(searchParams.get('lat'), searchParams.get('lng'))
+  if (!coords.ok) return coords.response
+  const { lat, lng } = coords
   const radiusMiles = parseFloat(searchParams.get('radius') || '30')
   const years = parseInt(searchParams.get('years') || '10')
-
-  if (isNaN(lat) || isNaN(lng)) {
-    return NextResponse.json({ error: 'lat and lng required' }, { status: 400 })
-  }
 
   try {
     const fmtDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '')
