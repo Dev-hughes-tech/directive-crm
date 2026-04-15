@@ -391,13 +391,71 @@ Compute roofAgeYears = 2026 - yearBuilt if yearBuilt found. Set roofAgeEstimated
 flags: include "old-roof" if roofAge>=20, "estimated-roof-age" if estimated, "high-value" if market>250000, "owner-occupied" or "rental" per occupancy.
 sources: {"ownerName": "FastPeopleSearch"} etc.`
 
-  const [claudeResult, stormResult, enformionAddressResult, enformionPropertyResult] = await Promise.allSettled([
-    client.messages.create({
+  // Helper: Execute Claude with tool loop for web search
+  async function executeClaudeWithToolLoop(): Promise<string> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let messages: any[] = [{ role: 'user', content: prompt }]
+    let fullText = ''
+    let iterationCount = 0
+    const maxIterations = 5
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let response: any = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 3000,
+      betas: ['web-search-2025-03-05'],
       tools: [{ type: 'web_search_20250305' as const, name: 'web_search' as const }],
-      messages: [{ role: 'user', content: prompt }],
-    } as Parameters<typeof client.messages.create>[0]),
+      messages,
+    } as Parameters<typeof client.messages.create>[0])
+
+    while (response.stop_reason === 'tool_use' && iterationCount < maxIterations) {
+      iterationCount++
+
+      // Collect any text from this response
+      for (const block of response.content) {
+        if (block.type === 'text') fullText += (block as any).text
+      }
+
+      // Build tool results for each tool_use block
+      const toolResults = response.content
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((b: any) => b.type === 'tool_use')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((b: any) => ({
+          type: 'tool_result' as const,
+          tool_use_id: b.id,
+          content: '', // Anthropic handles the actual search
+        }))
+
+      if (toolResults.length === 0) break
+
+      // Continue the conversation with assistant response + tool results
+      messages = [
+        ...messages,
+        { role: 'assistant', content: response.content },
+        { role: 'user', content: toolResults },
+      ]
+
+      // Call again
+      response = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 3000,
+        betas: ['web-search-2025-03-05'],
+        tools: [{ type: 'web_search_20250305' as const, name: 'web_search' as const }],
+        messages,
+      } as Parameters<typeof client.messages.create>[0])
+    }
+
+    // Get final text blocks
+    for (const block of response.content) {
+      if (block.type === 'text') fullText += (block as any).text
+    }
+
+    return fullText
+  }
+
+  const [claudeResult, stormResult, enformionAddressResult, enformionPropertyResult] = await Promise.allSettled([
+    executeClaudeWithToolLoop(),
     (lat && lng) ? fetchStormHistory(lat, lng) : Promise.resolve(null),
     enformionAddressIDPlus(formattedAddress),
     enformionPropertyV2(formattedAddress),
@@ -423,17 +481,9 @@ sources: {"ownerName": "FastPeopleSearch"} etc.`
     console.error('[research] Claude failed:', err)
     // Don't return error — fall through with geocoded data + storm
   } else {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const response = claudeResult.value as any as Anthropic.Message
-    // Collect all text blocks (Claude returns text after tool use)
-    const fullText = response.content
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((b: any) => b.type === 'text')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((b: any) => b.text as string)
-      .join('')
+    const fullText = claudeResult.value as string
 
-    console.log(`[research] Response text: ${fullText.length} chars, stop_reason: ${response.stop_reason}`)
+    console.log(`[research] Response text: ${fullText.length} chars`)
 
     // Extract JSON from response
     const tagMatch = fullText.match(/<json>\s*([\s\S]*?)\s*<\/json>/)

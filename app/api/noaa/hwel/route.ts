@@ -5,6 +5,7 @@ import { validateCoords } from '@/lib/validate'
 export const maxDuration = 45
 
 const SWDI = 'https://www.ncei.noaa.gov/swdiws/json'
+const MESONET = 'https://mesonet.agron.iastate.edu/geojson/hail.php'
 
 // Historical Weather Event Library (HWEL) — comprehensive 10-year storm archive
 export async function GET(request: NextRequest) {
@@ -28,19 +29,66 @@ export async function GET(request: NextRequest) {
     const endStr = fmtDate(now)
     const headers = { 'User-Agent': 'DirectiveCRM/1.0 (support@hughes-technologies.com)' }
 
-    // Fetch all storm report types + radar hail + mesocyclone detections in parallel
-    const [plsrRes, hailRes, mesoRes] = await Promise.allSettled([
+    // Try Iowa State Mesonet first for radar hail (primary source)
+    let radarHailData: any[] = []
+    try {
+      const mesoRes = await fetch(`${MESONET}?lon=${lng}&lat=${lat}&radius=${radiusMiles}`, {
+        headers,
+        signal: AbortSignal.timeout(8000),
+      }).then(r => r.ok ? r.json() : null)
+
+      if (mesoRes?.features && Array.isArray(mesoRes.features) && mesoRes.features.length > 0) {
+        radarHailData = mesoRes.features.map((feature: any) => ({
+          type: 'radar_hail' as const,
+          date: feature.properties.valid || null,
+          lat: feature.geometry.coordinates[1],
+          lng: feature.geometry.coordinates[0],
+          magnitude: feature.properties.magsize ? parseFloat(feature.properties.magsize) : null,
+          city: null,
+          state: null,
+          source: 'radar',
+          description: feature.properties.magsize ? `${feature.properties.magsize}" radar-detected hail (${feature.properties.sevprob || 0}% severe probability)` : 'Radar hail signature',
+          severeProb: feature.properties.sevprob ? parseInt(feature.properties.sevprob) : null,
+        }))
+      }
+    } catch {
+      // Mesonet failed, will fall back to NOAA
+    }
+
+    // Fetch spotter reports + mesocyclone detections in parallel; fallback hail if Mesonet empty
+    const [plsrRes, fallbackHailRes, mesoRes] = await Promise.allSettled([
       fetch(`${SWDI}/plsr/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(20000) })
         .then(r => r.ok ? r.json() : { result: [] }),
-      fetch(`${SWDI}/nx3hail/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(20000) })
-        .then(r => r.ok ? r.json() : { result: [] }),
+      // Fallback NOAA radar hail only if Mesonet had no data
+      radarHailData.length === 0
+        ? fetch(`${SWDI}/nx3hail/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(20000) })
+          .then(r => r.ok ? r.json() : { result: [] })
+        : Promise.resolve({ result: [] }),
       fetch(`${SWDI}/nx3meso/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(20000) })
         .then(r => r.ok ? r.json() : { result: [] }),
     ])
 
     const plsrData = plsrRes.status === 'fulfilled' ? (plsrRes.value.result || []) : []
-    const hailData = hailRes.status === 'fulfilled' ? (hailRes.value.result || []) : []
+    const fallbackData = fallbackHailRes.status === 'fulfilled' ? (fallbackHailRes.value.result || []) : []
     const mesoData = mesoRes.status === 'fulfilled' ? (mesoRes.value.result || []) : []
+
+    // Use fallback NOAA hail data only if Mesonet had no results
+    if (radarHailData.length === 0) {
+      radarHailData = fallbackData.map((e: any) => ({
+        type: 'radar_hail' as const,
+        date: e.ZTIME || null,
+        lat: e.LAT,
+        lng: e.LON,
+        magnitude: e.MAXSIZE ? parseFloat(e.MAXSIZE) : null,
+        city: null,
+        state: null,
+        source: 'radar',
+        description: e.MAXSIZE ? `${e.MAXSIZE}" radar-detected hail (${e.SEVPROB || 0}% severe probability)` : 'Radar hail signature',
+        severeProb: e.SEVPROB ? parseInt(e.SEVPROB) : null,
+      }))
+    }
+
+    const hailData = radarHailData
 
     // Categorize storm reports by type
     const hailReports = plsrData
@@ -85,19 +133,8 @@ export async function GET(request: NextRequest) {
         description: e.MAGNITUDE ? `${e.MAGNITUDE} mph wind` : 'High wind reported',
       }))
 
-    // Radar-detected hail
-    const radarHail = hailData.map((e: any) => ({
-      type: 'radar_hail' as const,
-      date: e.ZTIME || null,
-      lat: e.LAT,
-      lng: e.LON,
-      magnitude: e.MAXSIZE ? parseFloat(e.MAXSIZE) : null,
-      city: null,
-      state: null,
-      source: 'radar',
-      description: e.MAXSIZE ? `${e.MAXSIZE}" radar-detected hail (${e.SEVPROB || 0}% severe probability)` : 'Radar hail signature',
-      severeProb: e.SEVPROB ? parseInt(e.SEVPROB) : null,
-    }))
+    // Radar hail data already processed above (Mesonet primary, NOAA fallback)
+    const radarHail = hailData
 
     // Mesocyclone detections (rotation = tornado potential)
     const mesocyclones = mesoData.map((e: any) => ({
