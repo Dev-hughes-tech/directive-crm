@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { requireUser, requireTier } from '@/lib/apiAuth'
+import { generateId } from '@/lib/uuid'
 
 export const maxDuration = 60
 
@@ -604,7 +605,7 @@ sources: {"ownerName": "FastPeopleSearch"} etc.`
   if (supabase) {
     Promise.resolve(
       supabase.from('research_jobs').insert({
-        id: `research_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: generateId(),
         owner_id: ownerId,
         address: formattedAddress,
         status: 'done',

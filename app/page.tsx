@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
+import { generateId } from '@/lib/uuid'
 import {
   Search,
   MapPin,
@@ -404,7 +405,7 @@ export default function Dashboard() {
   // Notification helper function
   const addNotification = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
     const n: AppNotification = {
-      id: crypto.randomUUID(),
+      id: generateId(),
       message,
       type,
       timestamp: new Date().toISOString(),
@@ -875,7 +876,7 @@ export default function Dashboard() {
     if (!place.lat || !place.lng) return
 
     const newProperty: Property = {
-      id: `prop_${crypto.randomUUID()}`,
+      id: `prop_${generateId()}`,
       address: place.address || '',
       lat: place.lat,
       lng: place.lng,
@@ -954,7 +955,7 @@ export default function Dashboard() {
     if (!place.lat || !place.lng) return
 
     const newProperty: Property = {
-      id: `prop_${crypto.randomUUID()}`,
+      id: `prop_${generateId()}`,
       address: place.address || '',
       lat: place.lat,
       lng: place.lng,
@@ -1103,7 +1104,7 @@ export default function Dashboard() {
 
       // Phase 4: Build property from whatever research returned
       const newProperty: Property = {
-        id: `prop_${crypto.randomUUID()}`,
+        id: `prop_${generateId()}`,
         address: display_name || addrToUse,
         lat,
         lng,
@@ -4714,7 +4715,7 @@ export default function Dashboard() {
                           key={prop.id}
                           onClick={async () => {
                             const newClient: Client = {
-                              id: crypto.randomUUID(),
+                              id: generateId(),
                               property_id: prop.id,
                               status: 'new_lead',
                               notes: '',
@@ -4830,13 +4831,13 @@ export default function Dashboard() {
                           onClick={async () => {
                             if (!prop) return
                             const newProposal: Proposal = {
-                              id: crypto.randomUUID(),
+                              id: generateId(),
                               client_id: selectedClient.id,
                               property_id: prop.id,
                               status: 'draft',
                               line_items: [
-                                { id: crypto.randomUUID(), description: 'Full Roof Replacement', quantity: prop.sqft ? Math.ceil(prop.sqft / 100) : 0, unit: 'sq', unit_price: 450, total: prop.sqft ? Math.ceil(prop.sqft / 100) * 450 : 0 },
-                                { id: crypto.randomUUID(), description: 'Remove & Dispose', quantity: 1, unit: 'job', unit_price: 500, total: 500 },
+                                { id: generateId(), description: 'Full Roof Replacement', quantity: prop.sqft ? Math.ceil(prop.sqft / 100) : 0, unit: 'sq', unit_price: 450, total: prop.sqft ? Math.ceil(prop.sqft / 100) * 450 : 0 },
+                                { id: generateId(), description: 'Remove & Dispose', quantity: 1, unit: 'job', unit_price: 500, total: 500 },
                               ],
                               total: prop.sqft ? Math.ceil(prop.sqft / 100) * 450 + 500 : 950,
                               notes: `Owner: ${prop.owner_name || 'Unknown'}\nPhone: ${prop.owner_phone || 'Unknown'}`,
@@ -5228,14 +5229,14 @@ export default function Dashboard() {
                         onClick={async () => {
                           const client = clients.find(c => c.property_id === prop.id)
                           const newProposal: Proposal = {
-                            id: crypto.randomUUID(),
+                            id: generateId(),
                             client_id: client?.id || '',
                             property_id: prop.id,
                             status: 'draft',
                             line_items: [
-                              { id: crypto.randomUUID(), description: 'Full Roof Replacement', quantity: prop.sqft ? Math.ceil(prop.sqft / 100) : 0, unit: 'sq', unit_price: 450, total: prop.sqft ? Math.ceil(prop.sqft / 100) * 450 : 0 },
-                              { id: crypto.randomUUID(), description: 'Remove & Dispose Old Roof', quantity: 1, unit: 'job', unit_price: 500, total: 500 },
-                              { id: crypto.randomUUID(), description: 'Ice & Water Shield', quantity: 2, unit: 'sq', unit_price: 120, total: 240 },
+                              { id: generateId(), description: 'Full Roof Replacement', quantity: prop.sqft ? Math.ceil(prop.sqft / 100) : 0, unit: 'sq', unit_price: 450, total: prop.sqft ? Math.ceil(prop.sqft / 100) * 450 : 0 },
+                              { id: generateId(), description: 'Remove & Dispose Old Roof', quantity: 1, unit: 'job', unit_price: 500, total: 500 },
+                              { id: generateId(), description: 'Ice & Water Shield', quantity: 2, unit: 'sq', unit_price: 120, total: 240 },
                             ],
                             total: prop.sqft ? Math.ceil(prop.sqft / 100) * 450 + 740 : 1240,
                             notes: `Property: ${prop.address}\nOwner: ${prop.owner_name || 'Unknown'}\nRoof Age: ${prop.roof_age_years || 'Unknown'} years\nMarket Value: ${prop.market_value ? '$' + prop.market_value.toLocaleString() : 'Unknown'}`,
@@ -5371,7 +5372,7 @@ export default function Dashboard() {
                             const prop = properties.find(p => p.id === selectedProposal.property_id)
 
                             const newJob: Job = {
-                              id: crypto.randomUUID(),
+                              id: generateId(),
                               property_id: selectedProposal.property_id,
                               client_id: selectedProposal.client_id || null,
                               proposal_id: selectedProposal.id,
@@ -5529,7 +5530,7 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                                 }>
 
                                 const newItems = parsed.map(item => ({
-                                  id: crypto.randomUUID(),
+                                  id: generateId(),
                                   description: item.description || 'Line Item',
                                   quantity: Number(item.quantity) || 1,
                                   unit: item.unit || 'ea',
@@ -5639,7 +5640,7 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                     </table>
                     <button
                       onClick={() => {
-                        const newItem: ProposalLineItem = { id: crypto.randomUUID(), description: 'New Line Item', quantity: 1, unit: 'ea', unit_price: 0, total: 0 }
+                        const newItem: ProposalLineItem = { id: generateId(), description: 'New Line Item', quantity: 1, unit: 'ea', unit_price: 0, total: 0 }
                         const newItems = [...selectedProposal.line_items, newItem]
                         const updated = { ...selectedProposal, line_items: newItems }
                         setSelectedProposal(updated)
