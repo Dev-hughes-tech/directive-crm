@@ -4735,10 +4735,18 @@ export default function Dashboard() {
                               assigned_to: null,
                               created_at: new Date().toISOString()
                             }
-                            const updated = [...clients, newClient]
-                            setClients(updated)
+                            // Optimistic UI: prepend so it appears at top of list
+                            setClients(prev => [newClient, ...prev.filter(c => c.id !== newClient.id)])
+                            setClientStatusFilter('all')
+                            setSelectedClient(newClient)
                             setShowAddClientMenu(false)
-                            await persist(saveClient, newClient, 'client')
+                            const result = await persist(saveClient, newClient, 'client')
+                            // If save failed, keep the row but flag it; don't let a later refetch wipe it
+                            if (!result.ok) {
+                              addNotification('Client saved locally — will sync when online', 'warning')
+                            } else {
+                              addNotification(`Client added: ${prop.address}`, 'success')
+                            }
                           }}
                           className="w-full text-left px-2 py-2 text-xs text-white hover:bg-dark-700 active:bg-dark-600 rounded transition-all touch-manipulation"
                         >
