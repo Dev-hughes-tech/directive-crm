@@ -615,6 +615,7 @@ export default function Dashboard() {
   const [mapZoom, setMapZoom] = useState(14)
   const [mapMode, setMapMode] = useState<'dark' | 'satellite' | '3d'>('satellite')
   const [loading, setLoading] = useState(true)
+  const [dataLoading, setDataLoading] = useState(true) // Supabase entity data
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
@@ -943,23 +944,28 @@ export default function Dashboard() {
     return false
   }
 
-  // Load properties on mount
+  // Load entity data on mount
   useEffect(() => {
     const loadData = async () => {
-      const [propsData, clientsData, proposalsData, materialsData, messagesData, jobsData] = await Promise.all([
-        getProperties(),
-        getClients(),
-        getProposals(),
-        getMaterials(),
-        getChatMessages('general'),
-        getJobs(),
-      ])
-      setProperties(propsData)
-      setClients(clientsData)
-      setProposals(proposalsData)
-      setMaterials(materialsData)
-      setTeamMessages(messagesData)
-      setJobs(jobsData)
+      setDataLoading(true)
+      try {
+        const [propsData, clientsData, proposalsData, materialsData, messagesData, jobsData] = await Promise.all([
+          getProperties(),
+          getClients(),
+          getProposals(),
+          getMaterials(),
+          getChatMessages('general'),
+          getJobs(),
+        ])
+        setProperties(propsData)
+        setClients(clientsData)
+        setProposals(proposalsData)
+        setMaterials(materialsData)
+        setTeamMessages(messagesData)
+        setJobs(jobsData)
+      } finally {
+        setDataLoading(false)
+      }
     }
     loadData()
   }, [])
@@ -4475,7 +4481,17 @@ Only respond with the JSON array, no other text.` }
 
             {/* Client List */}
             <div className="flex-1 overflow-y-auto space-y-2">
-              {clients
+              {dataLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="h-16 bg-dark-700/50 rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              ) : clients
+                .filter(c => clientStatusFilter === 'all' || c.status === clientStatusFilter)
+                .length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">No clients yet — sweep an address to add leads</p>
+              ) : clients
                 .filter(c => clientStatusFilter === 'all' || c.status === clientStatusFilter)
                 .map(client => {
                   const prop = properties.find(p => p.id === client.property_id)
@@ -4840,7 +4856,15 @@ Only respond with the JSON array, no other text.` }
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-2">
-              {proposals.map(proposal => {
+              {dataLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="h-14 bg-dark-700/50 rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              ) : proposals.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">No proposals yet — create one from the Clients tab</p>
+              ) : proposals.map(proposal => {
                 const prop = properties.find(p => p.id === proposal.property_id)
                 return (
                   <button
@@ -4863,9 +4887,6 @@ Only respond with the JSON array, no other text.` }
                   </button>
                 )
               })}
-              {proposals.length === 0 && (
-                <p className="text-sm text-gray-400 text-center py-8">No proposals yet</p>
-              )}
             </div>
           </div>
 
@@ -6086,7 +6107,15 @@ Only respond with the JSON array, no other text.` }
                 {jobStageFilter === 'all' ? 'All Jobs' : JOB_STAGES.find(s => s.key === jobStageFilter)?.label}
                 {' '}({jobs.filter(j => jobStageFilter === 'all' || j.stage === jobStageFilter).length})
               </h4>
-              {jobs
+              {dataLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="h-16 bg-dark-700/50 rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              ) : jobs.filter(j => jobStageFilter === 'all' || j.stage === jobStageFilter).length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-4">No jobs in this stage</p>
+              ) : jobs
                 .filter(j => jobStageFilter === 'all' || j.stage === jobStageFilter)
                 .map(job => {
                   const stage = JOB_STAGES.find(s => s.key === job.stage)
@@ -6110,9 +6139,6 @@ Only respond with the JSON array, no other text.` }
                     </button>
                   )
                 })}
-              {jobs.filter(j => jobStageFilter === 'all' || j.stage === jobStageFilter).length === 0 && (
-                <p className="text-xs text-gray-500 text-center py-4">No jobs in this stage</p>
-              )}
             </div>
 
             {/* Job detail panel */}
