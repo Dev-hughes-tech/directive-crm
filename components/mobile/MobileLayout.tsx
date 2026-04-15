@@ -18,6 +18,7 @@ import { getTierConfig, canAccess, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
 import { saveClient, saveProperty, saveJob } from '@/lib/storage'
 import { JOB_STAGES } from '@/lib/types'
+import { authFetch } from '@/lib/authFetch'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -131,6 +132,16 @@ export default function MobileLayout(props: MobileLayoutProps) {
   const [michaelLocalTab, setMichaelLocalTab] = useState<'leads' | 'chat'>('leads')
   const [selectedMapProp, setSelectedMapProp] = useState<Property | null>(null)
   const [mobileStormOverlay, setMobileStormOverlay] = useState(false)
+  const [sweepMapMode, setSweepMapMode] = useState<'satellite' | 'streetview'>('satellite')
+  const [mobileProposalSelected, setMobileProposalSelected] = useState<Proposal | null>(null)
+  const [mobileProposalEditing, setMobileProposalEditing] = useState(false)
+  const [mobileProposalStatus, setMobileProposalStatus] = useState<Proposal['status']>('draft')
+  const [mobileProposalMapMode, setMobileProposalMapMode] = useState<'satellite' | 'streetview'>('satellite')
+  const [mobileEstimateSelected, setMobileEstimateSelected] = useState<Proposal | null>(null)
+  const [mobileEstimateLoading, setMobileEstimateLoading] = useState(false)
+  const [mobileEstimateText, setMobileEstimateText] = useState('')
+  const [mobileMaterialsSquares, setMobileMaterialsSquares] = useState<string>('')
+  const [mobileMaterialsPitch, setMobileMaterialsPitch] = useState<string>('1.0')
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -437,6 +448,36 @@ export default function MobileLayout(props: MobileLayoutProps) {
                   {flag.replace(/-/g, ' ')}
                 </span>
               ))}
+            </div>
+          )}
+
+          {/* Map View */}
+          {sweepResult.lat && sweepResult.lng && (
+            <div className="mt-4">
+              <div className="flex gap-1 mb-2">
+                {(['satellite', 'streetview'] as const).map(mode => (
+                  <button key={mode} onClick={() => setSweepMapMode(mode)}
+                    className={`text-xs px-3 py-1 rounded-full capitalize transition-colors ${sweepMapMode === mode ? 'bg-cyan-500/30 text-cyan-400 border border-cyan-400/30' : 'text-gray-400 border border-white/10'}`}>
+                    {mode === 'satellite' ? '🛰 Aerial' : '🚗 Street View'}
+                  </button>
+                ))}
+              </div>
+              <div className="rounded-2xl overflow-hidden border border-white/10 h-48">
+                {sweepMapMode === 'satellite' ? (
+                  <img
+                    src={`https://maps.googleapis.com/maps/api/staticmap?center=${sweepResult.lat},${sweepResult.lng}&zoom=19&size=600x400&maptype=satellite&key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}`}
+                    alt="Aerial view"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <iframe
+                    src={`https://www.google.com/maps/embed/v1/streetview?location=${sweepResult.lat},${sweepResult.lng}&key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}&fov=90`}
+                    className="w-full h-full border-0"
+                    allowFullScreen
+                    loading="lazy"
+                  />
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1072,6 +1113,539 @@ export default function MobileLayout(props: MobileLayoutProps) {
     </div>
   )
 
+  // ── Mobile Proposals ──────────────────────────────────────────────────────
+  const renderProposals = () => {
+    const selectedProp = mobileProposalSelected || proposals[0] || null
+    const propertyForProposal = selectedProp ? properties.find(p => p.id === selectedProp.property_id) : null
+    const clientForProposal = selectedProp ? clients.find(c => c.id === selectedProp.client_id) : null
+
+    if (!mobileProposalSelected && proposals.length === 0) {
+      return (
+        <div className="flex-1 overflow-y-auto pb-24">
+          <div className="px-4 pt-4">
+            <div className="flex items-center gap-2 mb-4">
+              <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+              <h2 className="text-base font-bold text-white ml-1">Proposals</h2>
+            </div>
+            <div className="text-center py-12">
+              <FileText className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+              <p className="text-gray-400 text-sm">No proposals yet</p>
+              <p className="text-xs text-gray-500 mt-1">Create proposals from the desktop app or sweep properties</p>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    if (mobileProposalSelected || proposals.length > 0) {
+      const current = mobileProposalSelected || proposals[0]!
+      const prop = propertyForProposal
+      const client = clientForProposal
+
+      return (
+        <div className="flex-1 overflow-y-auto pb-24">
+          <div className="px-4 pt-4 space-y-3">
+            {/* Back button */}
+            <div className="flex items-center gap-2 mb-2">
+              <button onClick={() => setMobileProposalSelected(null)} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+              <h2 className="text-base font-bold text-white ml-1">
+                {mobileProposalSelected ? 'Proposal Details' : 'Proposals'}
+              </h2>
+            </div>
+
+            {!mobileProposalSelected ? (
+              /* Proposals List */
+              <div className="space-y-2">
+                {proposals.map(p => {
+                  const propData = properties.find(x => x.id === p.property_id)
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        setMobileProposalSelected(p)
+                        setMobileProposalStatus(p.status)
+                      }}
+                      className="w-full bg-[#161b22] border border-white/10 rounded-xl p-4 text-left active:bg-white/5 transition-colors"
+                    >
+                      <div className="flex justify-between items-start gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-white truncate">{propData?.address || 'Unknown'}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">${p.total?.toLocaleString() || '0'}</p>
+                        </div>
+                        <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-semibold ${
+                          p.status === 'sent' ? 'bg-blue-400/20 text-blue-400' :
+                          p.status === 'accepted' ? 'bg-green-400/20 text-green-400' :
+                          p.status === 'rejected' ? 'bg-red-400/20 text-red-400' :
+                          'bg-gray-400/20 text-gray-400'
+                        }`}>
+                          {p.status}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              /* Proposal Detail View */
+              <div className="space-y-3">
+                {/* Property Info */}
+                {prop && (
+                  <div className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+                    <p className="text-xs text-gray-400 mb-2">PROPERTY</p>
+                    <p className="text-sm font-semibold text-white">{prop.address}</p>
+                    {prop.owner_name && <p className="text-xs text-gray-400 mt-1">{prop.owner_name}</p>}
+                  </div>
+                )}
+
+                {/* Client Info */}
+                {client && (
+                  <div className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+                    <p className="text-xs text-gray-400 mb-2">CLIENT STATUS</p>
+                    <p className="text-sm font-semibold text-white capitalize">{client.status.replace(/_/g, ' ')}</p>
+                    {client.notes && <p className="text-xs text-gray-400 mt-1">{client.notes}</p>}
+                  </div>
+                )}
+
+                {/* Line Items */}
+                {current.line_items && current.line_items.length > 0 && (
+                  <div className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+                    <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide">Line Items</p>
+                    <div className="space-y-2">
+                      {current.line_items.map((item, i) => (
+                        <div key={i} className="flex justify-between items-start gap-2 pb-2 border-b border-white/5 last:border-0">
+                          <div className="flex-1">
+                            <p className="text-sm text-white">{item.description}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">Qty: {item.quantity}</p>
+                          </div>
+                          <p className="text-sm font-semibold text-cyan-400 flex-shrink-0">${(item.quantity * item.unit_price).toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {current.notes && (
+                  <div className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+                    <p className="text-xs text-gray-400 mb-2">NOTES</p>
+                    <p className="text-sm text-white line-clamp-4">{current.notes}</p>
+                  </div>
+                )}
+
+                {/* Map View */}
+                {prop?.lat && prop?.lng && (
+                  <div>
+                    <div className="flex gap-1 mb-2">
+                      {(['satellite', 'streetview'] as const).map(mode => (
+                        <button key={mode} onClick={() => setMobileProposalMapMode(mode)}
+                          className={`text-xs px-3 py-1 rounded-full capitalize transition-colors ${mobileProposalMapMode === mode ? 'bg-cyan-500/30 text-cyan-400 border border-cyan-400/30' : 'text-gray-400 border border-white/10'}`}>
+                          {mode === 'satellite' ? '🛰' : '🚗'}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="rounded-2xl overflow-hidden border border-white/10 h-40">
+                      {mobileProposalMapMode === 'satellite' ? (
+                        <img
+                          src={`https://maps.googleapis.com/maps/api/staticmap?center=${prop.lat},${prop.lng}&zoom=19&size=600x400&maptype=satellite&key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}`}
+                          alt="Aerial view"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <iframe
+                          src={`https://www.google.com/maps/embed/v1/streetview?location=${prop.lat},${prop.lng}&key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}&fov=90`}
+                          className="w-full h-full border-0"
+                          allowFullScreen
+                          loading="lazy"
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Status Selector */}
+                <div className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+                  <p className="text-xs text-gray-400 mb-2">STATUS</p>
+                  <div className="flex gap-2">
+                    {(['draft', 'sent', 'accepted', 'rejected'] as const).map(status => (
+                      <button
+                        key={status}
+                        onClick={() => setMobileProposalStatus(status)}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          mobileProposalStatus === status
+                            ? 'bg-cyan-400/30 text-cyan-400 border border-cyan-400/50'
+                            : 'bg-white/5 text-gray-400 border border-white/10'
+                        }`}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Total */}
+                <div className="bg-cyan-400/10 border border-cyan-400/20 rounded-xl p-4 text-center">
+                  <p className="text-xs text-gray-400 mb-1">TOTAL</p>
+                  <p className="text-3xl font-bold text-cyan-400">${current.total?.toLocaleString() || '0'}</p>
+                </div>
+
+                {/* Save Button */}
+                <button
+                  onClick={async () => {
+                    if (!mobileProposalSelected) return
+                    const updated = { ...mobileProposalSelected, status: mobileProposalStatus }
+                    try {
+                      await authFetch('/api/proposals', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(updated)
+                      })
+                      setMobileProposalSelected(null)
+                    } catch (err) {
+                      console.error('Failed to save proposal:', err)
+                    }
+                  }}
+                  className="w-full bg-cyan-400/20 text-cyan-400 border border-cyan-400/30 rounded-xl py-3 font-semibold active:bg-cyan-400/30 transition-colors"
+                >
+                  Save Changes
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
+
+    return null
+  }
+
+  // ── Mobile Smart Estimates ────────────────────────────────────────────────
+  const renderEstimates = () => {
+    const approvedProposals = proposals.filter(p => p.status !== 'draft')
+
+    if (approvedProposals.length === 0) {
+      return (
+        <div className="flex-1 overflow-y-auto pb-24">
+          <div className="px-4 pt-4">
+            <div className="flex items-center gap-2 mb-4">
+              <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+              <h2 className="text-base font-bold text-white ml-1">Smart Estimates</h2>
+            </div>
+            <div className="text-center py-12">
+              <Calculator className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+              <p className="text-gray-400 text-sm">Complete a Proposal First</p>
+              <p className="text-xs text-gray-500 mt-2">Create and send a proposal to generate estimates</p>
+              <button
+                onClick={() => { setMobileTab('more'); setActiveScreen('proposals') }}
+                className="mt-4 bg-cyan-400/20 text-cyan-400 border border-cyan-400/30 rounded-lg px-4 py-2 text-sm font-semibold active:opacity-70"
+              >
+                Go to Proposals
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex-1 overflow-y-auto pb-24">
+        <div className="px-4 pt-4 space-y-3">
+          {/* Back button */}
+          <div className="flex items-center gap-2 mb-2">
+            <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+            <h2 className="text-base font-bold text-white ml-1">Smart Estimates</h2>
+          </div>
+
+          {!mobileEstimateSelected ? (
+            /* Select Proposal */
+            <div className="space-y-2">
+              {approvedProposals.map(p => {
+                const prop = properties.find(x => x.id === p.property_id)
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      setMobileEstimateSelected(p)
+                      setMobileEstimateText('')
+                    }}
+                    className="w-full bg-[#161b22] border border-white/10 rounded-xl p-4 text-left active:bg-white/5"
+                  >
+                    <p className="text-sm font-semibold text-white truncate">{prop?.address || 'Unknown'}</p>
+                    <p className="text-xs text-gray-400 mt-1">{p.status}</p>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            /* Estimate Generation */
+            <div className="space-y-3">
+              <div className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+                <p className="text-xs text-gray-400 mb-1">SELECTED PROPOSAL</p>
+                <p className="text-sm font-semibold text-white">
+                  {properties.find(x => x.id === mobileEstimateSelected.property_id)?.address}
+                </p>
+              </div>
+
+              {mobileEstimateSelected.notes && (
+                <div className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+                  <p className="text-xs text-gray-400 mb-2">PROPOSAL NOTES</p>
+                  <p className="text-sm text-white line-clamp-3">{mobileEstimateSelected.notes}</p>
+                </div>
+              )}
+
+              <button
+                onClick={async () => {
+                  setMobileEstimateLoading(true)
+                  try {
+                    const prop = properties.find(x => x.id === mobileEstimateSelected!.property_id)
+                    const prompt = `Generate a roofing estimate for a property with the following details: ${mobileEstimateSelected!.notes || 'Roof damage requiring replacement'}. Provide detailed line items for materials and labor.`
+
+                    const response = await authFetch('/api/michael', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        messages: [{ role: 'user', content: prompt }],
+                        context: { activeScreen: 'estimates', leadCount: properties.length, hotLeadCount: 0, alertCount: 0 }
+                      })
+                    })
+                    const data = await response.json()
+                    setMobileEstimateText(data.reply || 'No estimate generated')
+                  } catch (err) {
+                    console.error('Failed to generate estimate:', err)
+                    setMobileEstimateText('Error generating estimate. Please try again.')
+                  } finally {
+                    setMobileEstimateLoading(false)
+                  }
+                }}
+                disabled={mobileEstimateLoading}
+                className="w-full bg-teal-400/20 text-teal-400 border border-teal-400/30 rounded-xl py-3 font-semibold active:opacity-70 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {mobileEstimateLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  'Generate Smart Estimate'
+                )}
+              </button>
+
+              {mobileEstimateText && (
+                <div className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+                  <p className="text-xs text-gray-400 mb-2">ESTIMATE</p>
+                  <p className="text-sm text-white whitespace-pre-wrap max-h-64 overflow-y-auto">{mobileEstimateText}</p>
+                </div>
+              )}
+
+              <button
+                onClick={() => setMobileEstimateSelected(null)}
+                className="w-full bg-white/5 text-white border border-white/10 rounded-xl py-3 font-semibold active:bg-white/10"
+              >
+                Back
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Mobile Materials Calculator ────────────────────────────────────────────
+  const renderMaterials = () => {
+    const squares = parseFloat(mobileMaterialsSquares) || 0
+    const pitch = parseFloat(mobileMaterialsPitch) || 1.0
+
+    const calculations = {
+      shingles: Math.ceil(squares * 1.1),
+      underlayment: Math.ceil(squares * 1.05),
+      felt: Math.ceil(squares * 0.95),
+      flashing: Math.ceil(squares * 0.3),
+      nails: Math.ceil(squares * 2.5),
+      vents: Math.ceil(squares * 0.15)
+    }
+
+    return (
+      <div className="flex-1 overflow-y-auto pb-24">
+        <div className="px-4 pt-4 space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+            <h2 className="text-base font-bold text-white ml-1">Materials Calculator</h2>
+          </div>
+
+          {/* Inputs */}
+          <div className="bg-[#161b22] border border-white/10 rounded-xl p-4 space-y-3">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Roofing Squares</label>
+              <input
+                type="number"
+                value={mobileMaterialsSquares}
+                onChange={e => setMobileMaterialsSquares(e.target.value)}
+                placeholder="Enter number of squares"
+                className="w-full bg-[#0d1117] border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400/50 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Roof Pitch Multiplier</label>
+              <input
+                type="number"
+                value={mobileMaterialsPitch}
+                onChange={e => setMobileMaterialsPitch(e.target.value)}
+                placeholder="1.0"
+                step="0.1"
+                className="w-full bg-[#0d1117] border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400/50 text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-1">Default: 1.0 (flat roof)</p>
+            </div>
+          </div>
+
+          {squares > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400 uppercase tracking-wide">Estimated Materials</p>
+              {[
+                { label: 'Shingles (bundles)', value: calculations.shingles },
+                { label: 'Underlayment (rolls)', value: calculations.underlayment },
+                { label: 'Felt (rolls)', value: calculations.felt },
+                { label: 'Flashing (linear ft)', value: calculations.flashing },
+                { label: 'Nails (lbs)', value: calculations.nails },
+                { label: 'Vents (qty)', value: calculations.vents },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-[#161b22] border border-white/10 rounded-xl p-4 flex justify-between items-center">
+                  <p className="text-sm text-white">{label}</p>
+                  <p className="text-lg font-bold text-cyan-400">{value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {squares === 0 && (
+            <div className="text-center py-8">
+              <Package className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+              <p className="text-gray-400 text-sm">Enter roofing squares to calculate materials</p>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Mobile Timeline ────────────────────────────────────────────────────────
+  const renderTimeline = () => {
+    const sortedJobs = [...jobs].sort((a, b) => {
+      const dateA = a.scheduled_date ? new Date(a.scheduled_date).getTime() : 0
+      const dateB = b.scheduled_date ? new Date(b.scheduled_date).getTime() : 0
+      return dateB - dateA
+    })
+
+    const stageColor = (stage: Job['stage']) => {
+      if (stage === 'sold') return 'bg-cyan-400/20 text-cyan-400'
+      if (stage === 'crew_scheduled') return 'bg-blue-400/20 text-blue-400'
+      if (stage === 'in_progress') return 'bg-amber-400/20 text-amber-400'
+      if (stage === 'collected') return 'bg-green-400/20 text-green-400'
+      return 'bg-gray-400/20 text-gray-400'
+    }
+
+    return (
+      <div className="flex-1 overflow-y-auto pb-24">
+        <div className="px-4 pt-4 space-y-3">
+          <div className="flex items-center gap-2 mb-2">
+            <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+            <h2 className="text-base font-bold text-white ml-1">Timeline</h2>
+            <span className="ml-auto px-2 py-0.5 rounded-full bg-cyan-400/20 text-cyan-400 text-xs font-semibold">{jobs.length}</span>
+          </div>
+
+          {jobs.length === 0 ? (
+            <div className="text-center py-12">
+              <CalendarDays className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+              <p className="text-gray-400 text-sm">No jobs scheduled</p>
+              <p className="text-xs text-gray-500 mt-1">Create jobs from the desktop app</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {sortedJobs.map(job => {
+                const stage = JOB_STAGES.find(s => s.key === job.stage)
+                return (
+                  <div key={job.id} className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+                    <div className="flex justify-between items-start gap-2 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">{job.title || job.address}</p>
+                        {job.scheduled_date && (
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {new Date(job.scheduled_date).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                      <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-semibold ${stageColor(job.stage)}`}>
+                        {stage?.label}
+                      </span>
+                    </div>
+                    {job.contract_amount && (
+                      <p className="text-sm font-semibold text-green-400">${job.contract_amount.toLocaleString()}</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Mobile Team Chat ──────────────────────────────────────────────────────
+  const renderTeamMobile = () => {
+    return (
+      <div className="flex-1 overflow-y-auto pb-24">
+        <div className="px-4 pt-4 space-y-3">
+          <div className="flex items-center gap-2 mb-2">
+            <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+            <h2 className="text-base font-bold text-white ml-1">Team Chat</h2>
+          </div>
+
+          <div className="space-y-2">
+            {chatMessages.length === 0 ? (
+              <div className="text-center py-12">
+                <MessageSquare className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+                <p className="text-gray-400 text-sm">No messages yet</p>
+                <p className="text-xs text-gray-500 mt-1">Start a conversation with your team</p>
+              </div>
+            ) : (
+              chatMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`p-3 rounded-xl ${msg.role === 'user' ? 'bg-cyan-400/10 border border-cyan-400/20 ml-6' : 'bg-white/5 border border-white/10 mr-6'}`}
+                >
+                  <p className={msg.role === 'user' ? 'text-cyan-300' : 'text-gray-300'} style={{ fontSize: '13px' }}>
+                    {msg.content}
+                  </p>
+                </div>
+              ))
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          <div className="fixed bottom-24 left-0 right-0 px-4 pb-3 border-t border-white/10 bg-[#0d1117]">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !chatLoading && onSendChat()}
+                placeholder="Message team..."
+                className="flex-1 bg-[#161b22] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400/50"
+              />
+              <button
+                onClick={onSendChat}
+                disabled={chatLoading || !chatInput.trim()}
+                className="bg-cyan-400 text-[#0d1117] w-10 flex items-center justify-center rounded-lg disabled:opacity-50 active:scale-95"
+              >
+                {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const renderMore = () => (
     <div className="flex-1 overflow-y-auto pb-24">
       <div className="px-4 pt-4 space-y-2">
@@ -1135,6 +1709,11 @@ export default function MobileLayout(props: MobileLayoutProps) {
     if (mobileTab === 'more') {
       if (activeScreen === 'jobs') return renderJobs()
       if (activeScreen === 'settings') return renderSettings()
+      if (activeScreen === 'proposals') return renderProposals()
+      if (activeScreen === 'estimates') return renderEstimates()
+      if (activeScreen === 'materials') return renderMaterials()
+      if (activeScreen === 'timeline') return renderTimeline()
+      if (activeScreen === 'team') return renderTeamMobile()
       // Screens not yet mobile-optimised
       if (activeScreen !== 'dashboard' && activeScreen !== 'sweep' && activeScreen !== 'michael' && activeScreen !== 'clients') {
         return (
@@ -1152,7 +1731,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
               <div className="bg-[#161b22] border border-white/10 rounded-2xl p-6 text-center">
                 <p className="text-sm text-gray-400">This screen is optimized for desktop.</p>
                 <p className="text-xs text-gray-500 mt-2">Open on a larger screen for the full {activeScreen} experience.</p>
-                <p className="text-xs text-cyan-400 mt-3">Mobile: Dashboard, Sweep, Michael AI, Clients, Jobs, Settings</p>
+                <p className="text-xs text-cyan-400 mt-3">Mobile: All main screens now supported</p>
               </div>
             </div>
           </div>

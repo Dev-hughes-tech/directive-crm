@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
@@ -376,6 +376,14 @@ export default function Dashboard() {
     notify_status: true,
   })
 
+  // Admin user management state
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteFullName, setInviteFullName] = useState('')
+  const [inviteRole, setInviteRole] = useState<UserRole>('trial')
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteResult, setInviteResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [adminUsers, setAdminUsers] = useState<Array<{ id: string; email: string; full_name?: string; role: string; trial_ends_at?: string | null }>>([])
+
   // Notification helper function
   const addNotification = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
     const n: AppNotification = {
@@ -398,6 +406,13 @@ export default function Dashboard() {
       if (data.profile) {
         setUserProfile(data.profile)
         setUserRole(data.profile.role)
+        // Check if trial has expired
+        if (data.profile.trial_ends_at) {
+          const trialEnd = new Date(data.profile.trial_ends_at)
+          if (trialEnd < new Date()) {
+            addNotification('Your trial has expired. Upgrade to continue.', 'warning')
+          }
+        }
       } else {
         // Fallback: try direct Supabase
         const profile = await getUserProfile(userId)
@@ -410,6 +425,57 @@ export default function Dashboard() {
       else setUserRole('trial')
     }
   }
+
+  // Admin: load all users
+  const loadAdminUsers = useCallback(async () => {
+    if (userRole !== 'admin') return
+    try {
+      const res = await authFetch('/api/admin/users')
+      if (res.ok) {
+        const data = await res.json()
+        setAdminUsers(data.users || [])
+      }
+    } catch {
+      // Silently fail — admin may not be available
+    }
+  }, [userRole])
+
+  // Admin: invite a user
+  const handleInviteUser = async () => {
+    if (!inviteEmail) return
+    setInviteLoading(true)
+    setInviteResult(null)
+    try {
+      const res = await authFetch('/api/admin/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: inviteEmail,
+          role: inviteRole,
+          trial_days: inviteRole === 'trial' ? 7 : undefined,
+          full_name: inviteFullName || undefined,
+        })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setInviteResult({ ok: true, message: `Invitation sent to ${inviteEmail}` })
+        setInviteEmail('')
+        setInviteFullName('')
+        loadAdminUsers()
+      } else {
+        setInviteResult({ ok: false, message: data.error || 'Failed to invite user' })
+      }
+    } catch {
+      setInviteResult({ ok: false, message: 'Network error' })
+    } finally {
+      setInviteLoading(false)
+    }
+  }
+
+  // Load admin users when userRole becomes admin
+  useEffect(() => {
+    if (userRole === 'admin') loadAdminUsers()
+  }, [userRole, loadAdminUsers])
 
   // Auth check on mount
   useEffect(() => {
@@ -7179,6 +7245,88 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                 ))}
               </div>
             </section>
+
+            {/* Admin User Management */}
+            {userRole === 'admin' && (
+              <section className="mb-8 border-t border-white/10 pt-8">
+                <h3 className="text-sm font-semibold text-white mb-4">User Management</h3>
+
+                {/* Invite form */}
+                <div className="space-y-2 mb-6 bg-dark-700/50 rounded-lg p-4">
+                  <input
+                    value={inviteEmail}
+                    onChange={e => setInviteEmail(e.target.value)}
+                    placeholder="Email address"
+                    className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500"
+                  />
+                  <input
+                    value={inviteFullName}
+                    onChange={e => setInviteFullName(e.target.value)}
+                    placeholder="Full name (optional)"
+                    className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500"
+                  />
+                  <select
+                    value={inviteRole}
+                    onChange={e => setInviteRole(e.target.value as UserRole)}
+                    className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                  >
+                    <option value="trial">Trial (7 days)</option>
+                    <option value="basic">Basic</option>
+                    <option value="plus">Plus</option>
+                    <option value="pro">Pro</option>
+                    <option value="enterprise_rep">Enterprise Rep</option>
+                    <option value="enterprise_manager">Enterprise Manager</option>
+                  </select>
+                  <button
+                    onClick={handleInviteUser}
+                    disabled={!inviteEmail || inviteLoading}
+                    className="w-full bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90 disabled:opacity-50 transition-all"
+                  >
+                    {inviteLoading ? 'Sending...' : 'Invite User'}
+                  </button>
+                  {inviteResult && (
+                    <p className={`text-xs ${inviteResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+                      {inviteResult.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* User list */}
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {adminUsers.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-2">No users yet</p>
+                  ) : (
+                    adminUsers.map(u => (
+                      <div key={u.id} className="flex items-center justify-between p-3 bg-dark-700/50 rounded text-xs">
+                        <div className="flex-1">
+                          <p className="text-white font-medium">{u.full_name || u.email}</p>
+                          <p className="text-gray-400">
+                            {u.email}
+                            {u.trial_ends_at && ` · Trial until ${new Date(u.trial_ends_at).toLocaleDateString()}`}
+                          </p>
+                        </div>
+                        <select
+                          value={u.role}
+                          onChange={async (e) => {
+                            await authFetch('/api/admin/users', {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ userId: u.id, role: e.target.value })
+                            })
+                            loadAdminUsers()
+                          }}
+                          className="bg-dark-800 border border-white/10 rounded px-2 py-1 text-xs text-white ml-2"
+                        >
+                          {['trial', 'basic', 'plus', 'pro', 'enterprise_rep', 'enterprise_manager', 'admin'].map(r => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            )}
 
             {/* Save Button */}
             <section className="mb-8">
