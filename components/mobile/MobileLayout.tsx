@@ -8,11 +8,12 @@ import {
   Radio, ChevronRight, X, Plus, Send, Loader2,
   Home, Zap, Shield, Star, Clock, CheckCircle2
 } from 'lucide-react'
-import type { Property, Client, Proposal, Screen } from '@/lib/types'
+import type { Property, Client, Proposal, Job, Screen } from '@/lib/types'
 import type { WeatherCurrent, WeatherAlert } from '@/lib/types'
 import { getTierConfig, canAccess, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
-import { saveClient, saveProperty } from '@/lib/storage'
+import { saveClient, saveProperty, saveJob } from '@/lib/storage'
+import { JOB_STAGES } from '@/lib/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,16 @@ interface MobileLayoutProps {
 
   // Storm
   stormImpactZones: Array<{ zip: string; city: string; riskLevel: string; hailCount: number; tornadoCount: number }>
+
+  // Jobs (mobile pipeline)
+  jobs: Job[]
+  onSaveJob: (j: Job) => void
+
+  // Settings (mobile)
+  companySettings: { company_name: string; company_phone: string; license_number: string; home_city: string; service_radius: string; tax_rate: string; payment_terms: string; warranty_period: string; notify_storm: boolean; notify_leads: boolean; notify_status: boolean }
+  onSaveSettings: () => void
+  settingsSaved: boolean
+  setCompanySettings: (s: { company_name: string; company_phone: string; license_number: string; home_city: string; service_radius: string; tax_rate: string; payment_terms: string; warranty_period: string; notify_storm: boolean; notify_leads: boolean; notify_status: boolean }) => void
 }
 
 // ── Score color helper ────────────────────────────────────────────────────
@@ -102,6 +113,8 @@ export default function MobileLayout(props: MobileLayoutProps) {
     michaelZip, setMichaelZip, michaelLeadsLoading, michaelLeads, michaelStormData, onMichaelSearch,
     chatMessages, chatInput, setChatInput, chatLoading, onSendChat,
     stormImpactZones,
+    jobs, onSaveJob,
+    companySettings, onSaveSettings, settingsSaved, setCompanySettings,
   } = props
 
   const [showMore, setShowMore] = useState(false)
@@ -793,6 +806,123 @@ export default function MobileLayout(props: MobileLayoutProps) {
     )
   }
 
+  // ── Mobile Jobs ─────────────────────────────────────────────────────────────
+  const renderJobs = () => (
+    <div className="flex-1 overflow-y-auto pb-24">
+      <div className="px-4 pt-4">
+        <div className="flex items-center gap-2 mb-4">
+          <button onClick={() => { setMobileTab('more') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+          <h2 className="text-base font-bold text-white ml-1">Production Jobs</h2>
+          <span className="ml-auto px-2 py-0.5 rounded-full bg-cyan-400/20 text-cyan-400 text-xs font-semibold">{jobs.length}</span>
+        </div>
+
+        {jobs.length === 0 ? (
+          <div className="text-center py-12">
+            <Briefcase className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-400 text-sm">No jobs yet</p>
+            <p className="text-xs text-gray-500 mt-1">Create jobs from the desktop app</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {jobs.map(job => {
+              const stage = JOB_STAGES.find(s => s.key === job.stage)
+              const stages = JOB_STAGES.map(s => s.key)
+              const idx = stages.indexOf(job.stage)
+              const canAdvance = idx < stages.length - 1
+              return (
+                <div key={job.id} className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-white truncate">{job.title}</p>
+                      <p className="text-xs text-gray-400 truncate">{job.address}</p>
+                      {job.contract_amount && (
+                        <p className="text-xs text-green-400 mt-0.5 font-semibold">${job.contract_amount.toLocaleString()}</p>
+                      )}
+                    </div>
+                    <span className="flex-shrink-0 px-2 py-0.5 rounded text-xs font-medium"
+                      style={{ backgroundColor: (stage?.color || '#666') + '33', color: stage?.color || '#999' }}>
+                      {stage?.label}
+                    </span>
+                  </div>
+                  {/* Stage progress bar */}
+                  <div className="flex gap-0.5 mb-3">
+                    {JOB_STAGES.map((s, i) => (
+                      <div key={s.key} className="flex-1 h-1 rounded-full"
+                        style={{ backgroundColor: i <= idx ? s.color : '#374151' }} />
+                    ))}
+                  </div>
+                  {canAdvance && (
+                    <button
+                      onClick={async () => {
+                        const nextStage = stages[idx + 1]
+                        const updated = { ...job, stage: nextStage as Job['stage'] }
+                        await saveJob(updated)
+                        onSaveJob(updated)
+                      }}
+                      className="w-full py-2 rounded-lg text-xs font-semibold bg-cyan-400/20 text-cyan-400 active:bg-cyan-400/30 transition-colors"
+                    >
+                      Advance → {JOB_STAGES[idx + 1]?.label}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
+  // ── Mobile Settings ───────────────────────────────────────────────────────
+  const renderSettings = () => (
+    <div className="flex-1 overflow-y-auto pb-24">
+      <div className="px-4 pt-4 space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <button onClick={() => { setMobileTab('more') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+          <h2 className="text-base font-bold text-white ml-1">Settings</h2>
+        </div>
+
+        <div className="bg-[#161b22] border border-white/10 rounded-xl p-4 space-y-3">
+          <p className="text-xs text-gray-400 uppercase tracking-wide mb-3">Company</p>
+          {[
+            { label: 'Company Name', key: 'company_name' as const, placeholder: 'Your Company' },
+            { label: 'Phone', key: 'company_phone' as const, placeholder: '(555) 000-0000' },
+            { label: 'License #', key: 'license_number' as const, placeholder: 'License number' },
+          ].map(({ label, key, placeholder }) => (
+            <div key={key}>
+              <p className="text-xs text-gray-400 mb-1">{label}</p>
+              <input
+                type="text"
+                value={companySettings[key]}
+                onChange={e => setCompanySettings({ ...companySettings, [key]: e.target.value })}
+                placeholder={placeholder}
+                className="w-full bg-[#0d1117] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400/50"
+              />
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={onSaveSettings}
+          className={`w-full py-3 rounded-xl text-sm font-bold transition-all ${settingsSaved ? 'bg-green-500/20 text-green-400' : 'bg-cyan-400/20 text-cyan-400 active:bg-cyan-400/30'}`}
+        >
+          {settingsSaved ? '✓ Saved!' : 'Save Settings'}
+        </button>
+
+        <div className="bg-[#161b22] border border-white/10 rounded-xl p-4">
+          <p className="text-xs text-gray-400 mb-1">Account</p>
+          <p className="text-sm text-white mb-3">{user?.email}</p>
+          <button
+            onClick={onSignOut}
+            className="w-full py-2.5 rounded-lg text-sm font-semibold bg-red-500/10 text-red-400 border border-red-500/20"
+          >
+            Sign Out
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
   const renderMore = () => (
     <div className="flex-1 overflow-y-auto pb-24">
       <div className="px-4 pt-4 space-y-2">
@@ -850,28 +980,33 @@ export default function MobileLayout(props: MobileLayoutProps) {
 
   // ── Render current screen content ─────────────────────────────────────────
   const renderContent = () => {
-    // Map activeScreen to content — for screens not in bottom nav
-    if (mobileTab === 'more' && activeScreen !== 'dashboard' && activeScreen !== 'sweep' && activeScreen !== 'michael' && activeScreen !== 'clients') {
-      return (
-        <div className="flex-1 overflow-y-auto pb-24">
-          <button
-            onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }}
-            className="flex items-center gap-2 px-4 pt-4 text-cyan-400 text-sm active:opacity-70 mb-3"
-          >
-            Back
-          </button>
-          <div className="px-4">
-            <p className="text-lg font-bold text-white mb-4">
-              {activeScreen.charAt(0).toUpperCase() + activeScreen.slice(1).replace('-', ' ')}
-            </p>
-            <div className="bg-[#161b22] border border-white/10 rounded-2xl p-6 text-center">
-              <p className="text-sm text-gray-400">This screen is optimized for desktop.</p>
-              <p className="text-xs text-gray-500 mt-2">Open on a larger screen for the full {activeScreen} experience.</p>
-              <p className="text-xs text-cyan-400 mt-3">Core features available on mobile: Dashboard, Sweep, Michael AI, Clients</p>
+    // Screens with full mobile renderers
+    if (mobileTab === 'more') {
+      if (activeScreen === 'jobs') return renderJobs()
+      if (activeScreen === 'settings') return renderSettings()
+      // Screens not yet mobile-optimised
+      if (activeScreen !== 'dashboard' && activeScreen !== 'sweep' && activeScreen !== 'michael' && activeScreen !== 'clients') {
+        return (
+          <div className="flex-1 overflow-y-auto pb-24">
+            <button
+              onClick={() => { setMobileTab('more') }}
+              className="flex items-center gap-2 px-4 pt-4 text-cyan-400 text-sm active:opacity-70 mb-3"
+            >
+              ← Back
+            </button>
+            <div className="px-4">
+              <p className="text-lg font-bold text-white mb-4">
+                {activeScreen.charAt(0).toUpperCase() + activeScreen.slice(1).replace('-', ' ')}
+              </p>
+              <div className="bg-[#161b22] border border-white/10 rounded-2xl p-6 text-center">
+                <p className="text-sm text-gray-400">This screen is optimized for desktop.</p>
+                <p className="text-xs text-gray-500 mt-2">Open on a larger screen for the full {activeScreen} experience.</p>
+                <p className="text-xs text-cyan-400 mt-3">Mobile: Dashboard, Sweep, Michael AI, Clients, Jobs, Settings</p>
+              </div>
             </div>
           </div>
-        </div>
-      )
+        )
+      }
     }
 
     switch (mobileTab) {

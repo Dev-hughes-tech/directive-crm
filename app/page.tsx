@@ -2005,6 +2005,32 @@ Only respond with the JSON array, no other text.` }
         chatLoading={chatLoading}
         onSendChat={handleSendChat}
         stormImpactZones={stormImpactZones}
+        jobs={jobs}
+        onSaveJob={(j) => setJobs(prev => prev.map(x => x.id === j.id ? j : x))}
+        companySettings={companySettings}
+        onSaveSettings={async () => {
+          localStorage.setItem('directive_company_settings', JSON.stringify(companySettings))
+          await saveCompanySettings({
+            company_name: companySettings.company_name,
+            company_phone: companySettings.company_phone,
+            company_email: '',
+            license_number: companySettings.license_number,
+            service_radius_miles: parseInt(companySettings.service_radius) || 25,
+            tax_rate: parseFloat(companySettings.tax_rate) / 100 || 0,
+            default_warranty_years: parseInt(companySettings.warranty_period) || 2,
+            default_payment_terms: companySettings.payment_terms,
+            notification_prefs: {
+              home_city: companySettings.home_city,
+              notify_storm: companySettings.notify_storm,
+              notify_leads: companySettings.notify_leads,
+              notify_status: companySettings.notify_status,
+            },
+          })
+          setSettingsSaved(true)
+          setTimeout(() => setSettingsSaved(false), 2000)
+        }}
+        settingsSaved={settingsSaved}
+        setCompanySettings={setCompanySettings}
       />
     )
   }
