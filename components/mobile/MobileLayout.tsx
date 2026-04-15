@@ -6,7 +6,7 @@ import {
   Search, MapPin, Cloud, AlertTriangle, Phone, Mail,
   FileText, Package, MessageSquare, Briefcase, Settings,
   Radio, ChevronRight, X, Plus, Send, Loader2,
-  Home, Zap, Shield, Star, Clock, CheckCircle2
+  Home, Zap, Shield, Star, Clock, CheckCircle2, CalendarDays
 } from 'lucide-react'
 import type { Property, Client, Proposal, Job, Screen } from '@/lib/types'
 import type { WeatherCurrent, WeatherAlert } from '@/lib/types'
@@ -932,6 +932,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
           { screen: 'territory' as Screen, label: 'Territory', icon: MapPin, desc: 'Property map & route planning', color: 'text-blue-400 bg-blue-400/10' },
           { screen: 'stormscope' as Screen, label: 'StormScope', icon: Radio, desc: 'Live radar & storm alerts', color: 'text-amber-400 bg-amber-400/10' },
           { screen: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, desc: 'Production pipeline & insurance', color: 'text-orange-400 bg-orange-400/10' },
+          { screen: 'timeline' as Screen, label: 'Timeline', icon: CalendarDays, desc: 'Job milestones & activity', color: 'text-cyan-400 bg-cyan-400/10' },
           { screen: 'proposals' as Screen, label: 'Proposals', icon: FileText, desc: 'Create & manage proposals', color: 'text-yellow-400 bg-yellow-400/10' },
           { screen: 'materials' as Screen, label: 'Materials', icon: Package, desc: 'Calculator & estimating', color: 'text-green-400 bg-green-400/10' },
           { screen: 'team' as Screen, label: 'Team', icon: MessageSquare, desc: 'Chat with your team', color: 'text-purple-400 bg-purple-400/10' },

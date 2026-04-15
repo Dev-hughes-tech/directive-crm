@@ -46,6 +46,8 @@ import {
   Voicemail,
   Inbox,
   CheckCircle,
+  CalendarDays,
+  Activity,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
@@ -85,7 +87,7 @@ const HQ_CITY = 'Huntsville, AL'
 
 const VALID_SCREENS: readonly Screen[] = [
   'dashboard', 'territory', 'sweep', 'stormscope', 'michael',
-  'clients', 'proposals', 'materials', 'team', 'jobs', 'settings',
+  'clients', 'proposals', 'materials', 'team', 'jobs', 'timeline', 'settings',
 ] as const
 
 function readInitialScreen(): Screen {
@@ -1629,6 +1631,7 @@ Only respond with the JSON array, no other text.` }
               { id: 'proposals' as Screen, label: 'Proposals', icon: FileText, feature: 'proposals' as const },
               { id: 'materials' as Screen, label: 'Materials', icon: Package, feature: 'materials' as const },
               { id: 'team' as Screen, label: 'Team', icon: MessageSquare, feature: 'team' as const },
+              { id: 'timeline' as Screen, label: 'Timeline', icon: CalendarDays, feature: 'jobs' as const },
               { id: 'settings' as Screen, label: 'Settings', icon: Settings, feature: 'settings' as const },
             ].map((tab) => {
               const Icon = tab.icon
@@ -6251,6 +6254,110 @@ Only respond with the JSON array, no other text.` }
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* SCREEN: TIMELINE */}
+      {activeScreen === 'timeline' && (
+        <div className="absolute inset-4 top-[184px] z-30 flex flex-col gap-4 overflow-y-auto">
+          {/* Job Milestones Timeline */}
+          <div className="glass rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-cyan" />
+              Job Pipeline Timeline
+            </h2>
+            {jobs.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-8">No jobs yet — create one from the Jobs tab</p>
+            ) : (
+              <div className="space-y-6">
+                {jobs.map(job => {
+                  const currentStageIdx = JOB_STAGES.findIndex(s => s.key === job.stage)
+                  return (
+                    <div key={job.id} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-white">{job.title}</p>
+                        <span className="text-xs text-gray-400">{job.address}</span>
+                      </div>
+                      <div className="relative flex items-center">
+                        {/* Connecting line */}
+                        <div className="absolute left-0 right-0 h-0.5 bg-dark-700" />
+                        {/* Stage dots */}
+                        <div className="relative flex justify-between w-full">
+                          {JOB_STAGES.map((stage, idx) => {
+                            const isDone = idx <= currentStageIdx
+                            const isCurrent = idx === currentStageIdx
+                            return (
+                              <div key={stage.key} className="flex flex-col items-center gap-1 z-10">
+                                <div
+                                  className={`w-4 h-4 rounded-full border-2 transition-all ${
+                                    isCurrent
+                                      ? 'border-cyan bg-cyan shadow-[0_0_8px_rgba(6,182,212,0.6)]'
+                                      : isDone
+                                      ? 'border-green bg-green'
+                                      : 'border-dark-500 bg-dark-800'
+                                  }`}
+                                />
+                                <span className="text-[9px] text-gray-500 text-center max-w-[52px] leading-tight hidden md:block">
+                                  {stage.label}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                      {job.contract_amount && (
+                        <p className="text-xs text-green">${job.contract_amount.toLocaleString()}</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Activity Feed */}
+          <div className="glass rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Activity className="w-5 h-5 text-cyan" />
+              Activity Feed
+            </h2>
+            {(() => {
+              let allActivity: Array<{ action: string; timestamp: string; clientId: string }> = []
+              try {
+                const stored = localStorage.getItem('directive_client_activities')
+                if (stored) {
+                  const parsed = JSON.parse(stored) as Record<string, Array<{ action: string; timestamp: string }>>
+                  Object.entries(parsed).forEach(([clientId, acts]) => {
+                    acts.forEach(a => allActivity.push({ ...a, clientId }))
+                  })
+                }
+              } catch { /* ignore */ }
+              allActivity.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+              if (allActivity.length === 0) {
+                return <p className="text-sm text-gray-400 text-center py-8">No activity yet — interactions will appear here</p>
+              }
+              return (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {allActivity.slice(0, 50).map((item, i) => {
+                    const client = clients.find(c => c.id === item.clientId)
+                    const prop = properties.find(p => p.id === client?.property_id)
+                    return (
+                      <div key={i} className="flex items-start gap-3 p-2 rounded bg-dark-700/30">
+                        <div className="w-1.5 h-1.5 rounded-full bg-cyan mt-1.5 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-white">{item.action}</p>
+                          {prop && <p className="text-[11px] text-gray-500 mt-0.5">{prop.address}</p>}
+                        </div>
+                        <span className="text-[10px] text-gray-600 flex-shrink-0">
+                          {new Date(item.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </div>
         </div>
       )}
 
