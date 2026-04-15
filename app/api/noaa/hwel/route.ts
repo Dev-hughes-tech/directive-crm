@@ -4,7 +4,7 @@ import { validateCoords } from '@/lib/validate'
 
 export const maxDuration = 45
 
-const SWDI = 'https://www.ncei.noaa.gov/swdiws/json'
+const SWDI = 'https://www.ncdc.noaa.gov/swdiws/json'
 const MESONET = 'https://mesonet.agron.iastate.edu/geojson/hail.php'
 
 // Historical Weather Event Library (HWEL) — comprehensive 10-year storm archive
@@ -34,10 +34,19 @@ export async function GET(request: NextRequest) {
     // Try Iowa State Mesonet first for radar hail (primary source)
     let radarHailData: any[] = []
     try {
-      const mesoRes = await fetch(`${MESONET}?lon=${lng}&lat=${lat}&radius=${radiusMiles}`, {
+      const sts = start.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      const ets = now.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      const mesoUrl = `${MESONET}?lon=${lng}&lat=${lat}&radius=${radiusMiles}&sts=${sts}&ets=${ets}`
+      const mesoRes = await fetch(mesoUrl, {
         headers,
-        signal: AbortSignal.timeout(8000),
-      }).then(r => r.ok ? r.json() : null)
+        signal: AbortSignal.timeout(20000),
+      }).then(r => {
+        if (!r.ok) {
+          console.warn(`[noaa/hwel] Mesonet HTTP ${r.status}`)
+          return null
+        }
+        return r.json()
+      })
 
       if (mesoRes?.features && Array.isArray(mesoRes.features) && mesoRes.features.length > 0) {
         radarHailData = mesoRes.features.map((feature: any) => ({
@@ -53,21 +62,42 @@ export async function GET(request: NextRequest) {
           severeProb: feature.properties.sevprob ? parseInt(feature.properties.sevprob) : null,
         }))
       }
-    } catch {
-      // Mesonet failed, will fall back to NOAA
+    } catch (err) {
+      console.warn('[noaa/hwel] Mesonet error:', String(err).slice(0, 200))
     }
 
     // Fetch spotter reports + mesocyclone detections in parallel; fallback hail if Mesonet empty
     const [plsrRes, fallbackHailRes, mesoRes] = await Promise.allSettled([
-      fetch(`${SWDI}/plsr/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(20000) })
-        .then(r => r.ok ? r.json() : { result: [] }),
+      fetch(`${SWDI}/plsr/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(25000) })
+        .then(async r => {
+          if (!r.ok) {
+            const body = await r.text().catch(() => '')
+            console.warn(`[noaa/hwel] plsr HTTP ${r.status} body=${body.slice(0, 200)}`)
+            return { result: [] }
+          }
+          return r.json()
+        }),
       // Fallback NOAA radar hail only if Mesonet had no data
       radarHailData.length === 0
-        ? fetch(`${SWDI}/nx3hail/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(20000) })
-          .then(r => r.ok ? r.json() : { result: [] })
+        ? fetch(`${SWDI}/nx3hail/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(25000) })
+          .then(async r => {
+            if (!r.ok) {
+              const body = await r.text().catch(() => '')
+              console.warn(`[noaa/hwel] nx3hail HTTP ${r.status} body=${body.slice(0, 200)}`)
+              return { result: [] }
+            }
+            return r.json()
+          })
         : Promise.resolve({ result: [] }),
-      fetch(`${SWDI}/nx3meso/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(20000) })
-        .then(r => r.ok ? r.json() : { result: [] }),
+      fetch(`${SWDI}/nx3meso/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(25000) })
+        .then(async r => {
+          if (!r.ok) {
+            const body = await r.text().catch(() => '')
+            console.warn(`[noaa/hwel] nx3meso HTTP ${r.status} body=${body.slice(0, 200)}`)
+            return { result: [] }
+          }
+          return r.json()
+        }),
     ])
 
     const plsrData = plsrRes.status === 'fulfilled' ? (plsrRes.value.result || []) : []

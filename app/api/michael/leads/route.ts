@@ -69,7 +69,7 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
     const eventTypeFilter = eventType === 'hail' ? "EVENT_TYPE='Hail'"
       : eventType === 'torn' ? "EVENT_TYPE='Tornado'"
       : "EVENT_TYPE IN ('Thunderstorm Wind','High Wind','Strong Wind')"
-    const dateFilter = `BEGIN_DATE_TIME>=DATE '${yearStart}-01-01' AND BEGIN_DATE_TIME<=DATE '${yearEnd}-12-31'`
+    const dateFilter = `BEGIN_DATE_TIME >= '${yearStart}-01-01 00:00:00' AND BEGIN_DATE_TIME <= '${yearEnd}-12-31 23:59:59'`
     const where = encodeURIComponent(`${eventTypeFilter} AND ${dateFilter}`)
     const geom = encodeURIComponent(JSON.stringify({ xmin, ymin, xmax, ymax, spatialReference: { wkid: 4326 } }))
     const url = `https://services.arcgis.com/XG15cJAlne2vxtgt/arcgis/rest/services/NOAA_Storm_Events_1950_Present/FeatureServer/0/query?where=${where}&geometry=${geom}&geometryType=esriGeometryEnvelope&inSR=4326&outFields=*&f=json&resultRecordCount=1000`
@@ -116,9 +116,11 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
   // ── Source 2: Iowa State Mesonet hail.php ──
   if (eventType === 'hail') {
     try {
+      const sts = `${yearStart}-01-01T00:00:00Z`
+      const ets = `${yearEnd}-12-31T23:59:59Z`
       const res = await fetch(
-        `https://mesonet.agron.iastate.edu/geojson/hail.php?lon=${lng}&lat=${lat}&radius=${radius}`,
-        { headers: h, signal: AbortSignal.timeout(15000) }
+        `https://mesonet.agron.iastate.edu/geojson/hail.php?lon=${lng}&lat=${lat}&radius=${radius}&sts=${sts}&ets=${ets}`,
+        { headers: h, signal: AbortSignal.timeout(20000) }
       )
       if (res.ok) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -168,10 +170,14 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
     const endStr = fmtDate(chunk[chunk.length - 1], 12, 31)
     try {
       const res = await fetch(
-        `https://www.ncei.noaa.gov/swdiws/json/plsr/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radius}`,
-        { headers: h, signal: AbortSignal.timeout(10000) }
+        `https://www.ncdc.noaa.gov/swdiws/json/plsr/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radius}`,
+        { headers: h, signal: AbortSignal.timeout(20000) }
       )
-      if (!res.ok) return
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        console.warn(`[michael/leads] plsr ${startStr}:${endStr} HTTP ${res.status} body=${body.slice(0, 200)}`)
+        return
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data: any = await res.json()
       if (data?.result?.length) {
@@ -182,7 +188,9 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
         results.push(...tagged)
         plsrCount += tagged.length
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn(`[michael/leads] plsr chunk ${startStr}:${endStr} error:`, String(err).slice(0, 200))
+    }
   }))
   sourceCounts.plsr = plsrCount
 
@@ -194,10 +202,14 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
       const endStr = fmtDate(chunk[chunk.length - 1], 12, 31)
       try {
         const res = await fetch(
-          `https://www.ncei.noaa.gov/swdiws/json/nx3hail/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radius}`,
-          { headers: h, signal: AbortSignal.timeout(12000) }
+          `https://www.ncdc.noaa.gov/swdiws/json/nx3hail/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radius}`,
+          { headers: h, signal: AbortSignal.timeout(20000) }
         )
-        if (!res.ok) return
+        if (!res.ok) {
+          const body = await res.text().catch(() => '')
+          console.warn(`[michael/leads] nx3hail ${startStr}:${endStr} HTTP ${res.status} body=${body.slice(0, 200)}`)
+          return
+        }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: any = await res.json()
         if (data?.result?.length) {
@@ -213,7 +225,9 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
           results.push(...normalized)
           nx3Count += normalized.length
         }
-      } catch { /* ignore */ }
+      } catch (err) {
+        console.warn(`[michael/leads] nx3hail chunk ${startStr}:${endStr} error:`, String(err).slice(0, 200))
+      }
     }))
     sourceCounts.nx3hail = nx3Count
   }
@@ -281,8 +295,16 @@ export async function POST(request: NextRequest) {
   for (let y = startYear; y <= currentYear; y++) byYear[y] = { hail: 0, tornado: 0, wind: 0, maxHail: 0 }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parseYr = (z: any): number => {
+    const s = String(z || '')
+    const yr = parseInt(s.slice(0, 4))
+    if (yr && !isNaN(yr)) return yr
+    const d = new Date(s)
+    return !isNaN(d.getTime()) ? d.getUTCFullYear() : 0
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   hailFeatures.forEach((f: any) => {
-    const yr = parseInt((f.ZTIME || '').slice(0, 4))
+    const yr = parseYr(f.ZTIME)
     if (byYear[yr]) {
       byYear[yr].hail++
       byYear[yr].maxHail = Math.max(byYear[yr].maxHail, f.MAGNITUDE ? parseFloat(f.MAGNITUDE) : 0)
@@ -290,12 +312,12 @@ export async function POST(request: NextRequest) {
   })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tornadoFeatures.forEach((f: any) => {
-    const yr = parseInt((f.ZTIME || '').slice(0, 4))
+    const yr = parseYr(f.ZTIME)
     if (byYear[yr]) byYear[yr].tornado++
   })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   windFeatures.forEach((f: any) => {
-    const yr = parseInt((f.ZTIME || '').slice(0, 4))
+    const yr = parseYr(f.ZTIME)
     if (byYear[yr]) byYear[yr].wind++
   })
 
