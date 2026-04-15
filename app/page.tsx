@@ -326,7 +326,7 @@ export default function Dashboard() {
   // Dashboard enhanced state
   const [dashboardTab, setDashboardTab] = useState<'overview' | 'storm-leads' | 'michael-leads' | 'historical' | 'analytics'>('overview')
   const [weatherZip, setWeatherZip] = useState('')
-  const [stormOverlay, setStormOverlay] = useState(false)
+  // Storm overlay belongs in StormScope, not Territory Map. Territory is for the rep's working area only.
   const [dashWeather, setDashWeather] = useState<WeatherCurrent | null>(null)
   const [dashAlerts, setDashAlerts] = useState<WeatherAlert[]>([])
   const [recentAlerts90d, setRecentAlerts90d] = useState<any[]>([])
@@ -1733,25 +1733,31 @@ export default function Dashboard() {
   ] as string[])).sort()
   const repColorMap = Object.fromEntries(repNames.map((name, i) => [name, REP_COLOR_PALETTE[i % REP_COLOR_PALETTE.length]]))
 
-  // Territory markers
+  // Territory markers — color-coded by workflow status, NOT storm data.
+  // Priority (highest wins): Active Job → Negotiation → Proposal → Knocked → Unvisited
   const territoryMarkers: MapMarker[] = properties.map((p) => {
-    const score = calculateLeadScore(p)
-    let color: 'green' | 'amber' | 'red' | 'cyan'
-    if (stormOverlay && p.storm_history) {
-      color = p.storm_history.stormRiskLevel === 'high' ? 'red'
-        : p.storm_history.stormRiskLevel === 'moderate' ? 'amber'
-        : 'cyan'
+    const client = clients.find(c => c.property_id === p.id)
+    const job = jobs.find(j => j.property_id === p.id)
+    const proposal = proposals.find(pr => pr.property_id === p.id)
+
+    let color: 'green' | 'amber' | 'red' | 'cyan' = 'cyan'
+    // Active Job — work is in progress (any job not marked complete)
+    if (job && job.status !== 'complete') {
+      color = 'green'
+    } else if (proposal && proposal.status === 'sent') {
+      // Negotiation — proposal has been sent, awaiting response
+      color = 'amber'
+    } else if (proposal && (proposal.status === 'draft' || proposal.status === 'accepted')) {
+      // Proposal — drafted or accepted but not yet scheduled as a job
+      color = 'cyan'
+    } else if (client && (client.status === 'new_lead' || client.status === 'contacted')) {
+      // Knocked — rep visited, no proposal yet
+      color = 'red'
     } else {
-      // Use rep color if assigned, otherwise fall back to lead score
-      const client = clients.find(c => c.property_id === p.id)
-      const job = jobs.find(j => j.property_id === p.id)
-      const rep = client?.assigned_to || job?.crew_lead
-      if (rep && repColorMap[rep]) {
-        color = repColorMap[rep]
-      } else {
-        color = score >= 70 ? 'green' : score >= 50 ? 'amber' : 'red'
-      }
+      // Unvisited — property exists in territory but no workflow activity
+      color = 'cyan'
     }
+
     return {
       id: p.id,
       lat: p.lat,
@@ -2947,46 +2953,28 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Storm Overlay Toggle */}
-              <button
-                onClick={() => setStormOverlay(v => !v)}
-                className={`w-full mb-3 text-sm px-3 py-2 rounded-lg transition-all flex items-center justify-center gap-2 font-semibold ${
-                  stormOverlay
-                    ? 'bg-red/20 text-red border border-red/40'
-                    : 'bg-dark-700 hover:bg-dark-700/80 text-gray-300'
-                }`}
-              >
-                <span>⛈</span>
-                {stormOverlay ? 'Storm Overlay ON' : 'Storm Overlay'}
-              </button>
-              {stormOverlay && (
-                <div className="flex gap-2 text-[10px] mb-3 px-1">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red inline-block" />High</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber inline-block" />Moderate</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan inline-block" />Low/Unknown</span>
-                </div>
-              )}
-              {!stormOverlay && repNames.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Rep Territory</p>
-                  <div className="space-y-1">
-                    {repNames.map((rep) => {
-                      const c = repColorMap[rep]
-                      const dot = c === 'cyan' ? 'bg-cyan' : c === 'green' ? 'bg-green' : c === 'amber' ? 'bg-amber' : 'bg-red'
-                      return (
-                        <div key={rep} className="flex items-center gap-2 text-[11px] text-gray-300">
-                          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dot}`} />
-                          <span className="truncate">{rep}</span>
-                        </div>
-                      )
-                    })}
-                    <div className="flex items-center gap-2 text-[11px] text-gray-500">
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-gray-600" />
-                      <span>Unassigned</span>
-                    </div>
+              {/* Workflow Status Legend — color meaning for every pin in the rep's territory */}
+              <div className="mb-3">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Pin Status</p>
+                <div className="space-y-1 text-[11px] text-gray-300">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-green" />
+                    <span>Active Job</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-amber" />
+                    <span>Negotiation</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-cyan" />
+                    <span>Proposal</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-red" />
+                    <span>Knocked</span>
                   </div>
                 </div>
-              )}
+              </div>
 
               {/* Satellite Snapshot Button */}
               <button
