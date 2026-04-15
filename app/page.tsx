@@ -846,10 +846,12 @@ export default function Dashboard() {
     setNotifications(prev => [n, ...prev].slice(0, 50))
   }
 
-  // Fetch profile via server API (bypasses RLS)
+  // Fetch profile via server API (bypasses RLS) — 6s timeout so auth never hangs
   const fetchProfileServer = async (userId: string) => {
     try {
-      const res = await authFetch(`/api/profile?userId=${userId}`)
+      const res = await authFetch(`/api/profile?userId=${userId}`, {
+        signal: AbortSignal.timeout(6000),
+      })
       const data = await res.json()
       if (data.profile) {
         setUserProfile(data.profile)
@@ -869,7 +871,11 @@ export default function Dashboard() {
 
   // Auth check on mount
   useEffect(() => {
+    // Safety net: never let the spinner show forever — force-clear after 10s
+    const authTimeout = setTimeout(() => setAuthLoading(false), 10_000)
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      clearTimeout(authTimeout)
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email })
         await fetchProfileServer(session.user.id)
