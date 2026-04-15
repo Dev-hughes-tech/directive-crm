@@ -167,76 +167,120 @@ export async function POST(request: NextRequest) {
     if (byYear[yr]) byYear[yr].wind++
   })
 
-  // 6. Generate AI-scored leads using storm data
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
-  let leads: Array<{ address: string; reason: string; score: number; source: string; roofAge: number | null; stormHits: number }> = []
+  // 6. Pull REAL residential addresses from Google around the ZIP center
+  // Grid-sample ~4mi radius with reverse geocoding to get actual street addresses
+  type Lead = { address: string; reason: string; score: number; source: string; roofAge: number | null; stormHits: number; lat: number | null; lng: number | null; placeId: string | null }
+  let leads: Lead[] = []
 
-  if (anthropicKey) {
+  const mapsKey = process.env.MAPS_API_KEY
+  if (mapsKey) {
     try {
-      const Anthropic = (await import('@anthropic-ai/sdk')).default
-      const client = new Anthropic({ apiKey: anthropicKey })
+      // Generate a 5x5 grid over ~4mi radius (6437m) around ZIP center
+      const radiusMeters = 6437
+      const gridSize = 5
+      const latDeg = radiusMeters / 111320
+      const lngDeg = radiusMeters / (111320 * Math.cos(geo.lat * Math.PI / 180))
+      const stepLat = (2 * latDeg) / gridSize
+      const stepLng = (2 * lngDeg) / gridSize
 
-      const stormSummary = `ZIP: ${zip} (${geo.city}, ${geo.state})
-10-Year Storm History (${startYear}–${currentYear}):
-- Total hail events: ${hailFeatures.length} (${severeHail.length} severe, 1.5"+ diameter)
-- Max hail size recorded: ${maxHailSize.toFixed(2)}"
-- Tornado events: ${tornadoFeatures.length}
-- High wind events: ${windFeatures.length}
-- Overall risk level: ${riskLevel}
+      const points: { lat: number; lng: number }[] = []
+      for (let i = 0; i < gridSize; i++) {
+        for (let j = 0; j < gridSize; j++) {
+          points.push({
+            lat: geo.lat - latDeg + stepLat * (i + 0.5),
+            lng: geo.lng - lngDeg + stepLng * (j + 0.5),
+          })
+        }
+      }
 
-Year-by-year breakdown:
-${Object.entries(byYear).map(([yr, d]) => `  ${yr}: ${d.hail} hail${d.maxHail > 0 ? ` (max ${d.maxHail.toFixed(1)}")` : ''}, ${d.tornado} tornado, ${d.wind} wind`).join('\n')}`
+      // Reverse-geocode each grid point in parallel
+      const geoResults = await Promise.allSettled(
+        points.map(async pt => {
+          const res = await fetch(
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${pt.lat},${pt.lng}&result_type=street_address|premise&key=${mapsKey}`,
+            { signal: AbortSignal.timeout(6000) }
+          )
+          if (!res.ok) return null
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const data: any = await res.json()
+          return data.results?.[0] ?? null
+        })
+      )
 
-      const response = await client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1500,
-        messages: [{
-          role: 'user',
-          content: `You are Michael, the Directive CRM lead generation AI for roofing contractors.
+      // Deduplicate by place_id
+      const seenIds = new Set<string>()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const unique: any[] = []
+      for (const r of geoResults) {
+        if (r.status !== 'fulfilled' || !r.value) continue
+        const pid: string = r.value.place_id
+        if (seenIds.has(pid)) continue
+        seenIds.add(pid)
+        unique.push(r.value)
+      }
 
-${stormSummary}
+      // Score each real address against storm data
+      // Weight: nearby hail count (within ~1 mi) × severity × random roof-age simulated factor
+      const milesBetween = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+        const R = 3959
+        const dLat = (lat2 - lat1) * Math.PI / 180
+        const dLng = (lng2 - lng1) * Math.PI / 180
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+        return 2 * R * Math.asin(Math.sqrt(a))
+      }
 
-Based on this 10-year storm impact data, generate 8 high-priority roofing leads for this ZIP code.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const scored = unique.map((addr: any) => {
+        const lat: number = addr.geometry?.location?.lat ?? geo.lat
+        const lng: number = addr.geometry?.location?.lng ?? geo.lng
+        // Count hail events within 1 mile of this address
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const nearbyHail = hailFeatures.filter((f: any) => {
+          if (!f.LAT || !f.LON) return false
+          return milesBetween(lat, lng, f.LAT, f.LON) <= 1
+        })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const nearbySevere = nearbyHail.filter((f: any) => f.MAGNITUDE && parseFloat(f.MAGNITUDE) >= 1.5)
+        const maxNearbyHail = nearbyHail.reduce(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (m: number, f: any) => Math.max(m, f.MAGNITUDE ? parseFloat(f.MAGNITUDE) : 0),
+          0
+        )
 
-Rules:
-- Leads are RESIDENTIAL properties (houses, not commercial)
-- Score based on: storm frequency × roof age likelihood × market opportunity
-- Properties built before 2005 = likely roof 20+ years old = top priority
-- Areas with 1.5"+ hail = almost certain roof damage = score 85+
-- Do NOT make up specific addresses — instead describe neighborhood types and street types that would be prime targets (e.g. "Older residential streets in the 35801 core", "Pre-2000 ranch homes near the storm corridor")
-- Each lead should have a specific actionable reason
+        // Base score: storm-driven (0-100)
+        let score = 50
+        score += Math.min(nearbyHail.length * 4, 20)        // up to +20 for frequency
+        score += Math.min(nearbySevere.length * 6, 20)      // up to +20 for severe hail nearby
+        score += Math.min(Math.round(maxNearbyHail * 5), 10) // up to +10 for max hail size
+        if (riskLevel === 'Critical') score += 5
+        else if (riskLevel === 'High') score += 3
+        score = Math.min(Math.max(score, 30), 99)
 
-Return ONLY this JSON array, no other text:
-[
-  {
-    "address": "Describe the target area/street type within ZIP ${zip}",
-    "reason": "Specific reason this is a hot lead based on storm data",
-    "score": 92,
-    "source": "NOAA 10yr Storm Analysis",
-    "roofAge": 22,
-    "stormHits": 4
-  }
-]`
-        }]
+        const reason = nearbySevere.length > 0
+          ? `${nearbySevere.length} severe hail hit${nearbySevere.length > 1 ? 's' : ''} within 1 mi${maxNearbyHail > 0 ? ` (max ${maxNearbyHail.toFixed(1)}")` : ''} — likely roof damage`
+          : nearbyHail.length > 0
+            ? `${nearbyHail.length} hail event${nearbyHail.length > 1 ? 's' : ''} within 1 mi over past 10 years`
+            : `In ZIP-wide storm corridor (${hailFeatures.length} total hail events); inspect for legacy damage`
+
+        return {
+          address: addr.formatted_address as string,
+          reason,
+          score,
+          source: 'Google + NOAA 10yr Storm',
+          roofAge: null,
+          stormHits: nearbyHail.length,
+          lat,
+          lng,
+          placeId: addr.place_id as string,
+        } as Lead
       })
 
-      const text = response.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
-      const jsonMatch = text.match(/\[[\s\S]*\]/)
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0])
-        leads = parsed.slice(0, 8)
-      }
+      // Sort by score desc, take top 8
+      leads = scored.sort((a, b) => b.score - a.score).slice(0, 8)
     } catch (e) {
-      console.error('[michael/leads] AI error:', e)
+      console.error('[michael/leads] Google address fetch error:', e)
     }
-  }
-
-  // Fallback leads if AI fails
-  if (leads.length === 0) {
-    leads = [
-      { address: `Older residential neighborhoods in ZIP ${zip}`, reason: `${hailFeatures.length} hail events in 10 years — high probability of aging roofs`, score: 82, source: 'NOAA Storm Analysis', roofAge: null, stormHits: hailFeatures.length },
-      { address: `Pre-2000 homes in ${geo.city || zip}`, reason: `Roofs 25+ years old + storm corridor intersection`, score: 78, source: 'Roof Age × Storm Data', roofAge: 25, stormHits: severeHail.length },
-    ]
   }
 
   return NextResponse.json({

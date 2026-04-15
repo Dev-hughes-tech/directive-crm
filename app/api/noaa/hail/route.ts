@@ -69,6 +69,17 @@ export async function GET(request: NextRequest) {
     const plsrData = plsrRes.status === 'fulfilled' ? (plsrRes.value.result || []) : []
     const fallbackData = fallbackHailRes.status === 'fulfilled' ? (fallbackHailRes.value.result || []) : []
 
+    // Logging — visible in Vercel logs to diagnose historical-data gaps
+    console.log('[noaa/hail]', JSON.stringify({
+      lat, lng, radiusMiles, daysBack, startStr, endStr,
+      mesonet: radarHail.length,
+      plsr: plsrData.length,
+      plsrStatus: plsrRes.status,
+      plsrError: plsrRes.status === 'rejected' ? String(plsrRes.reason).slice(0, 200) : null,
+      fallbackHail: fallbackData.length,
+      fallbackStatus: fallbackHailRes.status,
+    }))
+
     // Use fallback NOAA hail data only if Mesonet had no results
     if (radarHail.length === 0) {
       radarHail = fallbackData.map((e: any) => ({
@@ -106,7 +117,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(allEvents, {
       headers: { 'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400' }, // 1 hr fresh, 24 hr stale-ok (historical data)
     })
-  } catch {
+  } catch (e) {
+    console.error('[noaa/hail] fatal error:', e)
     return NextResponse.json([])
   }
 }
