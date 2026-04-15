@@ -256,5 +256,7 @@ Return ONLY this JSON array, no other text:
     impactPoints,
     leads,
     yearsAnalyzed: currentYear - startYear,
+  }, {
+    headers: { 'Cache-Control': 'no-store, private' }
   })
 }

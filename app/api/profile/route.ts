@@ -31,7 +31,10 @@ export async function GET(request: NextRequest) {
     .maybeSingle()
 
   if (error) {
-    return NextResponse.json({ error: error.message, profile: null }, { status: 500 })
+    return NextResponse.json({ error: error.message, profile: null }, {
+      status: 500,
+      headers: { 'Cache-Control': 'no-store, private' }
+    })
   }
 
   // Auto-create profile row if missing (should not normally happen after migration 003,
@@ -45,10 +48,14 @@ export async function GET(request: NextRequest) {
         created_at: new Date().toISOString(),
       })
     } catch { /* ignore */ }
-    return NextResponse.json({ profile: { id: auth.user.id, email: auth.user.email, role: 'trial' } })
+    return NextResponse.json({ profile: { id: auth.user.id, email: auth.user.email, role: 'trial' } }, {
+      headers: { 'Cache-Control': 'no-store, private' }
+    })
   }
 
-  return NextResponse.json({ profile: data ?? null })
+  return NextResponse.json({ profile: data ?? null }, {
+    headers: { 'Cache-Control': 'no-store, private' }
+  })
 }
 
 // PATCH /api/profile — update own profile (company_name only for now)
@@ -72,6 +79,11 @@ export async function PATCH(request: NextRequest) {
     .update({ ...allowed, updated_at: new Date().toISOString() })
     .eq('id', auth.user.id)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  if (error) return NextResponse.json({ error: error.message }, {
+    status: 500,
+    headers: { 'Cache-Control': 'no-store, private' }
+  })
+  return NextResponse.json({ ok: true }, {
+    headers: { 'Cache-Control': 'no-store, private' }
+  })
 }

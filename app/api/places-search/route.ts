@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/apiAuth'
+import { requireUser, requireTier } from '@/lib/apiAuth'
 import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
 
+  const tierDenied = requireTier(auth, 'placesSearch')
+  if (tierDenied) return tierDenied
+
   const { lat, lng, radius = 2000, type = 'commercial' } = await request.json()
+  // Cap radius to 5 miles (8047 meters)
+  const cappedRadius = Math.min(radius, 8047)
   const apiKey = process.env.MAPS_API_KEY
   if (!apiKey) return NextResponse.json({ error: 'No API key' }, { status: 500 })
 
@@ -39,7 +44,7 @@ export async function POST(request: NextRequest) {
     locationRestriction: {
       circle: {
         center: { latitude: lat, longitude: lng },
-        radius: radius
+        radius: cappedRadius
       }
     }
   }
@@ -56,7 +61,9 @@ export async function POST(request: NextRequest) {
     }, 8000)
 
     const data = await res.json()
-    if (!data.places) return NextResponse.json({ places: [] })
+    if (!data.places) return NextResponse.json({ places: [] }, {
+      headers: { 'Cache-Control': 'no-store, private' }
+    })
 
     const places = data.places.map((p: {
       id: string
@@ -75,8 +82,13 @@ export async function POST(request: NextRequest) {
       phone: p.nationalPhoneNumber || null,
     }))
 
-    return NextResponse.json({ places })
+    return NextResponse.json({ places }, {
+      headers: { 'Cache-Control': 'no-store, private' }
+    })
   } catch {
-    return NextResponse.json({ error: 'Places search failed', places: [] }, { status: 500 })
+    return NextResponse.json({ error: 'Places search failed', places: [] }, {
+      status: 500,
+      headers: { 'Cache-Control': 'no-store, private' }
+    })
   }
 }

@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/apiAuth'
+import { requireUser, requireTier } from '@/lib/apiAuth'
 
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req)
   if (!auth.ok) return auth.response
 
-  const key = process.env.MAPS_API_KEY || process.env.NEXT_PUBLIC_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || ''
-  if (!key) return NextResponse.json({ key: '' }, { status: 200 })
-  return NextResponse.json({ key })
+  const tierDenied = requireTier(auth, 'maps')
+  if (tierDenied) return tierDenied
+
+  // Do not return raw API key. Return empty response with no-store headers.
+  return NextResponse.json({ token: null }, {
+    headers: { 'Cache-Control': 'no-store, private' }
+  })
 }

@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { canAccess } from './tiers'
 
 export type UserRole =
   | 'admin'
@@ -187,6 +188,9 @@ export async function canAccessOwner(
  * Call after requireUser succeeds. Returns a 403 NextResponse if denied,
  * or null if access is granted.
  *
+ * Delegates to canAccess(role, feature) from tiers.ts for the canonical
+ * feature access logic.
+ *
  * Usage:
  *   const auth = await requireUser(req)
  *   if (!auth.ok) return auth.response
@@ -198,18 +202,9 @@ export function requireTier(
   feature: string,
 ): NextResponse | null {
   if (ctx.isAdmin) return null
-  // Import canAccess inline to avoid circular deps
-  const TIER_FEATURES: Record<string, string[]> = {
-    admin:              ['dashboard','territory','sweep','stormscope','michael','jobs','clients','proposals','materials','team','settings'],
-    enterprise_manager: ['dashboard','territory','sweep','stormscope','michael','jobs','clients','proposals','materials','team','settings'],
-    enterprise_rep:     ['dashboard','territory','sweep','stormscope','michael','jobs','clients','proposals','materials','team'],
-    pro:                ['dashboard','territory','sweep','stormscope','michael','jobs','clients','proposals','materials','team','settings'],
-    plus:               ['dashboard','territory','sweep','stormscope','michael','jobs','clients','proposals','materials','settings'],
-    basic:              ['dashboard','territory','sweep','clients','proposals','materials','settings'],
-    trial:              ['dashboard','territory','sweep','clients','settings'],
-  }
-  const allowed = TIER_FEATURES[ctx.profile.role] ?? TIER_FEATURES.trial
-  if (!allowed.includes(feature)) {
+  // Delegate to the canonical canAccess function from tiers.ts
+  const hasAccess = canAccess(ctx.profile.role, feature as any)
+  if (!hasAccess) {
     return NextResponse.json(
       { error: `Your plan does not include ${feature}. Upgrade at directivecrm.com.` },
       { status: 403 },

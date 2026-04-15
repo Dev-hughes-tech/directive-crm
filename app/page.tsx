@@ -180,6 +180,7 @@ export default function Dashboard() {
   // Territory state
   const [territoryFilter, setTerritoryFilter] = useState<'all' | 'hot' | 'researched'>('all')
   const [territorySearchQuery, setTerritorySearchQuery] = useState('')
+  const [territoryLoadError, setTerritoryLoadError] = useState<string | null>(null)
   const [distanceResults, setDistanceResults] = useState<Map<string, { distanceMeters: number; distanceMiles: string; durationMinutes: number }>>(new Map())
   const [sortByDistance, setSortByDistance] = useState(false)
   const [snapLoading, setSnapLoading] = useState(false)
@@ -722,7 +723,7 @@ export default function Dashboard() {
           hail: hailData, hwel: hwelData,
         }, 5 * 60 * 1000)
       } catch (error) {
-        console.error('Error fetching weather:', error)
+        // Weather fetch failed silently
       } finally {
         setLoading(false)
       }
@@ -781,7 +782,7 @@ export default function Dashboard() {
         ])
       },
       (error) => {
-        console.error('Geolocation error:', error)
+        // Geolocation error ignored
       },
       { enableHighAccuracy: true }
     )
@@ -873,7 +874,7 @@ export default function Dashboard() {
     if (!place.lat || !place.lng) return
 
     const newProperty: Property = {
-      id: `prop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: `prop_${crypto.randomUUID()}`,
       address: place.address || '',
       lat: place.lat,
       lng: place.lng,
@@ -952,7 +953,7 @@ export default function Dashboard() {
     if (!place.lat || !place.lng) return
 
     const newProperty: Property = {
-      id: `prop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: `prop_${crypto.randomUUID()}`,
       address: place.address || '',
       lat: place.lat,
       lng: place.lng,
@@ -1089,7 +1090,7 @@ export default function Dashboard() {
                 return
               }
               if (status.status === 'error') { resolve(); return }
-            } catch (e) { console.error('Poll error:', e) }
+            } catch (e) { /* Poll error ignored */ }
             if (attempts >= maxAttempts) { resolve(); return }
             setTimeout(poll, 3000)
           }
@@ -1101,7 +1102,7 @@ export default function Dashboard() {
 
       // Phase 4: Build property from whatever research returned
       const newProperty: Property = {
-        id: `prop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: `prop_${crypto.randomUUID()}`,
         address: display_name || addrToUse,
         lat,
         lng,
@@ -1173,15 +1174,14 @@ export default function Dashboard() {
           }
         }
       } catch (e) {
-        // Silently fail — roof data is supplemental
-        console.log('Roof measure unavailable:', e)
+        // Roof data is supplemental; silent fail
       }
 
       setSweepResult(newProperty)
       setMapZoom(19)
       setSweepPhase('idle')
     } catch (error) {
-      console.error('Sweep error:', error)
+      // Sweep error handled internally
       const msg = error instanceof Error ? error.message : 'Search failed'
       setSweepError(msg.includes('Geocoding') ? 'Address not found. Try adding city and state.' : 'Search failed. Please try again.')
       setSweepPhase('idle')
@@ -1207,7 +1207,7 @@ export default function Dashboard() {
       const data = await res.json()
       setResidentialResults(data.places || [])
     } catch (error) {
-      console.error('Pin drop residential sweep error:', error)
+      // Pin drop error silently handled
     } finally {
       setResidentialLoading(false)
     }
@@ -1534,7 +1534,7 @@ export default function Dashboard() {
 
       setChatMessages((prev) => [...prev, { role: 'assistant', content: reply }])
     } catch (error) {
-      console.error('Chat error:', error)
+      // Chat error handled by showing user message
       setChatMessages((prev) => [
         ...prev,
         { role: 'assistant', content: 'Unable to connect. Please try again.' },
@@ -1557,7 +1557,6 @@ export default function Dashboard() {
       setMapZoom(12)
       await runStormDataFetch(lat, lng, geoData.zip || '', geoData.city || '')
     } catch (error) {
-      console.error('Storm location search error:', error)
       addNotification('Location not found. Try a different city, ZIP, or address.', 'warning')
     }
   }
@@ -1576,7 +1575,6 @@ export default function Dashboard() {
       setMapCenter({ lat, lng })
       await runStormDataFetch(lat, lng, zip, city)
     } catch (error) {
-      console.error('Storm assessment error:', error)
       addNotification('Storm assessment failed. Check the address and try again.', 'warning')
     }
   }
@@ -1640,7 +1638,6 @@ export default function Dashboard() {
       else addNotification('Weather data unavailable for that location.', 'warning')
       if (aRes.ok) setDashAlerts(await aRes.json())
     } catch (e) {
-      console.error('Weather ZIP lookup error:', e)
       addNotification('Weather lookup failed — check connection and try again.', 'warning')
     } finally {
       setWeatherLookupLoading(false)
@@ -1718,7 +1715,6 @@ export default function Dashboard() {
         addNotification('No leads generated for this ZIP. Try an area with more storm history.', 'info')
       }
     } catch (e) {
-      console.error('Michael lead engine error:', e)
       addNotification('Michael lead engine failed — check connection and try again.', 'warning')
     } finally {
       setMichaelLeadsLoading(false)
@@ -1742,7 +1738,7 @@ export default function Dashboard() {
 
     let color: 'green' | 'amber' | 'red' | 'cyan' = 'cyan'
     // Active Job — work is in progress (any job not marked complete)
-    if (job && job.status !== 'complete') {
+    if (job && job.stage !== 'collected') {
       color = 'green'
     } else if (proposal && proposal.status === 'sent') {
       // Negotiation — proposal has been sent, awaiting response
@@ -1772,6 +1768,10 @@ export default function Dashboard() {
   const filteredProperties = properties.filter((p) => {
     if (territoryFilter === 'hot') return calculateLeadScore(p) >= 70
     if (territoryFilter === 'researched') return p.sources && typeof p.sources === 'object' && Object.keys(p.sources).length > 0
+    // Apply search filter if query is present
+    if (territorySearchQuery) {
+      return p.address.toLowerCase().includes(territorySearchQuery.toLowerCase())
+    }
     return true
   })
 
@@ -1848,7 +1848,7 @@ export default function Dashboard() {
               setMichaelLeads(data.leads || [])
               setMichaelStormData(data)
             })
-            .catch(console.error)
+            .catch(() => {})
             .finally(() => setMichaelLeadsLoading(false))
         }}
         chatMessages={chatMessages}
@@ -1856,7 +1856,7 @@ export default function Dashboard() {
         setChatInput={setChatInput}
         chatLoading={chatLoading}
         onSendChat={handleSendChat}
-        stormImpactZones={stormImpactZones}
+        stormImpactZones={activeScreen === 'stormscope' ? stormImpactZones : []}
         jobs={jobs}
         onSaveJob={(j) => setJobs(prev => prev.map(x => x.id === j.id ? j : x))}
         companySettings={companySettings}
@@ -2920,6 +2920,13 @@ export default function Dashboard() {
       {/* SCREEN 2: TERRITORY */}
       {activeScreen === 'territory' && (
         <>
+          {/* Load Error Banner */}
+          {territoryLoadError && (
+            <div className="absolute left-4 top-[184px] right-auto z-40 bg-red/20 border border-red/40 text-red rounded-lg px-3 py-2 text-xs font-medium">
+              {territoryLoadError}
+            </div>
+          )}
+
           {/* Left Panel */}
           <div className="absolute left-4 top-[184px] bottom-4 w-80 overflow-y-auto space-y-3 z-30">
             {/* Territory Overview */}
@@ -2935,9 +2942,9 @@ export default function Dashboard() {
                   <span className="font-bold text-white">{properties.length}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Hot Leads (70+)</span>
+                  <span className="text-gray-400">Active Jobs</span>
                   <span className="font-bold text-green">
-                    {properties.filter((p) => calculateLeadScore(p) >= 70).length}
+                    {properties.filter((p) => jobs.some(j => j.property_id === p.id && j.stage !== 'collected')).length}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -2972,6 +2979,10 @@ export default function Dashboard() {
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-red" />
                     <span>Knocked</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-cyan" />
+                    <span>Unvisited</span>
                   </div>
                 </div>
               </div>
@@ -3256,9 +3267,9 @@ export default function Dashboard() {
                 <button
                   onClick={() => handleSweepResearch()}
                   disabled={sweepLoading}
-                  className="w-full bg-cyan text-dark font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50"
+                  className="w-full bg-cyan text-dark font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50 disabled:opacity-60"
                 >
-                  {sweepLoading ? 'Researching...' : 'Research Property'}
+                  {sweepLoading ? 'Researching...' : 'Run GPS Sweep'}
                 </button>
 
                 {sweepError && (
@@ -5126,7 +5137,7 @@ export default function Dashboard() {
                             lat={prop.lat}
                             lng={prop.lng}
                             address={prop.address}
-                            onPhotoSaved={(url) => console.log('Photo saved for', prop.id)}
+                            onPhotoSaved={(url) => {}}
                           />
                         </div>
                       )}
@@ -5960,7 +5971,6 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                                 } catch (err) {
                                   setEstimateError('Failed to generate estimate. Please try again.')
                                   addNotification('Error generating estimate', 'warning')
-                                  console.error('Estimate generation error:', err)
                                 } finally {
                                   setEstimateLoading(false)
                                 }

@@ -308,8 +308,15 @@ export async function saveMaterial(material: Material): Promise<StorageResult> {
 
 export async function deleteMaterial(id: string): Promise<StorageResult> {
   try {
-    const { error } = await supabase.from('materials').delete().eq('id', id)
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+    const { error } = await supabase
+      .from('materials')
+      .delete()
+      .eq('id', id)
+      .eq('owner_id', ownerId)
     if (error) return { ok: false, source: 'supabase', error: error.message }
+    await saveActivity({ entityType: 'property', entityId: id, action: 'delete', metadata: { table: 'materials' } })
     return { ok: true, source: 'supabase' }
   } catch (e) {
     return { ok: false, source: null, error: String(e) }
@@ -320,9 +327,12 @@ export async function deleteMaterial(id: string): Promise<StorageResult> {
 
 export async function getChatMessages(channel: string): Promise<ChatMessage[]> {
   try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
     const { data, error } = await supabase
       .from('chat_messages')
       .select('*')
+      .eq('owner_id', ownerId)
       .eq('channel', channel)
       .order('timestamp', { ascending: true })
     if (error) throw error
@@ -335,9 +345,9 @@ export async function getChatMessages(channel: string): Promise<ChatMessage[]> {
 export async function saveChatMessage(message: ChatMessage): Promise<StorageResult> {
   try {
     const ownerId = await getOwnerId()
-    const payload = ownerId
-      ? { ...message, owner_id: ownerId, sender_id: ownerId }
-      : message
+    // Refuse to insert ownerless chat messages — RLS policies depend on owner_id.
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+    const payload = { ...message, owner_id: ownerId, sender_id: ownerId }
     const { error } = await supabase.from('chat_messages').insert(payload)
     if (error) return { ok: false, source: 'supabase', error: error.message }
     return { ok: true, source: 'supabase' }
@@ -348,9 +358,12 @@ export async function saveChatMessage(message: ChatMessage): Promise<StorageResu
 
 export async function markMessagesRead(channel: string, role: string): Promise<StorageResult> {
   try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
     const { error } = await supabase
       .from('chat_messages')
       .update({ read: true })
+      .eq('owner_id', ownerId)
       .eq('channel', channel)
       .neq('sender_role', role)
     if (error) return { ok: false, source: 'supabase', error: error.message }

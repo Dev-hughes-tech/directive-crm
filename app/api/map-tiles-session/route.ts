@@ -34,13 +34,18 @@ export async function POST(request: NextRequest) {
         session: data.session,
         expiry: data.expiry,
         tileWidth: data.tileWidth,
-        tileHeight: data.tileHeight,
-        // Tile URL template for use in Leaflet or custom renderers
-        tileUrlTemplate: `https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=${data.session}&key=${apiKey}`
+        tileHeight: data.tileHeight
+      }, {
+        headers: { 'Cache-Control': 'no-store, private' }
       })
     }
-    return NextResponse.json({ error: 'Session creation failed', details: data })
+    return NextResponse.json({ error: 'Session creation failed', details: data }, {
+      headers: { 'Cache-Control': 'no-store, private' }
+    })
   } catch {
-    return NextResponse.json({ error: 'Map tiles session failed' }, { status: 500 })
+    return NextResponse.json({ error: 'Map tiles session failed' }, {
+      status: 500,
+      headers: { 'Cache-Control': 'no-store, private' }
+    })
   }
 }

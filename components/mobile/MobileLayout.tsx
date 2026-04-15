@@ -131,7 +131,6 @@ export default function MobileLayout(props: MobileLayoutProps) {
   const [mobileTab, setMobileTab] = useState<'dashboard' | 'sweep' | 'michael' | 'clients' | 'map' | 'more'>('dashboard')
   const [michaelLocalTab, setMichaelLocalTab] = useState<'leads' | 'chat'>('leads')
   const [selectedMapProp, setSelectedMapProp] = useState<Property | null>(null)
-  const [mobileStormOverlay, setMobileStormOverlay] = useState(false)
   const [sweepMapMode, setSweepMapMode] = useState<'satellite' | 'streetview'>('satellite')
   const [mobileProposalSelected, setMobileProposalSelected] = useState<Proposal | null>(null)
   const [mobileProposalEditing, setMobileProposalEditing] = useState(false)
@@ -174,13 +173,13 @@ export default function MobileLayout(props: MobileLayoutProps) {
       <div className="px-3 pt-3 grid grid-cols-2 gap-2">
         <div className="bg-[#0d1117] border border-white/10 rounded-xl p-3">
           <p className="text-2xl font-bold text-cyan-400 leading-none">{properties.length}</p>
-          <p className="text-[10px] text-gray-400 mt-1.5 leading-tight">Properties Scanned</p>
+          <p className="text-[11px] text-gray-400 mt-1.5 leading-tight">Properties Scanned</p>
         </div>
         <div className="bg-[#0d1117] border border-white/10 rounded-xl p-3">
           <p className="text-2xl font-bold text-green-400 leading-none">
             {properties.filter(p => p.roof_age_years !== null && p.roof_age_years >= 15).length}
           </p>
-          <p className="text-[10px] text-gray-400 mt-1.5 leading-tight">Qualifying Roofs</p>
+          <p className="text-[11px] text-gray-400 mt-1.5 leading-tight">Qualifying Roofs</p>
         </div>
         <div className="bg-[#0d1117] border border-white/10 rounded-xl p-3">
           <p className="text-2xl font-bold text-amber-400 leading-none">
@@ -188,13 +187,13 @@ export default function MobileLayout(props: MobileLayoutProps) {
               ? Math.round(properties.reduce((s, p) => s + (p.roof_age_years || 0), 0) / properties.length)
               : '—'}
           </p>
-          <p className="text-[10px] text-gray-400 mt-1.5 leading-tight">Avg Roof Age (yr)</p>
+          <p className="text-[11px] text-gray-400 mt-1.5 leading-tight">Avg Roof Age (yr)</p>
         </div>
         <div className="bg-[#0d1117] border border-white/10 rounded-xl p-3">
           <p className="text-2xl font-bold text-red-400 leading-none">
             {properties.filter(p => p.roof_age_years !== null && p.roof_age_years >= 20).length}
           </p>
-          <p className="text-[10px] text-gray-400 mt-1.5 leading-tight">Critical (20+ yr)</p>
+          <p className="text-[11px] text-gray-400 mt-1.5 leading-tight">Critical (20+ yr)</p>
         </div>
       </div>
 
@@ -204,7 +203,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
           <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-amber-300 truncate">{alerts[0].event}</p>
-            <p className="text-[10px] text-amber-400/70 mt-0.5 line-clamp-2">{alerts[0].headline}</p>
+            <p className="text-[11px] text-amber-400/70 mt-0.5 line-clamp-2">{alerts[0].headline}</p>
           </div>
         </div>
       )}
@@ -213,30 +212,30 @@ export default function MobileLayout(props: MobileLayoutProps) {
       {weather && (
         <div className="mx-3 mt-2 bg-[#0d1117] border border-white/10 rounded-xl p-3">
           <div className="flex justify-between items-center mb-1.5">
-            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Current Weather</p>
+            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Current Weather</p>
             <Cloud className="w-3.5 h-3.5 text-cyan-400" />
           </div>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
               <p className="text-xl font-bold text-white leading-none">{weather.temperature_f}°</p>
-              <p className="text-[10px] text-gray-500 mt-1">Temp</p>
+              <p className="text-[11px] text-gray-500 mt-1">Temp</p>
             </div>
             <div>
               <p className="text-xl font-bold text-cyan-400 leading-none">{weather.wind_speed_mph}</p>
-              <p className="text-[10px] text-gray-500 mt-1">mph</p>
+              <p className="text-[11px] text-gray-500 mt-1">mph</p>
             </div>
             <div>
               <p className="text-xl font-bold text-blue-400 leading-none">{weather.humidity_pct}%</p>
-              <p className="text-[10px] text-gray-500 mt-1">Humidity</p>
+              <p className="text-[11px] text-gray-500 mt-1">Humidity</p>
             </div>
           </div>
-          {weather.conditions && <p className="text-[10px] text-gray-400 mt-1.5 text-center truncate">{weather.conditions}</p>}
+          {weather.conditions && <p className="text-[11px] text-gray-400 mt-1.5 text-center truncate">{weather.conditions}</p>}
         </div>
       )}
 
       {/* Quick Actions — 9:16 compact */}
       <div className="px-3 mt-3">
-        <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Quick Actions</p>
+        <p className="text-[11px] text-gray-400 uppercase tracking-wide mb-2">Quick Actions</p>
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => navigate('sweep', 'sweep')}
@@ -244,7 +243,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
           >
             <Navigation className="w-5 h-5 text-cyan-400" />
             <p className="text-xs font-semibold text-white">GPS Sweep</p>
-            <p className="text-[10px] text-gray-400 truncate w-full">Research address</p>
+            <p className="text-[11px] text-gray-400 truncate w-full">Research address</p>
           </button>
           <button
             onClick={() => navigate('michael', 'michael')}
@@ -252,7 +251,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
           >
             <Brain className="w-5 h-5 text-purple-400" />
             <p className="text-xs font-semibold text-white">Michael AI</p>
-            <p className="text-[10px] text-gray-400 truncate w-full">ZIP leads</p>
+            <p className="text-[11px] text-gray-400 truncate w-full">ZIP leads</p>
           </button>
           <button
             onClick={() => navigate('clients', 'clients')}
@@ -260,7 +259,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
           >
             <Users className="w-5 h-5 text-green-400" />
             <p className="text-xs font-semibold text-white">Clients</p>
-            <p className="text-[10px] text-gray-400 truncate w-full">{clients.length} in pipeline</p>
+            <p className="text-[11px] text-gray-400 truncate w-full">{clients.length} in pipeline</p>
           </button>
           <button
             onClick={() => navigate('map', 'territory')}
@@ -268,7 +267,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
           >
             <Map className="w-5 h-5 text-blue-400" />
             <p className="text-xs font-semibold text-white">Map</p>
-            <p className="text-[10px] text-gray-400 truncate w-full">Territory view</p>
+            <p className="text-[11px] text-gray-400 truncate w-full">Territory view</p>
           </button>
         </div>
       </div>
@@ -276,7 +275,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
       {/* Hot Leads — 9:16 compact */}
       {hotLeads.length > 0 && (
         <div className="px-3 mt-3 mb-3">
-          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Hot Leads — Aging Roofs</p>
+          <p className="text-[11px] text-gray-400 uppercase tracking-wide mb-2">Hot Leads — Aging Roofs</p>
           <div className="space-y-1.5">
             {hotLeads.map(p => (
               <button
@@ -286,13 +285,13 @@ export default function MobileLayout(props: MobileLayoutProps) {
               >
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-medium text-white truncate">{p.address}</p>
-                  <p className="text-[10px] text-gray-400 mt-0.5 truncate">{p.owner_name || 'Unknown owner'}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5 truncate">{p.owner_name || 'Unknown owner'}</p>
                 </div>
                 <div className="flex-shrink-0 text-right">
                   <p className={`text-base font-bold leading-none ${p.roof_age_years! >= 20 ? 'text-red-400' : 'text-amber-400'}`}>
                     {p.roof_age_years}yr
                   </p>
-                  <p className="text-[9px] text-gray-500 mt-0.5">roof age</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">roof age</p>
                 </div>
               </button>
             ))}
@@ -348,12 +347,12 @@ export default function MobileLayout(props: MobileLayoutProps) {
           <div className="bg-[#161b22] border border-cyan-400/20 rounded-xl p-3.5">
             <div className="flex justify-between items-start mb-2.5 gap-2">
               <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-cyan-400 uppercase tracking-wide mb-0.5">Property Research</p>
+                <p className="text-[11px] text-cyan-400 uppercase tracking-wide mb-0.5">Property Research</p>
                 <p className="text-sm font-semibold text-white leading-tight break-words">{sweepResult.address}</p>
               </div>
               <button
                 onClick={() => onSaveProperty(sweepResult)}
-                className="bg-cyan-400 text-[#0d1117] text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex-shrink-0 active:scale-95 transition-transform"
+                className="bg-cyan-400 text-[#0d1117] text-[11px] font-bold px-2.5 py-1.5 rounded-lg flex-shrink-0 active:scale-95 transition-transform"
               >
                 Save Lead
               </button>
@@ -400,7 +399,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
               { label: 'Parcel ID', value: sweepResult.parcel_id || '—', highlight: false },
             ].map(({ label, value, highlight }) => (
               <div key={label} className={`bg-[#0d1117] border rounded-lg p-2.5 ${highlight ? 'border-red-400/30 bg-red-400/5' : 'border-white/10'}`}>
-                <p className="text-[10px] text-gray-400 truncate">{label}</p>
+                <p className="text-[11px] text-gray-400 truncate">{label}</p>
                 <p className={`text-sm font-bold mt-0.5 truncate ${highlight ? 'text-red-400' : 'text-white'}`}>{String(value)}</p>
               </div>
             ))}
@@ -535,7 +534,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
             {michaelLeadsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
           </button>
         </div>
-        <p className="text-[10px] text-gray-500 mt-1.5">10-year NOAA analysis for lead generation</p>
+        <p className="text-[11px] text-gray-500 mt-1.5">10-year NOAA analysis for lead generation</p>
       </div>
 
       {/* Storm Summary — 9:16 compact */}
@@ -544,50 +543,50 @@ export default function MobileLayout(props: MobileLayoutProps) {
           <div className="flex justify-between items-center mb-2 gap-2">
             <div className="min-w-0 flex-1">
               <p className="text-xs font-bold text-white truncate">{michaelZip} — {michaelStormData.city}</p>
-              <p className="text-[10px] opacity-70">{michaelStormData.yearsAnalyzed}-year NOAA analysis</p>
+              <p className="text-[11px] opacity-70">{michaelStormData.yearsAnalyzed}-year NOAA analysis</p>
             </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-current whitespace-nowrap">{michaelStormData.riskLevel}</span>
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border border-current whitespace-nowrap">{michaelStormData.riskLevel}</span>
           </div>
           <div className="grid grid-cols-4 gap-1.5 text-center">
             <div>
               <p className="text-base font-bold text-amber-400 leading-none">{michaelStormData.hailCount}</p>
-              <p className="text-[10px] opacity-60 mt-1">Hail</p>
+              <p className="text-[11px] opacity-60 mt-1">Hail</p>
             </div>
             <div>
               <p className="text-base font-bold text-red-400 leading-none">{michaelStormData.tornadoCount}</p>
-              <p className="text-[10px] opacity-60 mt-1">Tornado</p>
+              <p className="text-[11px] opacity-60 mt-1">Tornado</p>
             </div>
             <div>
               <p className="text-base font-bold text-cyan-400 leading-none">{michaelStormData.severeHailCount}</p>
-              <p className="text-[10px] opacity-60 mt-1">Severe</p>
+              <p className="text-[11px] opacity-60 mt-1">Severe</p>
             </div>
             <div>
               <p className="text-base font-bold text-white leading-none">{michaelStormData.maxHailSize.toFixed(1)}"</p>
-              <p className="text-[10px] opacity-60 mt-1">Max</p>
+              <p className="text-[11px] opacity-60 mt-1">Max</p>
             </div>
           </div>
 
           {/* Historical breakdown — matches HWEL visual language */}
           <div className="mt-3 pt-3 border-t border-white/10">
-            <p className="text-[10px] text-cyan-400 uppercase tracking-wide mb-1.5 font-semibold">Historical Weather Event Archive</p>
+            <p className="text-[11px] text-cyan-400 uppercase tracking-wide mb-1.5 font-semibold">Historical Weather Event Archive</p>
             <div className="grid grid-cols-3 gap-1.5 text-center">
               <div className="bg-black/30 rounded p-1.5">
                 <p className="text-sm font-bold text-white leading-none">
                   {Math.round((michaelStormData.hailCount + michaelStormData.tornadoCount) / michaelStormData.yearsAnalyzed)}
                 </p>
-                <p className="text-[9px] opacity-60 mt-0.5">Events/yr avg</p>
+                <p className="text-[11px] opacity-60 mt-0.5">Events/yr avg</p>
               </div>
               <div className="bg-black/30 rounded p-1.5">
                 <p className="text-sm font-bold text-amber-400 leading-none">
                   {michaelStormData.hailCount > 0 ? ((michaelStormData.severeHailCount / michaelStormData.hailCount) * 100).toFixed(0) : 0}%
                 </p>
-                <p className="text-[9px] opacity-60 mt-0.5">Severe rate</p>
+                <p className="text-[11px] opacity-60 mt-0.5">Severe rate</p>
               </div>
               <div className="bg-black/30 rounded p-1.5">
                 <p className="text-sm font-bold text-red-400 leading-none">
                   {michaelStormData.tornadoCount + michaelStormData.severeHailCount}
                 </p>
-                <p className="text-[9px] opacity-60 mt-0.5">Major events</p>
+                <p className="text-[11px] opacity-60 mt-0.5">Major events</p>
               </div>
             </div>
           </div>
@@ -984,26 +983,13 @@ export default function MobileLayout(props: MobileLayoutProps) {
           lng={mapCenter.lng}
           zoom={12}
           mode="satellite"
-          markers={mobileStormOverlay
-            ? territoryMarkers.map(m => {
-                const prop = properties.find(p => p.id === m.id)
-                const risk = prop?.storm_history?.stormRiskLevel
-                return {
-                  ...m,
-                  color: risk === 'high' ? 'red' : risk === 'moderate' ? 'amber' : 'cyan',
-                  onClick: () => {
-                    const p = properties.find(pr => pr.id === m.id)
-                    setSelectedMapProp(p || null)
-                  }
-                }
-              })
-            : territoryMarkers.map(m => ({
-                ...m,
-                onClick: () => {
-                  const p = properties.find(pr => pr.id === m.id)
-                  setSelectedMapProp(p || null)
-                }
-              }))}
+          markers={territoryMarkers.map(m => ({
+            ...m,
+            onClick: () => {
+              const p = properties.find(pr => pr.id === m.id)
+              setSelectedMapProp(p || null)
+            }
+          }))}
           className="w-full h-full"
         />
       </div>
@@ -1013,34 +999,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
         <div className="bg-[#0d1117]/80 backdrop-blur-md border border-white/10 rounded-full px-3 py-1.5 pointer-events-auto">
           <p className="text-xs font-semibold text-white">{properties.length} Properties</p>
         </div>
-        <button
-          onClick={() => setMobileStormOverlay(v => !v)}
-          className={`pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border backdrop-blur-md transition-all ${
-            mobileStormOverlay
-              ? 'bg-amber-400/20 border-amber-400/40 text-amber-400'
-              : 'bg-[#0d1117]/80 border-white/10 text-gray-400'
-          }`}
-        >
-          <Radio className="w-3.5 h-3.5" />
-          Storm
-        </button>
       </div>
-
-      {/* Storm legend */}
-      {mobileStormOverlay && (
-        <div className="absolute top-14 right-3 bg-[#0d1117]/90 border border-white/10 rounded-lg px-3 py-2 space-y-1">
-          {[
-            { color: 'bg-red-500', label: 'High Risk' },
-            { color: 'bg-amber-500', label: 'Moderate' },
-            { color: 'bg-cyan-500', label: 'Low Risk' },
-          ].map(({ color, label }) => (
-            <div key={label} className="flex items-center gap-2">
-              <div className={`w-2.5 h-2.5 rounded-full ${color}`} />
-              <span className="text-[10px] text-gray-300">{label}</span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Selected property bottom sheet */}
       {selectedMapProp && (
@@ -1067,7 +1026,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
             ].map(({ label, value, highlight }) => (
               <div key={label} className="bg-white/5 rounded-lg p-2 text-center">
                 <p className={`text-sm font-bold ${highlight ? 'text-amber-400' : 'text-white'}`}>{value}</p>
-                <p className="text-[10px] text-gray-500 mt-0.5">{label}</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">{label}</p>
               </div>
             ))}
           </div>
@@ -1627,10 +1586,10 @@ export default function MobileLayout(props: MobileLayoutProps) {
         <div className="flex items-center gap-1.5">
           <div className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-[10px] text-green-400 font-medium">LIVE</span>
+            <span className="text-[11px] text-green-400 font-medium">LIVE</span>
           </div>
           <span
-            className="text-[10px] px-1.5 py-0.5 rounded-full font-bold border whitespace-nowrap"
+            className="text-[11px] px-1.5 py-0.5 rounded-full font-bold border whitespace-nowrap"
             style={{
               color: getTierConfig(userRole).color,
               borderColor: getTierConfig(userRole).color + '40',
@@ -1677,7 +1636,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
                 className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-colors active:opacity-70 relative ${active ? 'text-cyan-400' : 'text-gray-500'}`}
               >
                 <Icon className={`w-5 h-5 ${active ? 'text-cyan-400' : 'text-gray-500'}`} />
-                <span className={`text-[10px] font-medium ${active ? 'text-cyan-400' : 'text-gray-500'}`}>{item.label}</span>
+                <span className={`text-[11px] font-medium ${active ? 'text-cyan-400' : 'text-gray-500'}`}>{item.label}</span>
                 {active && <div className="absolute bottom-0 w-8 h-0.5 bg-cyan-400 rounded-full" />}
               </button>
             )

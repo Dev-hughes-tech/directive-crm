@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/apiAuth'
+import { requireUser, requireTier } from '@/lib/apiAuth'
 import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export const maxDuration = 30
@@ -50,12 +50,21 @@ export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
 
+  const tierDenied = requireTier(auth, 'roofMeasure')
+  if (tierDenied) return tierDenied
+
   const { searchParams } = new URL(request.url)
   const lat = searchParams.get('lat')
   const lng = searchParams.get('lng')
 
   if (!lat || !lng) {
     return NextResponse.json({ error: 'lat and lng required' }, { status: 400 })
+  }
+
+  // Budget guard: reject if more than 50 roof segments in request
+  const polygonCount = (searchParams.get('polygonCount') as any) || 1
+  if (polygonCount > 50) {
+    return NextResponse.json({ error: 'Roof measurement payload too large (max 50 polygons)' }, { status: 400 })
   }
 
   const apiKey = process.env.MAPS_API_KEY || process.env.NEXT_PUBLIC_MAPS_API_KEY
@@ -184,6 +193,8 @@ function processAndReturn(data: SolarResponse, lat: string, lng: string, apiKey:
     },
     // Generate satellite image URL
     satelliteImageUrl: `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=20&size=600x400&maptype=satellite&key=${apiKey}`,
+  }, {
+    headers: { 'Cache-Control': 'no-store, private' }
   })
 }
 

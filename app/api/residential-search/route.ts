@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/apiAuth'
+import { requireUser, requireTier } from '@/lib/apiAuth'
 import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 // Generate grid points around a center for reverse geocoding
@@ -15,8 +15,8 @@ function generateGrid(lat: number, lng: number, radiusMeters: number, count: num
 
   for (let i = 0; i < gridSize; i++) {
     for (let j = 0; j < gridSize; j++) {
-      const pLat = (lat - latDeg) + stepLat * (i + 0.5) + (Math.random() - 0.5) * stepLat * 0.4
-      const pLng = (lng - lngDeg) + stepLng * (j + 0.5) + (Math.random() - 0.5) * stepLng * 0.4
+      const pLat = (lat - latDeg) + stepLat * (i + 0.5)
+      const pLng = (lng - lngDeg) + stepLng * (j + 0.5)
       points.push({ lat: pLat, lng: pLng })
     }
   }
@@ -27,12 +27,17 @@ export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
 
+  const tierDenied = requireTier(auth, 'residentialSearch')
+  if (tierDenied) return tierDenied
+
   const { lat, lng, radius = 1609 } = await request.json()
+  // Cap radius to 5 miles (8047 meters)
+  const cappedRadius = Math.min(radius, 8047)
   const apiKey = process.env.MAPS_API_KEY
   if (!apiKey) return NextResponse.json({ error: 'No API key' }, { status: 500 })
 
   // Generate 16 grid points around the user's location
-  const gridPoints = generateGrid(lat, lng, radius, 16)
+  const gridPoints = generateGrid(lat, lng, cappedRadius, 16)
 
   try {
     // Reverse geocode each grid point in parallel
@@ -87,8 +92,13 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({ places })
+    return NextResponse.json({ places }, {
+      headers: { 'Cache-Control': 'no-store, private' }
+    })
   } catch {
-    return NextResponse.json({ error: 'Residential search failed', places: [] }, { status: 500 })
+    return NextResponse.json({ error: 'Residential search failed', places: [] }, {
+      status: 500,
+      headers: { 'Cache-Control': 'no-store, private' }
+    })
   }
 }

@@ -12,7 +12,7 @@ interface Waypoint {
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
-  const tierDenied = requireTier(auth, 'territory')
+  const tierDenied = requireTier(auth, 'routeOptimize')
   if (tierDenied) return tierDenied
 
   const { waypoints, origin, avoidTolls = false } = await request.json() as {
@@ -94,9 +94,13 @@ export async function POST(request: NextRequest) {
       tollCost: tollText,
       trafficAware: true,
       googleMapsUrl
+    }, {
+      headers: { 'Cache-Control': 'no-store, private' }
     })
   } catch (error) {
-    console.error('Routes API error:', error)
-    return NextResponse.json({ error: 'Route optimization failed' }, { status: 500 })
+    return NextResponse.json({ error: 'Route optimization failed' }, {
+      status: 500,
+      headers: { 'Cache-Control': 'no-store, private' }
+    })
   }
 }
