@@ -24,12 +24,14 @@ async function getOwnerId(): Promise<string | null> {
   }
 }
 
-// Attach owner_id + updated_at if missing. Returns the payload unchanged when
-// no user is signed in so that local-only tests don't throw; RLS will still
-// reject the write at the DB layer in that case.
-async function withOwner<T extends Record<string, unknown>>(row: T): Promise<T & { owner_id?: string; updated_at?: string }> {
+// Attach owner_id + updated_at. THROWS if no user is signed in so callers
+// surface a clear "not signed in" error instead of silently hitting RLS and
+// appearing to succeed-but-not-persist.
+async function withOwner<T extends Record<string, unknown>>(row: T): Promise<T & { owner_id: string; updated_at: string }> {
   const ownerId = await getOwnerId()
-  if (!ownerId) return row
+  if (!ownerId) {
+    throw new Error('Not signed in — please log in again to save your work')
+  }
   return { ...row, owner_id: ownerId, updated_at: new Date().toISOString() }
 }
 
@@ -158,19 +160,18 @@ export async function deleteProperty(id: string): Promise<StorageResult> {
 // ── CLIENTS ─────────────────────────────────────────────────────────────────
 
 export async function getClients(): Promise<Client[]> {
-  try {
-    const ownerId = await getOwnerId()
-    if (!ownerId) return []
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('owner_id', ownerId)
-      .order('created_at', { ascending: false })
-    if (error) throw error
-    return (data || []) as Client[]
-  } catch {
-    return []
+  const ownerId = await getOwnerId()
+  if (!ownerId) {
+    // Throw so the UI can show a re-login banner instead of silently wiping the list.
+    throw new Error('NOT_SIGNED_IN')
   }
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*')
+    .eq('owner_id', ownerId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data || []) as Client[]
 }
 
 export async function saveClient(client: Client): Promise<StorageResult> {
