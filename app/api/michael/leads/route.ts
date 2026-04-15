@@ -43,17 +43,77 @@ async function geocodeZip(zip: string): Promise<{ lat: number; lng: number; city
   return null
 }
 
-// ── 10-year storm fetch (Iowa State Mesonet — proven historical coverage) ──
-// Mesonet pulls from NOAA NEXRAD archive and has dense radar-detected hail
-// events going back 10+ years. This is what `/api/noaa/hail` uses successfully.
+// ── 10-year hail/storm fetch — 4 sources, heavily logged ─────────────────
+// 1. NOAA ArcGIS Storm Events (authoritative historical DB, 10+ yrs)
+// 2. Iowa State Mesonet hail.php (dense radar archive)
+// 3. NOAA SWDI nx3hail (NEXRAD radar fallback)
+// 4. NOAA SWDI plsr (spotter reports — required for tornado/wind)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'torn' | 'wind', yearStart: number, yearEnd: number): Promise<any[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const results: any[] = []
   const h = { 'User-Agent': 'DirectiveCRM/1.0 (support@hughes-technologies.com)' }
   const radius = eventType === 'torn' ? 40 : 25
+  const sourceCounts: Record<string, number> = {}
+  const sourceErrors: Record<string, string> = {}
 
-  // Source 1: Iowa State Mesonet (primary — dense radar hail archive)
+  // Bounding box around point (~25 mile radius)
+  const degDelta = radius / 69 // ~1 degree = 69 miles
+  const xmin = lng - degDelta
+  const xmax = lng + degDelta
+  const ymin = lat - degDelta
+  const ymax = lat + degDelta
+
+  // ── Source 1: NOAA ArcGIS Storm Events (authoritative historical database) ──
+  try {
+    const eventTypeFilter = eventType === 'hail' ? "EVENT_TYPE='Hail'"
+      : eventType === 'torn' ? "EVENT_TYPE='Tornado'"
+      : "EVENT_TYPE IN ('Thunderstorm Wind','High Wind','Strong Wind')"
+    const dateFilter = `BEGIN_DATE_TIME>=DATE '${yearStart}-01-01' AND BEGIN_DATE_TIME<=DATE '${yearEnd}-12-31'`
+    const where = encodeURIComponent(`${eventTypeFilter} AND ${dateFilter}`)
+    const geom = encodeURIComponent(JSON.stringify({ xmin, ymin, xmax, ymax, spatialReference: { wkid: 4326 } }))
+    const url = `https://services.arcgis.com/XG15cJAlne2vxtgt/arcgis/rest/services/NOAA_Storm_Events_1950_Present/FeatureServer/0/query?where=${where}&geometry=${geom}&geometryType=esriGeometryEnvelope&inSR=4326&outFields=*&f=json&resultRecordCount=1000`
+
+    const res = await fetch(url, { headers: h, signal: AbortSignal.timeout(15000) })
+    if (res.ok) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data: any = await res.json()
+      if (Array.isArray(data?.features)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const normalized = data.features.map((f: any) => {
+          const attrs = f.attributes || {}
+          const beginDt: number = attrs.BEGIN_DATE_TIME || 0 // epoch ms
+          const dt = beginDt ? new Date(beginDt) : null
+          const ztime = dt
+            ? `${dt.getUTCFullYear()}${String(dt.getUTCMonth() + 1).padStart(2, '0')}${String(dt.getUTCDate()).padStart(2, '0')}${String(dt.getUTCHours()).padStart(2, '0')}${String(dt.getUTCMinutes()).padStart(2, '0')}00`
+            : ''
+          return {
+            TYPECODE: eventType === 'hail' ? 'H' : eventType === 'torn' ? 'T' : 'G',
+            LAT: attrs.BEGIN_LAT ?? lat,
+            LON: attrs.BEGIN_LON ?? lng,
+            MAGNITUDE: attrs.MAGNITUDE ?? null,
+            ZTIME: ztime,
+            SOURCE: 'arcgis',
+          }
+        }).filter((e: { ZTIME: string }) => {
+          if (!e.ZTIME) return false
+          const yr = parseInt(e.ZTIME.slice(0, 4))
+          return yr >= yearStart && yr <= yearEnd
+        })
+        results.push(...normalized)
+        sourceCounts.arcgis = normalized.length
+      } else {
+        sourceCounts.arcgis = 0
+        sourceErrors.arcgis = `no features; keys: ${Object.keys(data || {}).join(',')}`
+      }
+    } else {
+      sourceErrors.arcgis = `HTTP ${res.status}`
+    }
+  } catch (e) {
+    sourceErrors.arcgis = String(e).slice(0, 200)
+  }
+
+  // ── Source 2: Iowa State Mesonet hail.php ──
   if (eventType === 'hail') {
     try {
       const res = await fetch(
@@ -68,7 +128,6 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
           const normalized = data.features.map((f: any) => {
             const coords = f.geometry?.coordinates || []
             const valid: string = f.properties?.valid || ''
-            // Mesonet date format: "2024-05-15 18:30:00" — convert to ZTIME "YYYYMMDDHHMMSS"
             const ztime = valid ? valid.replace(/[-:\s]/g, '').slice(0, 14) : ''
             return {
               TYPECODE: 'H',
@@ -84,12 +143,17 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
             return yr >= yearStart && yr <= yearEnd
           })
           results.push(...normalized)
+          sourceCounts.mesonet = normalized.length
         }
+      } else {
+        sourceErrors.mesonet = `HTTP ${res.status}`
       }
-    } catch { /* mesonet may fail, fall through */ }
+    } catch (e) {
+      sourceErrors.mesonet = String(e).slice(0, 200)
+    }
   }
 
-  // Source 2: NOAA SWDI PLSR (spotter-confirmed — supplement + tornado/wind coverage)
+  // ── Sources 3 & 4: NOAA SWDI ──
   const years: number[] = []
   for (let y = yearStart; y <= yearEnd; y++) years.push(y)
   const chunks: number[][] = []
@@ -97,6 +161,8 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
   const fmtDate = (y: number, m: number, d: number) => `${y}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`
   const typeCodeMap: Record<string, string> = { hail: 'H', torn: 'T', wind: 'G' }
 
+  // plsr (required for tornado/wind)
+  let plsrCount = 0
   await Promise.allSettled(chunks.map(async (chunk) => {
     const startStr = fmtDate(chunk[0], 1, 1)
     const endStr = fmtDate(chunk[chunk.length - 1], 12, 31)
@@ -112,14 +178,17 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const filtered = data.result.filter((e: any) => e.TYPECODE === typeCodeMap[eventType])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const tagged = filtered.map((e: any) => ({ ...e, SOURCE: 'spotter' }))
+        const tagged = filtered.map((e: any) => ({ ...e, SOURCE: 'swdi-plsr' }))
         results.push(...tagged)
+        plsrCount += tagged.length
       }
-    } catch { /* chunk may fail, continue */ }
+    } catch { /* ignore */ }
   }))
+  sourceCounts.plsr = plsrCount
 
-  // Source 3: NOAA SWDI NX3HAIL fallback (if Mesonet empty for hail)
-  if (eventType === 'hail' && results.length < 5) {
+  // nx3hail fallback if hail still sparse
+  if (eventType === 'hail' && results.length < 10) {
+    let nx3Count = 0
     await Promise.allSettled(chunks.map(async (chunk) => {
       const startStr = fmtDate(chunk[0], 1, 1)
       const endStr = fmtDate(chunk[chunk.length - 1], 12, 31)
@@ -139,15 +208,17 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
             LON: e.LON,
             MAGNITUDE: e.MAXSIZE ?? e.MEANSIZE ?? null,
             ZTIME: e.ZTIME,
-            SOURCE: 'radar',
+            SOURCE: 'swdi-nx3',
           }))
           results.push(...normalized)
+          nx3Count += normalized.length
         }
-      } catch { /* chunk may fail */ }
+      } catch { /* ignore */ }
     }))
+    sourceCounts.nx3hail = nx3Count
   }
 
-  console.log(`[michael/fetchNoaaEvents] type=${eventType} lat=${lat} lng=${lng} events=${results.length} range=${yearStart}-${yearEnd}`)
+  console.log(`[michael/fetchNoaaEvents] type=${eventType} lat=${lat} lng=${lng} total=${results.length} counts=${JSON.stringify(sourceCounts)} errors=${JSON.stringify(sourceErrors)}`)
   return results
 }
 
