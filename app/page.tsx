@@ -407,6 +407,25 @@ export default function Dashboard() {
     setNotifications(prev => [n, ...prev].slice(0, 50))
   }
 
+  // Persist wrapper — calls any storage function and surfaces sync failures.
+  // Prevents silent data loss: if Supabase fails but local succeeded, warns the
+  // user. If both fail, shows an error so they know the record was not saved.
+  const persist = async <T,>(
+    saveFn: (arg: T) => Promise<{ ok: boolean; source: string | null; error?: string }>,
+    arg: T,
+    label = 'record',
+  ) => {
+    const result = await saveFn(arg)
+    if (!result.ok) {
+      if (result.source === 'local') {
+        addNotification(`⚠ ${label} saved locally — cloud sync failed. Will retry when reconnected.`, 'warning')
+      } else {
+        addNotification(`✕ Failed to save ${label}. Check connection and try again.`, 'warning')
+      }
+    }
+    return result
+  }
+
   // Fetch profile via server API (bypasses RLS) — 6s timeout so auth never hangs
   const fetchProfileServer = async (userId: string) => {
     try {
@@ -821,7 +840,7 @@ export default function Dashboard() {
 
     const updated = [...properties, newProperty]
     setProperties(updated)
-    await saveProperty(newProperty)
+    await persist(saveProperty, newProperty, 'property')
     addNotification(`Property saved: ${newProperty.address}`, 'success')
     setCommercialResults(commercialResults.filter(p => p.id !== place.id))
   }
@@ -900,7 +919,7 @@ export default function Dashboard() {
 
     const updated = [...properties, newProperty]
     setProperties(updated)
-    await saveProperty(newProperty)
+    await persist(saveProperty, newProperty, 'property')
     addNotification(`Property saved: ${newProperty.address}`, 'success')
     setResidentialResults(residentialResults.filter(p => p.id !== place.id))
   }
@@ -1336,7 +1355,7 @@ export default function Dashboard() {
     }
     const updated = [...properties, sweepResult]
     setProperties(updated)
-    await saveProperty(sweepResult)
+    await persist(saveProperty, sweepResult, 'property')
     addNotification(`Property saved: ${sweepResult.address}`, 'success')
     setSweepResult(null)
     setSweepAddress('')
@@ -1720,7 +1739,7 @@ Only respond with the JSON array, no other text.` }
         onSaveProperty={async (p) => {
           const updated = [...properties.filter(x => x.id !== p.id), p]
           setProperties(updated)
-          await saveProperty(p)
+          await persist(saveProperty, p, 'property')
         }}
         weather={weather}
         alerts={alerts}
@@ -1731,7 +1750,7 @@ Only respond with the JSON array, no other text.` }
         onSaveClient={async (c) => {
           const updated = clients.map(x => x.id === c.id ? c : x)
           setClients(updated)
-          await saveClient(c)
+          await persist(saveClient, c, 'client')
           const propForClient = properties.find(p => p.id === c.property_id)
           addNotification(`Client updated for ${propForClient?.address || 'property'}`, 'info')
         }}
@@ -4687,7 +4706,7 @@ Only respond with the JSON array, no other text.` }
                             }
                             const updated = [...clients, newClient]
                             setClients(updated)
-                            await saveClient(newClient)
+                            await persist(saveClient, newClient, 'client')
                           }}
                           className="w-full text-left px-2 py-2 text-xs text-white hover:bg-dark-700 rounded transition-all"
                         >
@@ -4808,7 +4827,7 @@ Only respond with the JSON array, no other text.` }
                             }
                             const updatedProposals = [...proposals, newProposal]
                             setProposals(updatedProposals)
-                            await saveProposal(newProposal)
+                            await persist(saveProposal, newProposal, 'proposal')
                             setActiveScreen('proposals')
                             setSelectedProposal(newProposal)
                           }}
@@ -4869,7 +4888,7 @@ Only respond with the JSON array, no other text.` }
                                 const newClients = [...clients]
                                 newClients[idx] = updated
                                 setClients(newClients)
-                                await saveClient(updated)
+                                await persist(saveClient, updated, 'client')
                                 const statusLabel = newStatus.replace(/_/g, ' ').split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
                                 const clientProp = properties.find(p => p.id === selectedClient.property_id)
                                 addNotification(`Client for ${clientProp?.address || 'property'} marked as ${statusLabel}`, 'info')
@@ -4920,7 +4939,7 @@ Only respond with the JSON array, no other text.` }
                             const newClients = [...clients]
                             newClients[idx] = updated
                             setClients(newClients)
-                            await saveClient(updated)
+                            await persist(saveClient, updated, 'client')
                           }}
                           className="w-full h-20 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
                           placeholder="Add notes..."
@@ -4942,7 +4961,7 @@ Only respond with the JSON array, no other text.` }
                                 const newClients = [...clients]
                                 newClients[idx] = updated
                                 setClients(newClients)
-                                await saveClient(updated)
+                                await persist(saveClient, updated, 'client')
                               }}
                               className="w-full h-16 bg-dark-700 border border-white/10 rounded px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
                               placeholder="Describe roofing damage and what needs repair..."
@@ -4961,7 +4980,7 @@ Only respond with the JSON array, no other text.` }
                                 const newClients = [...clients]
                                 newClients[idx] = updated
                                 setClients(newClients)
-                                await saveClient(updated)
+                                await persist(saveClient, updated, 'client')
                               }}
                               className="w-full bg-dark-700 border border-white/10 rounded px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
                               placeholder="Inspector findings / notes..."
@@ -4980,7 +4999,7 @@ Only respond with the JSON array, no other text.` }
                                   const newClients = [...clients]
                                   newClients[idx] = updated
                                   setClients(newClients)
-                                  await saveClient(updated)
+                                  await persist(saveClient, updated, 'client')
                                 }}
                                 className="w-full bg-dark-700 border border-white/10 rounded px-2 py-1.5 text-xs text-white"
                               >
@@ -5006,7 +5025,7 @@ Only respond with the JSON array, no other text.` }
                                   const newClients = [...clients]
                                   newClients[idx] = updated
                                   setClients(newClients)
-                                  await saveClient(updated)
+                                  await persist(saveClient, updated, 'client')
                                 }}
                                 className="w-full bg-dark-700 border border-white/10 rounded px-2 py-1.5 text-xs text-white"
                                 placeholder="0-5"
@@ -5026,7 +5045,7 @@ Only respond with the JSON array, no other text.` }
                                 const newClients = [...clients]
                                 newClients[idx] = updated
                                 setClients(newClients)
-                                await saveClient(updated)
+                                await persist(saveClient, updated, 'client')
                               }}
                               className="w-full bg-dark-700 border border-white/10 rounded px-2 py-1.5 text-xs text-white"
                             />
@@ -5054,7 +5073,7 @@ Only respond with the JSON array, no other text.` }
                               setSelectedClient(updatedClient)
                               const idx = clients.findIndex(c => c.id === selectedClient.id)
                               const newClients = [...clients]; newClients[idx] = updatedClient; setClients(newClients)
-                              await saveClient(updatedClient)
+                              await persist(saveClient, updatedClient, 'client')
                               const newActivities = logClientActivity(selectedClient.id, note, clientActivities)
                               setClientActivities(newActivities)
                               input.value = ''
@@ -5071,7 +5090,7 @@ Only respond with the JSON array, no other text.` }
                               setSelectedClient(updatedClient)
                               const idx = clients.findIndex(c => c.id === selectedClient.id)
                               const newClients = [...clients]; newClients[idx] = updatedClient; setClients(newClients)
-                              await saveClient(updatedClient)
+                              await persist(saveClient, updatedClient, 'client')
                               const newActivities = logClientActivity(selectedClient.id, note, clientActivities)
                               setClientActivities(newActivities)
                               if (input) input.value = ''
@@ -5207,7 +5226,7 @@ Only respond with the JSON array, no other text.` }
                           }
                           const newProposals = [...proposals, newProposal]
                           setProposals(newProposals)
-                          await saveProposal(newProposal)
+                          await persist(saveProposal, newProposal, 'proposal')
                           setSelectedProposal(newProposal)
                           setEditingProposal(true)
                         }}
@@ -5321,7 +5340,7 @@ Only respond with the JSON array, no other text.` }
                         const newProposals = [...proposals]
                         newProposals[idx] = updated
                         setProposals(newProposals)
-                        await saveProposal(updated)
+                        await persist(saveProposal, updated, 'proposal')
                         addNotification(`Proposal marked as ${newStatus}`, 'info')
 
                         // Auto-convert accepted proposal to job
@@ -5364,7 +5383,7 @@ Only respond with the JSON array, no other text.` }
 
                             const updatedJobs = [...jobs, newJob]
                             setJobs(updatedJobs)
-                            await saveJob(newJob)
+                            await persist(saveJob, newJob, 'job')
                             addNotification(`Proposal accepted for ${prop?.address || 'property'} — Job created!`, 'success')
                           }
                         }
@@ -5505,7 +5524,7 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                                 setSelectedProposal(updated)
                                 const idx = proposals.findIndex(p => p.id === selectedProposal.id)
                                 const newProposals = [...proposals]; newProposals[idx] = updated; setProposals(newProposals)
-                                await saveProposal(updated)
+                                await persist(saveProposal, updated, 'proposal')
                                 addNotification('Proposal line items generated by Michael', 'success')
                               } catch (err) {
                                 setProposalAiError('Could not generate proposal. Please try again.')
@@ -5627,7 +5646,7 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                         newProposals[idx] = updated
                         setProposals(newProposals)
                       }}
-                      onBlur={async () => { await saveProposal(selectedProposal) }}
+                      onBlur={async () => { await persist(saveProposal, selectedProposal, 'proposal') }}
                       className="w-full h-16 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
                       placeholder="Add notes..."
                     />
@@ -5666,7 +5685,7 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                       const newProposals = [...proposals]
                       newProposals[idx] = selectedProposal
                       setProposals(newProposals)
-                      await saveProposal(selectedProposal)
+                      await persist(saveProposal, selectedProposal, 'proposal')
                       addNotification('Proposal saved', 'success')
                     }}
                     className="flex-1 bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90 min-w-24"
@@ -5716,14 +5735,14 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                       const updated = { ...selectedProposal, status: 'sent' as const, sent_at: new Date().toISOString() }
                       newProposals[idx] = updated
                       setProposals(newProposals)
-                      await saveProposal(updated)
+                      await persist(saveProposal, updated, 'proposal')
                       setSelectedProposal(updated)
                       if (updated.client_id) {
                         const ci = clients.findIndex(c => c.id === updated.client_id)
                         if (ci !== -1) {
                           const updatedClient: Client = { ...clients[ci], status: 'proposal_sent', last_contact: new Date().toISOString() }
                           const newClients = [...clients]; newClients[ci] = updatedClient; setClients(newClients)
-                          await saveClient(updatedClient)
+                          await persist(saveClient, updatedClient, 'client')
                         }
                       }
                     }}
@@ -6394,7 +6413,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                     }
                     const updated = [newJob, ...jobs]
                     setJobs(updated)
-                    await saveJob(newJob)
+                    await persist(saveJob, newJob, 'job')
                     setNewJobTitle(''); setNewJobAddress(''); setNewJobOwner(''); setNewJobAmount('')
                     setAddingJob(false)
                     setSelectedJob(newJob)
@@ -6469,7 +6488,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                           const updated = { ...selectedJob, stage: newStage }
                           setSelectedJob(updated)
                           setJobs(jobs.map(j => j.id === updated.id ? updated : j))
-                          await saveJob(updated)
+                          await persist(saveJob, updated, 'job')
                           const stageLabel = JOB_STAGES.find(s => s.key === newStage)?.label || newStage
                           addNotification(`Job "${updated.title}" moved to ${stageLabel}`, 'info')
                         }}
@@ -6492,7 +6511,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                             }
                             setSelectedJob(updated)
                             setJobs(jobs.map(j => j.id === updated.id ? updated : j))
-                            await saveJob(updated)
+                            await persist(saveJob, updated, 'job')
                             const stageLabel = JOB_STAGES.find(s => s.key === nextStage)?.label || nextStage
                             addNotification(`Job "${updated.title}" moved to ${stageLabel}`, 'info')
                           }
@@ -6543,7 +6562,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                         <input type="number" defaultValue={selectedJob.contract_amount || ''}
                           onBlur={async (e) => {
                             const updated = { ...selectedJob, contract_amount: parseFloat(e.target.value) || null }
-                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                           }}
                           className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="$0.00" />
                       </div>
@@ -6552,7 +6571,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                         <input type="text" defaultValue={selectedJob.permit_number || ''}
                           onBlur={async (e) => {
                             const updated = { ...selectedJob, permit_number: e.target.value || null }
-                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                           }}
                           className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="Permit #" />
                       </div>
@@ -6561,7 +6580,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                         <input type="date" defaultValue={selectedJob.scheduled_date || ''}
                           onBlur={async (e) => {
                             const updated = { ...selectedJob, scheduled_date: e.target.value || null }
-                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                           }}
                           className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" />
                       </div>
@@ -6570,7 +6589,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                         <input type="text" defaultValue={selectedJob.crew_lead || ''}
                           onBlur={async (e) => {
                             const updated = { ...selectedJob, crew_lead: e.target.value || null }
-                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                           }}
                           className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="Lead name" />
                       </div>
@@ -6580,7 +6599,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                           onBlur={async (e) => {
                             const members = e.target.value ? e.target.value.split(',').map(m => m.trim()).filter(m => m) : []
                             const updated = { ...selectedJob, crew_members: members }
-                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                           }}
                           className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="John, Jane, Mike..." />
                       </div>
@@ -6590,7 +6609,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                           <input type="text" defaultValue={selectedJob.invoice_number || ''}
                             onBlur={async (e) => {
                               const updated = { ...selectedJob, invoice_number: e.target.value || null }
-                              setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                              setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                             }}
                             className="flex-1 bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="INV-001" />
                           {!selectedJob.invoice_number && (
@@ -6600,7 +6619,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                                 const updated = { ...selectedJob, invoice_number: invoiceNum }
                                 setSelectedJob(updated)
                                 setJobs(jobs.map(j => j.id === updated.id ? updated : j))
-                                await saveJob(updated)
+                                await persist(saveJob, updated, 'job')
                               }}
                               className="bg-cyan/20 text-cyan hover:bg-cyan/30 px-3 py-2 rounded text-sm font-medium whitespace-nowrap"
                             >
@@ -6689,7 +6708,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                         <input type="number" defaultValue={selectedJob.amount_collected || ''}
                           onBlur={async (e) => {
                             const updated = { ...selectedJob, amount_collected: parseFloat(e.target.value) || null }
-                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                            setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                           }}
                           className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="$0.00" />
                       </div>
@@ -6699,7 +6718,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                       <textarea defaultValue={selectedJob.notes}
                         onBlur={async (e) => {
                           const updated = { ...selectedJob, notes: e.target.value }
-                          setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                          setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                         }}
                         rows={3}
                         className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 resize-none"
@@ -6742,7 +6761,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                             const updated = { ...selectedJob, insurance: claim }
                             setSelectedJob(updated)
                             setJobs(jobs.map(j => j.id === updated.id ? updated : j))
-                            await saveJob(updated)
+                            await persist(saveJob, updated, 'job')
                           }}
                           className="bg-cyan/20 text-cyan px-4 py-2 rounded-lg text-sm font-medium hover:bg-cyan/30"
                         >+ Add Insurance Claim</button>
@@ -6767,7 +6786,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                             <input type="text" defaultValue={selectedJob.insurance.insurance_company}
                               onBlur={async (e) => {
                                 const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, insurance_company: e.target.value } }
-                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                               }}
                               className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="State Farm" />
                           </div>
@@ -6776,7 +6795,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                             <input type="text" defaultValue={selectedJob.insurance.claim_number}
                               onBlur={async (e) => {
                                 const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, claim_number: e.target.value } }
-                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                               }}
                               className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="CLM-12345" />
                           </div>
@@ -6785,7 +6804,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                             <input type="text" defaultValue={selectedJob.insurance.adjuster_name || ''}
                               onBlur={async (e) => {
                                 const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, adjuster_name: e.target.value || null } }
-                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                               }}
                               className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="Adjuster name" />
                           </div>
@@ -6794,7 +6813,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                             <input type="text" defaultValue={selectedJob.insurance.adjuster_phone || ''}
                               onBlur={async (e) => {
                                 const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, adjuster_phone: e.target.value || null } }
-                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                                setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                               }}
                               className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="Phone" />
                           </div>
@@ -6812,7 +6831,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                                 defaultValue={(selectedJob.insurance as unknown as Record<string, unknown>)[field] as number || ''}
                                 onBlur={async (e) => {
                                   const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, [field]: parseFloat(e.target.value) || null } }
-                                  setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                                  setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                                 }}
                                 className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50" placeholder="$0.00" />
                             </div>
@@ -6831,7 +6850,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                           <select defaultValue={selectedJob.insurance.status}
                             onChange={async (e) => {
                               const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, status: e.target.value as InsuranceClaim['status'] } }
-                              setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                              setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                             }}
                             className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan/50">
                             <option value="pending">Pending</option>
@@ -6847,7 +6866,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                           <textarea defaultValue={selectedJob.insurance.notes} rows={3}
                             onBlur={async (e) => {
                               const updated = { ...selectedJob, insurance: { ...selectedJob.insurance!, notes: e.target.value } }
-                              setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await saveJob(updated)
+                              setSelectedJob(updated); setJobs(jobs.map(j => j.id === updated.id ? updated : j)); await persist(saveJob, updated, 'job')
                             }}
                             className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 resize-none"
                             placeholder="Adjuster notes, supplement strategy..." />
@@ -6919,13 +6938,13 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                                   const uploaded = { ...selectedJob, photos: [...selectedJob.photos, withUrl] }
                                   setSelectedJob(uploaded)
                                   setJobs(jobs.map(j => j.id === uploaded.id ? uploaded : j))
-                                  await saveJob(uploaded)
+                                  await persist(saveJob, uploaded, 'job')
                                   return
                                 }
                               } catch { /* fall through to local save */ }
 
                               // Fallback: save with local base64 (offline mode)
-                              await saveJob(optimistic)
+                              await persist(saveJob, optimistic, 'job')
                             }
                             reader.readAsDataURL(file)
                             e.target.value = ''
@@ -6961,7 +6980,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                                 const updated = { ...selectedJob, photos: selectedJob.photos.filter(p => p.id !== photo.id) }
                                 setSelectedJob(updated)
                                 setJobs(jobs.map(j => j.id === updated.id ? updated : j))
-                                await saveJob(updated)
+                                await persist(saveJob, updated, 'job')
                               }}
                               className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500/80 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                             >×</button>
@@ -7017,7 +7036,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                   if (!job) return
                   const updated = { ...job, stage: newStage }
                   setJobs(prev => prev.map(j => j.id === jobId ? updated : j))
-                  await saveJob(updated)
+                  await persist(saveJob, updated, 'job')
                   const stageLabel = JOB_STAGES.find(s => s.key === newStage)?.label || newStage
                   addNotification(`Job moved to ${stageLabel}`, 'info')
                 }}
