@@ -141,7 +141,7 @@ export interface StormEvent {
   description: string
 }
 
-export type Screen = 'dashboard' | 'territory' | 'sweep' | 'stormscope' | 'michael' | 'clients' | 'proposals' | 'materials' | 'team' | 'jobs' | 'timeline' | 'settings'
+export type Screen = 'dashboard' | 'territory' | 'sweep' | 'stormscope' | 'michael' | 'clients' | 'proposals' | 'estimates' | 'materials' | 'team' | 'jobs' | 'timeline' | 'settings'
 
 export type JobStage =
   | 'sold'
@@ -241,6 +241,11 @@ export interface Client {
   last_contact: string | null
   assigned_to: string | null
   created_at: string
+  damage_notes?: string | null
+  inspection_findings?: string | null
+  damage_severity?: 'none' | 'minor' | 'moderate' | 'severe' | 'total_loss' | null
+  layers_of_shingles?: number | null
+  assessment_date?: string | null
 }
 
 export interface Proposal {

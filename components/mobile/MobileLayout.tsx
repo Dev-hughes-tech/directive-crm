@@ -6,7 +6,7 @@ import {
   Search, MapPin, Cloud, AlertTriangle, Phone, Mail,
   FileText, Package, MessageSquare, Briefcase, Settings,
   Radio, ChevronRight, X, Plus, Send, Loader2,
-  Home, Zap, Shield, Star, Clock, CheckCircle2, CalendarDays
+  Home, Zap, Shield, Star, Clock, CheckCircle2, CalendarDays, Calculator
 } from 'lucide-react'
 import type { Property, Client, Proposal, Job, Screen } from '@/lib/types'
 import type { WeatherCurrent, WeatherAlert } from '@/lib/types'
@@ -929,17 +929,18 @@ export default function MobileLayout(props: MobileLayoutProps) {
         <p className="text-xs text-gray-400 uppercase tracking-wide mb-4">All Features</p>
 
         {[
-          { screen: 'territory' as Screen, label: 'Territory', icon: MapPin, desc: 'Property map & route planning', color: 'text-blue-400 bg-blue-400/10' },
-          { screen: 'stormscope' as Screen, label: 'StormScope', icon: Radio, desc: 'Live radar & storm alerts', color: 'text-amber-400 bg-amber-400/10' },
-          { screen: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, desc: 'Production pipeline & insurance', color: 'text-orange-400 bg-orange-400/10' },
-          { screen: 'timeline' as Screen, label: 'Timeline', icon: CalendarDays, desc: 'Job milestones & activity', color: 'text-cyan-400 bg-cyan-400/10' },
-          { screen: 'proposals' as Screen, label: 'Proposals', icon: FileText, desc: 'Create & manage proposals', color: 'text-yellow-400 bg-yellow-400/10' },
-          { screen: 'materials' as Screen, label: 'Materials', icon: Package, desc: 'Calculator & estimating', color: 'text-green-400 bg-green-400/10' },
-          { screen: 'team' as Screen, label: 'Team', icon: MessageSquare, desc: 'Chat with your team', color: 'text-purple-400 bg-purple-400/10' },
-          { screen: 'settings' as Screen, label: 'Settings', icon: Settings, desc: 'Account & preferences', color: 'text-gray-400 bg-gray-400/10' },
+          { screen: 'territory' as Screen, label: 'Territory', icon: MapPin, desc: 'Property map & route planning', color: 'text-blue-400 bg-blue-400/10', feature: 'territory' as const },
+          { screen: 'stormscope' as Screen, label: 'StormScope', icon: Radio, desc: 'Live radar & storm alerts', color: 'text-amber-400 bg-amber-400/10', feature: 'stormscope' as const },
+          { screen: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, desc: 'Production pipeline & insurance', color: 'text-orange-400 bg-orange-400/10', feature: 'jobs' as const },
+          { screen: 'timeline' as Screen, label: 'Timeline', icon: CalendarDays, desc: 'Job milestones & activity', color: 'text-cyan-400 bg-cyan-400/10', feature: 'timeline' as const },
+          { screen: 'proposals' as Screen, label: 'Proposals', icon: FileText, desc: 'Create & manage proposals', color: 'text-yellow-400 bg-yellow-400/10', feature: 'proposals' as const },
+          { screen: 'estimates' as Screen, label: 'Smart Estimates', icon: Calculator, desc: 'AI-powered line-item estimates', color: 'text-teal-400 bg-teal-400/10', feature: 'smartEstimates' as const },
+          { screen: 'materials' as Screen, label: 'Materials', icon: Package, desc: 'Calculator & estimating', color: 'text-green-400 bg-green-400/10', feature: 'materials' as const },
+          { screen: 'team' as Screen, label: 'Team', icon: MessageSquare, desc: 'Chat with your team', color: 'text-purple-400 bg-purple-400/10', feature: 'team' as const },
+          { screen: 'settings' as Screen, label: 'Settings', icon: Settings, desc: 'Account & preferences', color: 'text-gray-400 bg-gray-400/10', feature: 'settings' as const },
         ].map(item => {
           const Icon = item.icon
-          const locked = !canAccess(userRole, item.screen)
+          const locked = !canAccess(userRole, item.feature)
           return (
             <button
               key={item.screen}

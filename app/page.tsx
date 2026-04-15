@@ -98,7 +98,7 @@ function isApartmentComplex(address: string | null, types: string[]): boolean {
 
 const VALID_SCREENS: readonly Screen[] = [
   'dashboard', 'territory', 'sweep', 'stormscope', 'michael',
-  'clients', 'proposals', 'materials', 'team', 'jobs', 'timeline', 'settings',
+  'clients', 'proposals', 'estimates', 'materials', 'team', 'jobs', 'timeline', 'settings',
 ] as const
 
 function readInitialScreen(): Screen {
@@ -244,6 +244,11 @@ export default function Dashboard() {
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null)
   const [editingProposal, setEditingProposal] = useState(false)
   const [proposalMapMode, setProposalMapMode] = useState<'place' | 'streetview' | 'satellite'>('place')
+
+  // Smart Estimates screen state
+  const [estimateLoading, setEstimateLoading] = useState(false)
+  const [estimateText, setEstimateText] = useState('')
+  const [estimateError, setEstimateError] = useState<string | null>(null)
 
   // Materials screen state — upgraded calculator
   const [materials, setMaterials] = useState<Material[]>([])
@@ -1677,6 +1682,7 @@ Only respond with the JSON array, no other text.` }
               { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, feature: 'jobs' as const },
               { id: 'clients' as Screen, label: 'Clients', icon: Users, feature: 'clients' as const },
               { id: 'proposals' as Screen, label: 'Proposals', icon: FileText, feature: 'proposals' as const },
+              { id: 'estimates' as Screen, label: 'Smart Estimates', icon: Calculator, feature: 'proposals' as const },
               { id: 'materials' as Screen, label: 'Materials', icon: Package, feature: 'materials' as const },
               { id: 'team' as Screen, label: 'Team', icon: MessageSquare, feature: 'team' as const },
               { id: 'settings' as Screen, label: 'Settings', icon: Settings, feature: 'settings' as const },
@@ -4462,6 +4468,113 @@ Only respond with the JSON array, no other text.` }
                         />
                       </div>
 
+                      {/* Damage Assessment Section */}
+                      <div className="mb-4 p-4 bg-dark-700/30 border border-white/5 rounded-lg">
+                        <h3 className="text-sm font-semibold text-white mb-3">Damage Assessment</h3>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-xs text-gray-400 uppercase tracking-wide block mb-1">Damage Notes</label>
+                            <textarea
+                              value={selectedClient.damage_notes || ''}
+                              onChange={async (e) => {
+                                const updated = { ...selectedClient, damage_notes: e.target.value }
+                                setSelectedClient(updated)
+                                const idx = clients.findIndex(c => c.id === selectedClient.id)
+                                const newClients = [...clients]
+                                newClients[idx] = updated
+                                setClients(newClients)
+                                await saveClient(updated)
+                              }}
+                              className="w-full h-16 bg-dark-700 border border-white/10 rounded px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                              placeholder="Describe roofing damage and what needs repair..."
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-xs text-gray-400 uppercase tracking-wide block mb-1">Inspection Findings</label>
+                            <input
+                              type="text"
+                              value={selectedClient.inspection_findings || ''}
+                              onChange={async (e) => {
+                                const updated = { ...selectedClient, inspection_findings: e.target.value }
+                                setSelectedClient(updated)
+                                const idx = clients.findIndex(c => c.id === selectedClient.id)
+                                const newClients = [...clients]
+                                newClients[idx] = updated
+                                setClients(newClients)
+                                await saveClient(updated)
+                              }}
+                              className="w-full bg-dark-700 border border-white/10 rounded px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
+                              placeholder="Inspector findings / notes..."
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-xs text-gray-400 uppercase tracking-wide block mb-1">Severity</label>
+                              <select
+                                value={selectedClient.damage_severity || 'none'}
+                                onChange={async (e) => {
+                                  const updated = { ...selectedClient, damage_severity: e.target.value as any }
+                                  setSelectedClient(updated)
+                                  const idx = clients.findIndex(c => c.id === selectedClient.id)
+                                  const newClients = [...clients]
+                                  newClients[idx] = updated
+                                  setClients(newClients)
+                                  await saveClient(updated)
+                                }}
+                                className="w-full bg-dark-700 border border-white/10 rounded px-2 py-1.5 text-xs text-white"
+                              >
+                                <option value="none">None</option>
+                                <option value="minor">Minor</option>
+                                <option value="moderate">Moderate</option>
+                                <option value="severe">Severe</option>
+                                <option value="total_loss">Total Loss</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="text-xs text-gray-400 uppercase tracking-wide block mb-1">Shingle Layers</label>
+                              <input
+                                type="number"
+                                min="0"
+                                max="5"
+                                value={selectedClient.layers_of_shingles || ''}
+                                onChange={async (e) => {
+                                  const updated = { ...selectedClient, layers_of_shingles: e.target.value ? parseInt(e.target.value) : null }
+                                  setSelectedClient(updated)
+                                  const idx = clients.findIndex(c => c.id === selectedClient.id)
+                                  const newClients = [...clients]
+                                  newClients[idx] = updated
+                                  setClients(newClients)
+                                  await saveClient(updated)
+                                }}
+                                className="w-full bg-dark-700 border border-white/10 rounded px-2 py-1.5 text-xs text-white"
+                                placeholder="0-5"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-xs text-gray-400 uppercase tracking-wide block mb-1">Assessment Date</label>
+                            <input
+                              type="date"
+                              value={selectedClient.assessment_date || ''}
+                              onChange={async (e) => {
+                                const updated = { ...selectedClient, assessment_date: e.target.value || null }
+                                setSelectedClient(updated)
+                                const idx = clients.findIndex(c => c.id === selectedClient.id)
+                                const newClients = [...clients]
+                                newClients[idx] = updated
+                                setClients(newClients)
+                                await saveClient(updated)
+                              }}
+                              className="w-full bg-dark-700 border border-white/10 rounded px-2 py-1.5 text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
                       {/* Activity Log */}
                       <div className="mb-4">
                         <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Activity Log</p>
@@ -4783,6 +4896,30 @@ Only respond with the JSON array, no other text.` }
                     </select>
                   </div>
 
+                  {/* Damage Assessment Summary */}
+                  {(() => {
+                    const client = clients.find(c => c.id === selectedProposal.client_id)
+                    return client && (client.damage_notes || client.damage_severity) ? (
+                      <div className="p-3 bg-dark-700/30 border border-white/5 rounded">
+                        <h4 className="text-xs font-semibold text-white mb-2">Damage Assessment</h4>
+                        <div className="space-y-1 text-xs">
+                          {client.damage_severity && (
+                            <div><span className="text-gray-400">Severity: </span><span className="text-amber capitalize">{client.damage_severity.replace(/_/g, ' ')}</span></div>
+                          )}
+                          {client.inspection_findings && (
+                            <div><span className="text-gray-400">Findings: </span><span className="text-white">{client.inspection_findings}</span></div>
+                          )}
+                          {client.layers_of_shingles && (
+                            <div><span className="text-gray-400">Shingle Layers: </span><span className="text-white">{client.layers_of_shingles}</span></div>
+                          )}
+                          {client.damage_notes && (
+                            <div className="mt-2 p-2 bg-dark-700/50 rounded text-gray-300 italic max-h-20 overflow-y-auto">{client.damage_notes}</div>
+                          )}
+                        </div>
+                      </div>
+                    ) : null
+                  })()}
+
                   <div>
                     <label className="text-xs text-gray-400 uppercase tracking-wide mb-2 block">Line Items</label>
                     <table className="w-full text-xs">
@@ -4976,6 +5113,214 @@ Only respond with the JSON array, no other text.` }
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* SCREEN 8: SMART ESTIMATES */}
+      {activeScreen === 'estimates' && (
+        <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
+          {/* Check if user has completed proposals */}
+          {proposals.filter(p => p.status !== 'draft').length === 0 ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8">
+              <Calculator className="w-12 h-12 text-gray-600 mb-4" />
+              <h3 className="text-white font-semibold mb-2">Complete a Proposal First</h3>
+              <p className="text-gray-400 text-sm mb-4 max-w-sm">
+                Smart Estimates require a completed proposal. Go to the Proposals tab,
+                create or finalize a proposal, then return here to generate your estimate.
+              </p>
+              <button onClick={() => setActiveScreen('proposals')}
+                className="bg-cyan text-dark px-4 py-2 rounded-lg text-sm font-semibold hover:bg-cyan/90">
+                Go to Proposals
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Left Panel: Property List */}
+              <div className="w-full md:w-80 glass rounded-lg p-6 flex flex-col">
+                <h2 className="text-lg font-semibold text-white mb-4">Properties with Proposals</h2>
+                <div className="flex-1 overflow-y-auto space-y-2">
+                  {proposals
+                    .filter(p => p.status !== 'draft')
+                    .map(proposal => {
+                      const prop = properties.find(pr => pr.id === proposal.property_id)
+                      const client = clients.find(c => c.id === proposal.client_id)
+                      const severityColors: Record<string, string> = {
+                        none: 'bg-green/20 text-green',
+                        minor: 'bg-blue/20 text-blue',
+                        moderate: 'bg-amber/20 text-amber',
+                        severe: 'bg-orange/20 text-orange',
+                        total_loss: 'bg-red/20 text-red',
+                      }
+                      return (
+                        <button
+                          key={proposal.id}
+                          onClick={() => setSelectedProposal(proposal)}
+                          className={`w-full text-left p-3 rounded-lg transition-all ${
+                            selectedProposal?.id === proposal.id
+                              ? 'glass-sm ring-1 ring-cyan'
+                              : 'bg-dark-700/50 hover:bg-dark-700'
+                          }`}
+                        >
+                          <p className="text-sm font-semibold text-white">{prop?.address || '—'}</p>
+                          <div className="flex justify-between items-center mt-2">
+                            <span className="text-xs text-gray-400">${proposal.total.toLocaleString()}</span>
+                            {client?.damage_severity && (
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${severityColors[client.damage_severity] || 'bg-gray-700 text-gray-300'}`}>
+                                {client.damage_severity.replace(/_/g, ' ')}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
+                </div>
+              </div>
+
+              {/* Right Panel: Estimate Generator */}
+              <div className="w-full md:flex-1 glass rounded-lg p-6 flex flex-col">
+                {selectedProposal ? (
+                  <>
+                    {(() => {
+                      const prop = properties.find(p => p.id === selectedProposal.property_id)
+                      const client = clients.find(c => c.id === selectedProposal.client_id)
+                      return (
+                        <>
+                          {/* Property & Client Info */}
+                          <div className="mb-4 pb-4 border-b border-white/10">
+                            <h2 className="text-lg font-semibold text-white">{prop?.address || '—'}</h2>
+                            {prop && (
+                              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                <div><span className="text-gray-400">Roof Age: </span><span className="text-amber">{prop.roof_age_years ? prop.roof_age_years + ' yrs' : '—'}</span></div>
+                                <div><span className="text-gray-400">Sqft: </span><span className="text-white">{prop.sqft?.toLocaleString() || '—'}</span></div>
+                                <div><span className="text-gray-400">Roof Pitch: </span><span className="text-white">{prop.roof_pitch || '—'}</span></div>
+                                <div><span className="text-gray-400">Roofing Squares: </span><span className="text-white">{prop.roofing_squares ? prop.roofing_squares.toFixed(1) : '—'}</span></div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Damage Assessment */}
+                          {client && (
+                            <div className="mb-4 p-3 bg-dark-700/30 border border-white/5 rounded">
+                              <h3 className="text-sm font-semibold text-white mb-2">Damage Assessment</h3>
+                              <div className="space-y-1 text-xs">
+                                {client.damage_severity && (
+                                  <div><span className="text-gray-400">Severity: </span><span className="text-amber capitalize">{client.damage_severity.replace(/_/g, ' ')}</span></div>
+                                )}
+                                {client.inspection_findings && (
+                                  <div><span className="text-gray-400">Findings: </span><span className="text-white">{client.inspection_findings}</span></div>
+                                )}
+                                {client.layers_of_shingles && (
+                                  <div><span className="text-gray-400">Shingle Layers: </span><span className="text-white">{client.layers_of_shingles}</span></div>
+                                )}
+                                {client.assessment_date && (
+                                  <div><span className="text-gray-400">Assessment Date: </span><span className="text-white">{new Date(client.assessment_date).toLocaleDateString()}</span></div>
+                                )}
+                                {client.damage_notes && (
+                                  <div className="mt-2 p-2 bg-dark-700/50 rounded text-gray-300 italic max-h-16 overflow-y-auto text-xs">{client.damage_notes}</div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Generate Estimate Button */}
+                          <div className="mb-4">
+                            <button
+                              onClick={async () => {
+                                setEstimateLoading(true)
+                                try {
+                                  const prompt = `Generate a detailed roofing repair/replacement estimate for the following property:
+
+Property: ${prop?.address || 'Unknown'}
+Roof Age: ${prop?.roof_age_years || 'Unknown'} years
+Square Footage: ${prop?.sqft || 'Unknown'} sqft
+Roof Pitch: ${prop?.roof_pitch || 'Unknown'}
+Roofing Squares: ${prop?.roofing_squares ? prop.roofing_squares.toFixed(1) : 'Unknown'}
+
+Damage Assessment:
+- Severity: ${client?.damage_severity || 'Not specified'}
+- Inspection Findings: ${client?.inspection_findings || 'None'}
+- Shingle Layers: ${client?.layers_of_shingles || 'Unknown'}
+- Damage Notes: ${client?.damage_notes || 'None'}
+
+Please generate a realistic line-item estimate for roofing work. Format each line item as:
+| Description | Qty | Unit | Unit Price | Total |
+
+Include items such as:
+- Shingles (based on roof size and severity)
+- Underlayment
+- Flashing repair/replacement
+- Removal and disposal
+- Labor
+- Any other relevant roofing materials
+
+Be specific with quantities and realistic pricing for the roofing industry.`
+
+                                  const response = await authFetch('/api/michael', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      messages: [
+                                        { role: 'user', content: prompt }
+                                      ],
+                                      context: {
+                                        activeScreen: 'estimates',
+                                        leadCount: properties.length,
+                                        hotLeadCount: clients.filter(c => {
+                                          const p = properties.find(pr => pr.id === c.property_id)
+                                          return p && (p.score || 0) >= 70
+                                        }).length,
+                                        alertCount: 0,
+                                      }
+                                    })
+                                  })
+
+                                  if (!response.ok) {
+                                    throw new Error('Failed to generate estimate')
+                                  }
+
+                                  const data = await response.json()
+                                  setEstimateText(data.reply || '')
+                                  setEstimateError(null)
+                                  addNotification('Estimate generated successfully', 'success')
+                                } catch (err) {
+                                  setEstimateError('Failed to generate estimate. Please try again.')
+                                  addNotification('Error generating estimate', 'warning')
+                                  console.error('Estimate generation error:', err)
+                                } finally {
+                                  setEstimateLoading(false)
+                                }
+                              }}
+                              disabled={estimateLoading}
+                              className="w-full bg-cyan text-dark px-4 py-2 rounded-lg text-sm font-semibold hover:bg-cyan/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {estimateLoading ? 'Generating...' : 'Generate Smart Estimate'}
+                            </button>
+                          </div>
+
+                          {/* Estimate Results */}
+                          {estimateError && (
+                            <div className="mb-4 p-3 bg-red/10 border border-red/20 rounded text-red-400 text-xs">
+                              {estimateError}
+                            </div>
+                          )}
+
+                          {estimateText && (
+                            <div className="flex-1 overflow-y-auto p-4 bg-dark-700/30 border border-white/5 rounded text-xs text-white whitespace-pre-wrap font-mono">
+                              {estimateText}
+                            </div>
+                          )}
+                        </>
+                      )
+                    })()}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-gray-400">Select a property to view details and generate estimate</p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 
