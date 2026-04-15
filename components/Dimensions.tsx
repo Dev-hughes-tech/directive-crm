@@ -143,7 +143,7 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
   const [loadingStep, setLoadingStep] = useState('')
   const [result, setResult] = useState<DimensionsResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'blueprint' | 'roof' | 'building' | 'materials'>(
+  const [activeTab, setActiveTab] = useState<'overview' | 'blueprint' | 'roof' | 'building' | 'materials' | 'satellite'>(
     'overview'
   )
   const [mapsApiKey, setMapsApiKey] = useState('')
@@ -262,64 +262,101 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
   }
 
   return (
-    <div className="flex flex-col h-full gap-6 p-6">
+    <div className="flex flex-col h-full p-4 gap-3">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-2">
-        <img
-          src="/dimensions-logo.svg"
-          alt="Dimensions by Directive"
-          className="h-12 w-auto object-contain flex-shrink-0"
-        />
-        <div>
-          <p className="text-xs text-gray-400">{result.address}</p>
+      <div className="flex items-center justify-between gap-4 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <img
+            src="/dimensions-logo.svg"
+            alt="Dimensions by Directive"
+            className="h-10 w-auto object-contain flex-shrink-0"
+          />
+          <p className="text-xs text-gray-400 truncate max-w-xs">{result.address}</p>
         </div>
+        <button
+          onClick={() => onExportToProposal?.(result)}
+          className="flex-shrink-0 bg-cyan-500 text-slate-950 px-4 py-2 rounded-lg font-bold hover:bg-cyan-400 transition text-sm flex items-center gap-2"
+        >
+          <FileText className="w-4 h-4" />
+          Export to Proposal
+        </button>
       </div>
 
-      {/* Two-column layout */}
-      <div className="flex gap-6 flex-1 overflow-hidden">
-        {/* Left: Satellite Image */}
-        <div className="w-[55%] flex flex-col gap-4">
-          {mapsApiKey && (
-            <img
-              src={`https://maps.googleapis.com/maps/api/staticmap?center=${result.lat},${result.lng}&zoom=19&size=600x500&maptype=satellite&key=${mapsApiKey}`}
-              alt="Satellite view"
-              className="w-full h-96 rounded-lg object-cover border border-white/10"
-            />
-          )}
-          <div className="text-xs text-gray-400 space-y-1">
-            <p>
-              <strong>Imagery Date:</strong> {result.imageryDate}
-            </p>
-            <p>
-              <strong>Quality:</strong> {result.imageryQuality}
-            </p>
-            <p>
-              <strong>Coordinates:</strong> {result.lat.toFixed(4)}, {result.lng.toFixed(4)}
-            </p>
-          </div>
-        </div>
+      {/* Full-width tab bar */}
+      <div className="flex gap-1 border-b border-white/10 flex-shrink-0">
+        {(['overview', 'blueprint', 'roof', 'building', 'materials', 'satellite'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition capitalize ${
+              activeTab === tab
+                ? 'border-cyan-500 text-cyan-500'
+                : 'border-transparent text-gray-400 hover:text-gray-300'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
 
-        {/* Right: Tabs panel */}
-        <div className="w-[45%] flex flex-col">
-          {/* Tab buttons */}
-          <div className="flex gap-2 mb-4 border-b border-white/10">
-            {(['overview', 'blueprint', 'roof', 'building', 'materials'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 transition capitalize ${
-                  activeTab === tab
-                    ? 'border-cyan-500 text-cyan-500'
-                    : 'border-transparent text-gray-400 hover:text-gray-300'
-                }`}
-              >
-                {tab}
-              </button>
+      {/* Blueprint: full-height 3D viewer — no scroll wrapper */}
+      {activeTab === 'blueprint' && result && (
+        <div className="flex flex-col flex-1 min-h-0 gap-3">
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-sm font-bold text-white">3D Roof Model</h3>
+            <span className="ml-auto text-xs text-gray-500">Drag to rotate · Scroll to zoom</span>
+          </div>
+          <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-white/10">
+            <Roof3DViewer
+              segments={result.roof.segments}
+              building={result.building}
+              structural={result.structural}
+              edges={result.roof.edges}
+            />
+          </div>
+          <div className="grid grid-cols-4 gap-2 flex-shrink-0">
+            {[
+              { color: '#ffffff', label: 'Ridge', value: `${result.roof.edges.ridgeFt} lf` },
+              { color: '#22c55e', label: 'Valley', value: `${result.roof.edges.valleyFt} lf` },
+              { color: '#f97316', label: 'Hip', value: `${result.roof.edges.hipFt} lf` },
+              { color: '#38bdf8', label: 'Eave', value: `${result.roof.edges.eaveFt} lf` },
+            ].map(item => (
+              <div key={item.label} className="bg-[#0d1117] rounded-lg p-2 border border-white/10 text-center">
+                <div className="w-full h-0.5 rounded mb-1.5" style={{ backgroundColor: item.color }} />
+                <p className="text-xs font-bold text-white">{item.value}</p>
+                <p className="text-[10px] text-gray-400">{item.label}</p>
+              </div>
             ))}
           </div>
+        </div>
+      )}
 
-          {/* Tab content */}
-          <div className="flex-1 overflow-y-auto space-y-4">
+      {/* Satellite tab */}
+      {activeTab === 'satellite' && (
+        <div className="flex-1 flex flex-col gap-4 overflow-y-auto">
+          {mapsApiKey ? (
+            <img
+              src={`https://maps.googleapis.com/maps/api/staticmap?center=${result.lat},${result.lng}&zoom=19&size=900x600&maptype=satellite&key=${mapsApiKey}`}
+              alt="Satellite view"
+              className="w-full rounded-xl object-cover border border-white/10"
+            />
+          ) : (
+            <div className="glass border border-white/10 rounded-xl p-8 text-center text-gray-400 text-sm">
+              Satellite imagery unavailable — Maps API key not configured.
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-3">
+            <InfoRow label="Imagery Date" value={result.imageryDate} />
+            <InfoRow label="Quality" value={result.imageryQuality} />
+            <InfoRow label="Coordinates" value={`${result.lat.toFixed(4)}, ${result.lng.toFixed(4)}`} />
+          </div>
+        </div>
+      )}
+
+      {/* Scrollable content for all other tabs */}
+      {activeTab !== 'blueprint' && activeTab !== 'satellite' && (
+        <div className="flex-1 overflow-y-auto space-y-4">
             {/* Overview */}
             {activeTab === 'overview' && (
               <div className="space-y-4">
@@ -380,37 +417,6 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
                       ))}
                     </div>
                   )}
-                </div>
-              </div>
-            )}
-
-            {/* Blueprint */}
-            {activeTab === 'blueprint' && result && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <LayoutGrid className="w-4 h-4 text-cyan" />
-                  <h3 className="text-sm font-bold text-white">3D Roof Model</h3>
-                  <span className="ml-auto text-xs text-gray-500">Powered by Google Solar API</span>
-                </div>
-                <Roof3DViewer
-                  segments={result.roof.segments}
-                  building={result.building}
-                  structural={result.structural}
-                  edges={result.roof.edges}
-                />
-                <div className="grid grid-cols-4 gap-2 mt-3">
-                  {[
-                    { color: '#ffffff', label: 'Ridge', value: `${result.roof.edges.ridgeFt} lf` },
-                    { color: '#22c55e', label: 'Valley', value: `${result.roof.edges.valleyFt} lf` },
-                    { color: '#f97316', label: 'Hip', value: `${result.roof.edges.hipFt} lf` },
-                    { color: '#38bdf8', label: 'Eave', value: `${result.roof.edges.eaveFt} lf` },
-                  ].map(item => (
-                    <div key={item.label} className="bg-[#0d1117] rounded-lg p-2 border border-white/10 text-center">
-                      <div className="w-full h-0.5 rounded mb-1.5" style={{ backgroundColor: item.color }} />
-                      <p className="text-xs font-bold text-white">{item.value}</p>
-                      <p className="text-[10px] text-gray-400">{item.label}</p>
-                    </div>
-                  ))}
                 </div>
               </div>
             )}
@@ -677,17 +683,7 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
               </div>
             )}
           </div>
-
-          {/* Export button */}
-          <button
-            onClick={() => onExportToProposal?.(result)}
-            className="w-full bg-cyan-500 text-slate-950 py-3 rounded-lg font-bold hover:bg-cyan-400 transition mt-6 flex items-center justify-center gap-2"
-          >
-            <FileText className="w-4 h-4" />
-            Export to Proposal
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   )
 }

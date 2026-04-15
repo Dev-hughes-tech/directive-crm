@@ -69,7 +69,6 @@ const WeatherWidget = dynamic(() => import('@/components/WeatherWidget'), { ssr:
 const PropertyMapEmbed = dynamic(() => import('@/components/PropertyMapEmbed'), { ssr: false })
 const DamagePhotoUpload = dynamic(() => import('@/components/DamagePhotoUpload'), { ssr: false })
 const MobileLayout = dynamic(() => import('@/components/mobile/MobileLayout'), { ssr: false })
-const RoofAnalyzer = dynamic(() => import('@/components/RoofAnalyzer'), { ssr: false })
 const Dimensions = dynamic(() => import('@/components/Dimensions'), { ssr: false })
 const EmailClient = dynamic(() => import('@/components/EmailClient'), { ssr: false })
 import StreetView from '@/components/StreetView'
@@ -102,7 +101,7 @@ function isApartmentComplex(address: string | null, types: string[]): boolean {
 
 
 const VALID_SCREENS: readonly Screen[] = [
-  'dashboard', 'territory', 'sweep', 'stormscope', 'roof_analyzer', 'dimensions', 'michael',
+  'dashboard', 'territory', 'sweep', 'stormscope', 'dimensions', 'michael',
   'clients', 'email', 'proposals', 'estimates', 'materials', 'team', 'jobs', 'timeline', 'settings',
 ] as const
 
@@ -1755,7 +1754,6 @@ Only respond with the JSON array, no other text.` }
               { id: 'territory' as Screen, label: 'Territory', icon: MapPin, feature: 'territory' as const },
               { id: 'sweep' as Screen, label: 'Sweep', icon: Navigation, feature: 'sweep' as const },
               { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio, feature: 'stormscope' as const },
-              { id: 'roof_analyzer' as Screen, label: 'Roof Analyzer', icon: Ruler, feature: 'sweep' as const },
               { id: 'dimensions' as Screen, label: 'Dimensions', icon: Ruler, feature: 'sweep' as const },
               { id: 'michael' as Screen, label: 'Michael', icon: Brain, feature: 'michael' as const },
               { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, feature: 'jobs' as const },
@@ -3996,43 +3994,7 @@ Only respond with the JSON array, no other text.` }
         </>
       )}
 
-      {/* SCREEN 5: ROOF ANALYZER */}
-      {activeScreen === 'roof_analyzer' && (
-        <RoofAnalyzer
-          initialAddress={sweepAddress}
-          initialLat={sweepResult?.lat}
-          initialLng={sweepResult?.lng}
-          mapsApiKey={process.env.NEXT_PUBLIC_MAPS_API_KEY || ''}
-          onExportToProposal={(data) => {
-            // Create a new proposal with roof measurements as line items
-            const newProposal: Proposal = {
-              id: Math.random().toString(36).substr(2, 9),
-              client_id: '',
-              property_id: '',
-              status: 'draft',
-              line_items: [
-                {
-                  id: Math.random().toString(36).substr(2, 9),
-                  description: `Roofing - ${data.totalSquares.toFixed(0)} squares (${data.roofPitch} pitch)`,
-                  quantity: data.pitchAdjustedSquares,
-                  unit: 'squares',
-                  unit_price: 350,
-                  total: data.pitchAdjustedSquares * 350,
-                }
-              ],
-              total: data.pitchAdjustedSquares * 350,
-              notes: `Roof measurements: ${data.totalAreaSqft.toLocaleString()} sqft total area. ${data.segments.length} segments analyzed.`,
-              created_at: new Date().toISOString(),
-              sent_at: null,
-            }
-            saveProposal(newProposal).then(() => {
-              setActiveScreen('proposals')
-            })
-          }}
-        />
-      )}
-
-      {/* SCREEN 5B: DIMENSIONS */}
+      {/* SCREEN 5: DIMENSIONS */}
       {activeScreen === 'dimensions' && (
         <div className="absolute inset-4 top-[184px] z-30 h-[calc(100vh-224px)] overflow-y-auto">
           <Dimensions
