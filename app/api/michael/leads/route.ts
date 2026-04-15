@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
 import { canAccess } from '@/lib/tiers'
 
-export const maxDuration = 60
+export const maxDuration = 90
 
 // ── Geocode ZIP → lat/lng ─────────────────────────────────────────────────
 async function geocodeZip(zip: string): Promise<{ lat: number; lng: number; city: string; state: string } | null> {
@@ -44,33 +44,61 @@ async function geocodeZip(zip: string): Promise<{ lat: number; lng: number; city
 }
 
 // ── NOAA 10-year storm fetch ──────────────────────────────────────────────
+// Combines two sources for best historical coverage:
+//   - nx3hail: NEXRAD radar-detected hail (dense, goes back 10+ years)
+//   - plsr:    preliminary local storm reports (spotter-confirmed, sparse)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'torn' | 'wind', yearStart: number, yearEnd: number): Promise<any[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const results: any[] = []
   const h = { 'User-Agent': 'DirectiveCRM/1.0 (support@hughes-technologies.com)' }
 
-  // Map event type to TYPECODE filter
-  const typeCodeMap: Record<string, string> = {
-    'hail': 'H',
-    'torn': 'T',
-    'wind': 'G',
-  }
+  const typeCodeMap: Record<string, string> = { hail: 'H', torn: 'T', wind: 'G' }
 
-  // NOAA allows date-range queries — chunk by year to avoid timeouts
-  const years = []
+  // Chunk 10 years into 2-year spans for reliability
+  const years: number[] = []
   for (let y = yearStart; y <= yearEnd; y++) years.push(y)
-
-  // Fetch in 2-year chunks for reliability
   const chunks: number[][] = []
   for (let i = 0; i < years.length; i += 2) chunks.push(years.slice(i, i + 2))
 
   const fmtDate = (y: number, m: number, d: number) => `${y}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`
+  const radius = eventType === 'torn' ? 40 : 25
 
+  // Source 1: NX3HAIL (radar-detected hail — best for historical coverage).
+  // Only runs for 'hail' type; tornado/wind aren't in nx3hail.
+  if (eventType === 'hail') {
+    await Promise.allSettled(chunks.map(async (chunk) => {
+      const startStr = fmtDate(chunk[0], 1, 1)
+      const endStr = fmtDate(chunk[chunk.length - 1], 12, 31)
+      try {
+        const res = await fetch(
+          `https://www.ncei.noaa.gov/swdiws/json/nx3hail/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radius}`,
+          { headers: h, signal: AbortSignal.timeout(12000) }
+        )
+        if (!res.ok) return
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data: any = await res.json()
+        if (data?.result?.length) {
+          // Normalize nx3hail to match plsr shape
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const normalized = data.result.map((e: any) => ({
+            TYPECODE: 'H',
+            LAT: e.LAT,
+            LON: e.LON,
+            MAGNITUDE: e.MAXSIZE ?? e.MEANSIZE ?? null,
+            ZTIME: e.ZTIME,
+            SOURCE: 'radar',
+          }))
+          results.push(...normalized)
+        }
+      } catch { /* chunk may fail, continue */ }
+    }))
+  }
+
+  // Source 2: PLSR (spotter reports — good supplement for all event types)
   await Promise.allSettled(chunks.map(async (chunk) => {
     const startStr = fmtDate(chunk[0], 1, 1)
     const endStr = fmtDate(chunk[chunk.length - 1], 12, 31)
-    const radius = eventType === 'torn' ? 40 : 25
     try {
       const res = await fetch(
         `https://www.ncei.noaa.gov/swdiws/json/plsr/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radius}`,
@@ -80,13 +108,16 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data: any = await res.json()
       if (data?.result?.length) {
-        // Filter by TYPECODE
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const filtered = data.result.filter((e: any) => e.TYPECODE === typeCodeMap[eventType])
-        results.push(...filtered)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const tagged = filtered.map((e: any) => ({ ...e, SOURCE: 'spotter' }))
+        results.push(...tagged)
       }
-    } catch { /* individual year may fail, continue */ }
+    } catch { /* chunk may fail, continue */ }
   }))
 
+  console.log(`[michael/fetchNoaaEvents] type=${eventType} lat=${lat} lng=${lng} events=${results.length} range=${yearStart}-${yearEnd}`)
   return results
 }
 
@@ -175,9 +206,10 @@ export async function POST(request: NextRequest) {
   const mapsKey = process.env.MAPS_API_KEY
   if (mapsKey) {
     try {
-      // Generate a 5x5 grid over ~4mi radius (6437m) around ZIP center
-      const radiusMeters = 6437
-      const gridSize = 5
+      // Generate a 7x7 grid over ~5mi radius (8047m) around ZIP center = 49 sample points
+      // to guarantee 15+ deduplicated real addresses after reverse geocoding
+      const radiusMeters = 8047
+      const gridSize = 7
       const latDeg = radiusMeters / 111320
       const lngDeg = radiusMeters / (111320 * Math.cos(geo.lat * Math.PI / 180))
       const stepLat = (2 * latDeg) / gridSize
@@ -276,8 +308,8 @@ export async function POST(request: NextRequest) {
         } as Lead
       })
 
-      // Sort by score desc, take top 8
-      leads = scored.sort((a, b) => b.score - a.score).slice(0, 8)
+      // Sort by score desc, take top 20 (guaranteed 15+ minimum)
+      leads = scored.sort((a, b) => b.score - a.score).slice(0, 20)
     } catch (e) {
       console.error('[michael/leads] Google address fetch error:', e)
     }
