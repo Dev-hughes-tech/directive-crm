@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { requireUser } from '@/lib/apiAuth'
+import { log } from '@/lib/logger'
 
 export const maxDuration = 60
 
@@ -124,8 +125,8 @@ After completing all searches, output your findings inside <json> tags:
       })
     } catch (apiError: unknown) {
       const errMsg = apiError instanceof Error ? apiError.message : String(apiError)
-      console.error('Anthropic API error:', errMsg)
-      return NextResponse.json({ error: `Claude API failed: ${errMsg}`, data: null }, { status: 502 })
+      log.error('/api/research', apiError, { phase: 'anthropic_call' })
+      return NextResponse.json({ error: `Research API failed: ${errMsg}`, data: null }, { status: 502 })
     }
 
     // Collect all text blocks from response
@@ -135,7 +136,7 @@ After completing all searches, output your findings inside <json> tags:
     }
 
     if (!fullText.trim()) {
-      console.error('No text in response. Stop:', response.stop_reason, 'Block types:', response.content.map(b => b.type))
+      log.warn('/api/research', 'No text in response', { stop_reason: response.stop_reason })
       return NextResponse.json({ error: 'Research returned no text output', data: null })
     }
 
@@ -150,7 +151,7 @@ After completing all searches, output your findings inside <json> tags:
     }
 
     if (!jsonStr) {
-      console.error('No JSON found. Response preview:', fullText.slice(0, 1000))
+      log.warn('/api/research', 'No JSON found in response', { preview: fullText.slice(0, 300) })
       return NextResponse.json({ error: 'Could not extract structured data from research', data: null })
     }
 
@@ -163,7 +164,7 @@ After completing all searches, output your findings inside <json> tags:
         const cleaned = jsonStr.replace(/,(\s*[}\]])/g, '$1')
         data = JSON.parse(cleaned)
       } catch (parseError) {
-        console.error('JSON parse failed:', parseError, '\nRaw JSON:', jsonStr.slice(0, 600))
+        log.error('/api/research', parseError, { phase: 'json_parse', raw: jsonStr.slice(0, 300) })
         return NextResponse.json({ error: 'Could not parse research data', data: null })
       }
     }
@@ -230,8 +231,7 @@ After completing all searches, output your findings inside <json> tags:
     })
 
   } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error)
-    console.error('/api/research unhandled error:', errMsg)
-    return NextResponse.json({ error: `Research failed: ${errMsg}`, data: null }, { status: 500 })
+    log.error('/api/research', error)
+    return NextResponse.json({ error: 'Research failed — please try again', data: null }, { status: 500 })
   }
 }

@@ -68,6 +68,7 @@ const DamagePhotoUpload = dynamic(() => import('@/components/DamagePhotoUpload')
 const MobileLayout = dynamic(() => import('@/components/mobile/MobileLayout'), { ssr: false })
 import StreetView from '@/components/StreetView'
 import AerialView from '@/components/AerialView'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 // Huntsville AL coordinates (Directive CRM HQ)
 const HQ_LAT = 34.7304
@@ -2042,6 +2043,7 @@ Only respond with the JSON array, no other text.` }
   }
 
   return (
+    <ErrorBoundary>
     <div className="relative w-screen h-screen overflow-hidden bg-dark">
       {/* Background */}
       <div className="absolute inset-0 z-0" style={{ isolation: 'isolate' }}>
@@ -6971,5 +6973,6 @@ Only respond with the JSON array, no other text.` }
         }
       `}</style>
     </div>
+    </ErrorBoundary>
   )
 }

@@ -1,6 +1,7 @@
 import { Anthropic } from '@anthropic-ai/sdk'
 import { NextRequest } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { log } from '@/lib/logger'
 
 export const maxDuration = 30
 
@@ -123,7 +124,7 @@ Rules:
       reply: assistantMessage.text,
     })
   } catch (error) {
-    console.error('Michael AI error:', error)
+    log.error('/api/michael', error)
     return Response.json(
       { error: 'Failed to generate response' },
       { status: 500 }
