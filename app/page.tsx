@@ -5265,6 +5265,42 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                   </button>
                   <button
                     onClick={async () => {
+                      const prop = properties.find(p => p.id === selectedProposal.property_id)
+                      const ownerEmail = prop?.owner_email
+                      if (!ownerEmail) {
+                        addNotification('No email on file for this property owner', 'warning')
+                        return
+                      }
+                      try {
+                        const res = await authFetch('/api/proposals/send', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            to_email: ownerEmail,
+                            to_name: prop?.owner_name || '',
+                            address: prop?.address || '',
+                            owner_name: prop?.owner_name || '',
+                            total: selectedProposal.total,
+                            line_items: selectedProposal.line_items,
+                            notes: selectedProposal.notes,
+                            company_name: companySettings.company_name,
+                            company_phone: companySettings.company_phone,
+                            proposal_id: selectedProposal.id,
+                          })
+                        })
+                        const data = await res.json() as { ok: boolean; method: string; mailto_uri?: string; message_id?: string }
+                        if (data.method === 'mailto' && data.mailto_uri) {
+                          window.open(data.mailto_uri, '_blank')
+                          addNotification('Opening email client — no email service configured', 'info')
+                        } else if (data.ok) {
+                          addNotification(`Proposal emailed to ${ownerEmail}`, 'success')
+                        } else {
+                          addNotification('Email delivery failed — check settings', 'warning')
+                        }
+                      } catch {
+                        addNotification('Error sending proposal email', 'warning')
+                      }
+                      // Mark as sent regardless of delivery method
                       const idx = proposals.findIndex(p => p.id === selectedProposal.id)
                       const newProposals = [...proposals]
                       const updated = { ...selectedProposal, status: 'sent' as const, sent_at: new Date().toISOString() }
@@ -5272,7 +5308,6 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                       setProposals(newProposals)
                       await saveProposal(updated)
                       setSelectedProposal(updated)
-                      // Auto-update linked client status to proposal_sent
                       if (updated.client_id) {
                         const ci = clients.findIndex(c => c.id === updated.client_id)
                         if (ci !== -1) {
@@ -5281,11 +5316,10 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                           await saveClient(updatedClient)
                         }
                       }
-                      addNotification('Proposal marked as sent', 'success')
                     }}
                     className="flex-1 bg-green/20 text-green py-2 rounded-lg font-medium hover:bg-green/30 min-w-24"
                   >
-                    Mark Sent
+                    Email Proposal
                   </button>
                   <button
                     onClick={() => window.print()}
