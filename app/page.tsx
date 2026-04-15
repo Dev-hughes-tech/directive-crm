@@ -1075,6 +1075,7 @@ export default function Dashboard() {
 
   // Handle commercial building search
   const handleSearchCommercial = async () => {
+    if (commercialLoading) return
     let useLoc = sweepUserLocation
     if (!useLoc) {
       const fresh = await getAccurateLocation()
@@ -1153,6 +1154,7 @@ export default function Dashboard() {
 
   // Handle residential property search
   const handleSearchResidential = async () => {
+    if (residentialLoading) return
     let useLoc = sweepUserLocation
     if (!useLoc) {
       const fresh = await getAccurateLocation()
@@ -1257,7 +1259,7 @@ export default function Dashboard() {
 
   // Handle GPS Sweep research
   const handleSweepResearch = async () => {
-    if (!sweepAddress.trim()) return
+    if (!sweepAddress.trim() || sweepLoading) return
 
     setSweepResult(null) // Clear previous result so stale data never lingers
     setSweepError(null)
@@ -1658,7 +1660,7 @@ export default function Dashboard() {
 
   // Handle StormScope location search
   const handleStormLocationSearch = async (query: string) => {
-    if (!query.trim()) return
+    if (!query.trim() || stormLoading) return
     setStormLoading(true)
 
     try {
@@ -1704,7 +1706,7 @@ export default function Dashboard() {
 
   // Handle StormScope risk assessment
   const handleStormAssess = async () => {
-    if (!stormAddress.trim()) return
+    if (!stormAddress.trim() || stormLoading) return
 
     setStormLoading(true)
 
