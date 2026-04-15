@@ -70,6 +70,7 @@ const PropertyMapEmbed = dynamic(() => import('@/components/PropertyMapEmbed'), 
 const DamagePhotoUpload = dynamic(() => import('@/components/DamagePhotoUpload'), { ssr: false })
 const MobileLayout = dynamic(() => import('@/components/mobile/MobileLayout'), { ssr: false })
 const RoofAnalyzer = dynamic(() => import('@/components/RoofAnalyzer'), { ssr: false })
+const Dimensions = dynamic(() => import('@/components/Dimensions'), { ssr: false })
 const EmailClient = dynamic(() => import('@/components/EmailClient'), { ssr: false })
 import StreetView from '@/components/StreetView'
 import AerialView from '@/components/AerialView'
@@ -101,7 +102,7 @@ function isApartmentComplex(address: string | null, types: string[]): boolean {
 
 
 const VALID_SCREENS: readonly Screen[] = [
-  'dashboard', 'territory', 'sweep', 'stormscope', 'roof_analyzer', 'michael',
+  'dashboard', 'territory', 'sweep', 'stormscope', 'roof_analyzer', 'dimensions', 'michael',
   'clients', 'email', 'proposals', 'estimates', 'materials', 'team', 'jobs', 'timeline', 'settings',
 ] as const
 
@@ -1755,6 +1756,7 @@ Only respond with the JSON array, no other text.` }
               { id: 'sweep' as Screen, label: 'Sweep', icon: Navigation, feature: 'sweep' as const },
               { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio, feature: 'stormscope' as const },
               { id: 'roof_analyzer' as Screen, label: 'Roof Analyzer', icon: Ruler, feature: 'sweep' as const },
+              { id: 'dimensions' as Screen, label: 'Dimensions', icon: Ruler, feature: 'sweep' as const },
               { id: 'michael' as Screen, label: 'Michael', icon: Brain, feature: 'michael' as const },
               { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, feature: 'jobs' as const },
               { id: 'clients' as Screen, label: 'Clients', icon: Users, feature: 'clients' as const },
@@ -4028,6 +4030,61 @@ Only respond with the JSON array, no other text.` }
             })
           }}
         />
+      )}
+
+      {/* SCREEN 5B: DIMENSIONS */}
+      {activeScreen === 'dimensions' && (
+        <div className="absolute inset-4 top-[184px] z-30 h-[calc(100vh-224px)] overflow-y-auto">
+          <Dimensions
+            onExportToProposal={(data) => {
+              // Build proposal line items from materials
+              const lineItems: ProposalLineItem[] = [
+                {
+                  id: Math.random().toString(36).substr(2, 9),
+                  description: `Architectural Shingles (${data.roof.adjustedSquares} sq adj)`,
+                  quantity: data.materials.shinglesBundles,
+                  unit: 'bundle',
+                  unit_price: 0,
+                  total: 0,
+                },
+                {
+                  id: Math.random().toString(36).substr(2, 9),
+                  description: 'Synthetic Underlayment',
+                  quantity: Math.ceil(data.materials.underlaySqFt / 1000),
+                  unit: 'roll',
+                  unit_price: 0,
+                  total: 0,
+                },
+                {
+                  id: Math.random().toString(36).substr(2, 9),
+                  description: 'Ice & Water Shield',
+                  quantity: data.materials.iceWaterLinearFt,
+                  unit: 'lf',
+                  unit_price: 0,
+                  total: 0,
+                },
+                {
+                  id: Math.random().toString(36).substr(2, 9),
+                  description: 'Drip Edge',
+                  quantity: data.materials.dripEdgeLinearFt,
+                  unit: 'lf',
+                  unit_price: 0,
+                  total: 0,
+                },
+                {
+                  id: Math.random().toString(36).substr(2, 9),
+                  description: 'Ridge Cap Shingles',
+                  quantity: data.materials.ridgeCapLinearFt,
+                  unit: 'lf',
+                  unit_price: 0,
+                  total: 0,
+                },
+              ]
+              addNotification('Measurements exported to Proposal', 'success')
+              setActiveScreen('proposals')
+            }}
+          />
+        </div>
       )}
 
       {/* SCREEN 6: MICHAEL AI */}
