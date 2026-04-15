@@ -1,14 +1,18 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import {
   BarChart3, Navigation, Brain, Users, MoreHorizontal,
   Search, MapPin, Cloud, AlertTriangle, Phone, Mail,
   FileText, Package, MessageSquare, Briefcase, Settings,
   Radio, ChevronRight, X, Plus, Send, Loader2,
-  Home, Zap, Shield, Star, Clock, CheckCircle2, CalendarDays, Calculator
+  Home, Zap, Shield, Star, Clock, CheckCircle2, CalendarDays, Calculator, Map, Menu
 } from 'lucide-react'
 import type { Property, Client, Proposal, Job, Screen } from '@/lib/types'
+import type { MapMarker } from '@/components/map/MapView'
+
+const MapView = dynamic(() => import('@/components/map/MapView'), { ssr: false })
 import type { WeatherCurrent, WeatherAlert } from '@/lib/types'
 import { getTierConfig, canAccess, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
@@ -80,6 +84,10 @@ interface MobileLayoutProps {
   onSaveSettings: () => void
   settingsSaved: boolean
   setCompanySettings: (s: { company_name: string; company_phone: string; license_number: string; home_city: string; service_radius: string; tax_rate: string; payment_terms: string; warranty_period: string; notify_storm: boolean; notify_leads: boolean; notify_status: boolean }) => void
+
+  // Map
+  mapCenter: { lat: number; lng: number }
+  territoryMarkers: MapMarker[]
 }
 
 // ── Score color helper ────────────────────────────────────────────────────
@@ -115,11 +123,14 @@ export default function MobileLayout(props: MobileLayoutProps) {
     stormImpactZones,
     jobs, onSaveJob,
     companySettings, onSaveSettings, settingsSaved, setCompanySettings,
+    mapCenter, territoryMarkers,
   } = props
 
   const [showMore, setShowMore] = useState(false)
-  const [mobileTab, setMobileTab] = useState<'dashboard' | 'sweep' | 'michael' | 'clients' | 'more'>('dashboard')
+  const [mobileTab, setMobileTab] = useState<'dashboard' | 'sweep' | 'michael' | 'clients' | 'map' | 'more'>('dashboard')
   const [michaelLocalTab, setMichaelLocalTab] = useState<'leads' | 'chat'>('leads')
+  const [selectedMapProp, setSelectedMapProp] = useState<Property | null>(null)
+  const [mobileStormOverlay, setMobileStormOverlay] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -241,12 +252,12 @@ export default function MobileLayout(props: MobileLayoutProps) {
             <p className="text-[10px] text-gray-400 truncate w-full">{clients.length} in pipeline</p>
           </button>
           <button
-            onClick={() => { setShowMore(true); setMobileTab('more') }}
-            className="bg-gray-700/30 border border-white/10 rounded-xl p-3 flex flex-col items-start gap-1 active:scale-95 transition-transform"
+            onClick={() => navigate('map', 'territory')}
+            className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 flex flex-col items-start gap-1 active:scale-95 transition-transform"
           >
-            <MoreHorizontal className="w-5 h-5 text-gray-400" />
-            <p className="text-xs font-semibold text-white">More</p>
-            <p className="text-[10px] text-gray-400 truncate w-full">All features</p>
+            <Map className="w-5 h-5 text-blue-400" />
+            <p className="text-xs font-semibold text-white">Map</p>
+            <p className="text-[10px] text-gray-400 truncate w-full">Territory view</p>
           </button>
         </div>
       </div>
@@ -923,6 +934,144 @@ export default function MobileLayout(props: MobileLayoutProps) {
     </div>
   )
 
+  const renderMap = () => (
+    <div className="flex-1 relative overflow-hidden">
+      {/* Map */}
+      <div className="absolute inset-0">
+        <MapView
+          lat={mapCenter.lat}
+          lng={mapCenter.lng}
+          zoom={12}
+          mode="satellite"
+          markers={mobileStormOverlay
+            ? territoryMarkers.map(m => {
+                const prop = properties.find(p => p.id === m.id)
+                const risk = prop?.storm_history?.stormRiskLevel
+                return {
+                  ...m,
+                  color: risk === 'high' ? 'red' : risk === 'moderate' ? 'amber' : 'cyan',
+                  onClick: () => {
+                    const p = properties.find(pr => pr.id === m.id)
+                    setSelectedMapProp(p || null)
+                  }
+                }
+              })
+            : territoryMarkers.map(m => ({
+                ...m,
+                onClick: () => {
+                  const p = properties.find(pr => pr.id === m.id)
+                  setSelectedMapProp(p || null)
+                }
+              }))}
+          className="w-full h-full"
+        />
+      </div>
+
+      {/* Top controls floating over map */}
+      <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
+        <div className="bg-[#0d1117]/80 backdrop-blur-md border border-white/10 rounded-full px-3 py-1.5 pointer-events-auto">
+          <p className="text-xs font-semibold text-white">{properties.length} Properties</p>
+        </div>
+        <button
+          onClick={() => setMobileStormOverlay(v => !v)}
+          className={`pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border backdrop-blur-md transition-all ${
+            mobileStormOverlay
+              ? 'bg-amber-400/20 border-amber-400/40 text-amber-400'
+              : 'bg-[#0d1117]/80 border-white/10 text-gray-400'
+          }`}
+        >
+          <Radio className="w-3.5 h-3.5" />
+          Storm
+        </button>
+      </div>
+
+      {/* Storm legend */}
+      {mobileStormOverlay && (
+        <div className="absolute top-14 right-3 bg-[#0d1117]/90 border border-white/10 rounded-lg px-3 py-2 space-y-1">
+          {[
+            { color: 'bg-red-500', label: 'High Risk' },
+            { color: 'bg-amber-500', label: 'Moderate' },
+            { color: 'bg-cyan-500', label: 'Low Risk' },
+          ].map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-2">
+              <div className={`w-2.5 h-2.5 rounded-full ${color}`} />
+              <span className="text-[10px] text-gray-300">{label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Selected property bottom sheet */}
+      {selectedMapProp && (
+        <div className="absolute bottom-0 left-0 right-0 bg-[#0d1117]/95 backdrop-blur-md border-t border-white/10 rounded-t-2xl p-4 pb-6">
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-white leading-tight">{selectedMapProp.address}</p>
+              {selectedMapProp.owner_name && (
+                <p className="text-xs text-gray-400 mt-0.5">{selectedMapProp.owner_name}</p>
+              )}
+            </div>
+            <button
+              onClick={() => setSelectedMapProp(null)}
+              className="ml-2 text-gray-500 active:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {[
+              { label: 'Roof Age', value: selectedMapProp.roof_age_years ? `${selectedMapProp.roof_age_years} yrs` : '—', highlight: (selectedMapProp.roof_age_years || 0) >= 20 },
+              { label: 'Sqft', value: selectedMapProp.sqft?.toLocaleString() || '—', highlight: false },
+              { label: 'Value', value: selectedMapProp.market_value ? `$${Math.round(selectedMapProp.market_value / 1000)}k` : '—', highlight: false },
+            ].map(({ label, value, highlight }) => (
+              <div key={label} className="bg-white/5 rounded-lg p-2 text-center">
+                <p className={`text-sm font-bold ${highlight ? 'text-amber-400' : 'text-white'}`}>{value}</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+          {selectedMapProp.storm_history && (
+            <div className={`mb-3 px-3 py-2 rounded-lg border text-xs ${
+              selectedMapProp.storm_history.stormRiskLevel === 'high'
+                ? 'bg-red-400/10 border-red-400/20 text-red-400'
+                : selectedMapProp.storm_history.stormRiskLevel === 'moderate'
+                ? 'bg-amber-400/10 border-amber-400/20 text-amber-400'
+                : 'bg-green-400/10 border-green-400/20 text-green-400'
+            }`}>
+              Storm Risk: <strong className="capitalize">{selectedMapProp.storm_history.stormRiskLevel}</strong>
+              {' · '}{selectedMapProp.storm_history.totalHailEvents} hail · {selectedMapProp.storm_history.totalWindEvents} wind events
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setSweepAddress(selectedMapProp.address); navigate('sweep', 'sweep'); setSelectedMapProp(null) }}
+              className="flex-1 bg-cyan-400/10 border border-cyan-400/30 text-cyan-400 text-xs font-semibold py-2 rounded-lg active:opacity-70"
+            >
+              Research
+            </button>
+            <button
+              onClick={() => { navigate('clients', 'clients'); setSelectedMapProp(null) }}
+              className="flex-1 bg-white/5 border border-white/10 text-white text-xs font-semibold py-2 rounded-lg active:opacity-70"
+            >
+              View Client
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {properties.length === 0 && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <div className="bg-[#0d1117]/80 backdrop-blur-md border border-white/10 rounded-2xl p-6 mx-8 text-center">
+            <MapPin className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+            <p className="text-sm text-gray-400">No properties yet</p>
+            <p className="text-xs text-gray-500 mt-1">Sweep an address to add properties to the map</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   const renderMore = () => (
     <div className="flex-1 overflow-y-auto pb-24">
       <div className="px-4 pt-4 space-y-2">
@@ -1016,6 +1165,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
       case 'sweep': return renderSweep()
       case 'michael': return renderMichael()
       case 'clients': return renderClients()
+      case 'map': return renderMap()
       case 'more': return renderMore()
       default: return renderDashboard()
     }
@@ -1027,7 +1177,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
     { tab: 'sweep' as const, icon: Navigation, label: 'Sweep' },
     { tab: 'michael' as const, icon: Brain, label: 'Michael' },
     { tab: 'clients' as const, icon: Users, label: 'Clients' },
-    { tab: 'more' as const, icon: MoreHorizontal, label: 'More' },
+    { tab: 'map' as const, icon: Map, label: 'Map' },
   ]
 
   return (
@@ -1059,13 +1209,22 @@ export default function MobileLayout(props: MobileLayoutProps) {
       </div>
 
       {/* Screen Title — 9:16 compact */}
-      <div className="flex-shrink-0 px-3 py-1.5 border-b border-white/5">
+      <div className="flex-shrink-0 px-3 py-1.5 border-b border-white/5 flex items-center justify-between">
         <h1 className="text-sm font-bold text-white">
           {mobileTab === 'dashboard' ? 'Dashboard' :
            mobileTab === 'sweep' ? 'GPS Sweep' :
            mobileTab === 'michael' ? 'Michael AI' :
-           mobileTab === 'clients' ? 'CRM Clients' : 'More'}
+           mobileTab === 'clients' ? 'CRM Clients' :
+           mobileTab === 'map' ? 'Territory Map' : 'More'}
         </h1>
+        {mobileTab !== 'map' && (
+          <button
+            onClick={() => setShowMore(true)}
+            className="text-gray-400 active:text-white p-1"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
       {/* Content */}
@@ -1091,6 +1250,75 @@ export default function MobileLayout(props: MobileLayoutProps) {
           })}
         </div>
       </div>
+
+      {/* More Drawer — overlay when showMore is true */}
+      {showMore && (
+        <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowMore(false)} />
+      )}
+      {showMore && (
+        <div className="fixed inset-0 z-50 flex flex-col pointer-events-none" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          <div className="pointer-events-auto flex-1 flex flex-col bg-[#0d1117]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <h2 className="text-sm font-bold text-white">All Features</h2>
+              <button onClick={() => setShowMore(false)} className="text-gray-400 active:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <div className="px-4 pt-4 space-y-2 pb-6">
+                {[
+                  { screen: 'territory' as Screen, label: 'Territory', icon: MapPin, desc: 'Property map & route planning', color: 'text-blue-400 bg-blue-400/10', feature: 'territory' as const },
+                  { screen: 'stormscope' as Screen, label: 'StormScope', icon: Radio, desc: 'Live radar & storm alerts', color: 'text-amber-400 bg-amber-400/10', feature: 'stormscope' as const },
+                  { screen: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, desc: 'Production pipeline & insurance', color: 'text-orange-400 bg-orange-400/10', feature: 'jobs' as const },
+                  { screen: 'timeline' as Screen, label: 'Timeline', icon: CalendarDays, desc: 'Job milestones & activity', color: 'text-cyan-400 bg-cyan-400/10', feature: 'timeline' as const },
+                  { screen: 'proposals' as Screen, label: 'Proposals', icon: FileText, desc: 'Create & manage proposals', color: 'text-yellow-400 bg-yellow-400/10', feature: 'proposals' as const },
+                  { screen: 'estimates' as Screen, label: 'Smart Estimates', icon: Calculator, desc: 'AI-powered line-item estimates', color: 'text-teal-400 bg-teal-400/10', feature: 'smartEstimates' as const },
+                  { screen: 'materials' as Screen, label: 'Materials', icon: Package, desc: 'Calculator & estimating', color: 'text-green-400 bg-green-400/10', feature: 'materials' as const },
+                  { screen: 'team' as Screen, label: 'Team', icon: MessageSquare, desc: 'Chat with your team', color: 'text-purple-400 bg-purple-400/10', feature: 'team' as const },
+                  { screen: 'settings' as Screen, label: 'Settings', icon: Settings, desc: 'Account & preferences', color: 'text-gray-400 bg-gray-400/10', feature: 'settings' as const },
+                ].map(item => {
+                  const Icon = item.icon
+                  const locked = !canAccess(userRole, item.feature)
+                  return (
+                    <button
+                      key={item.screen}
+                      onClick={() => { navigate('more', item.screen); setShowMore(false) }}
+                      className={`w-full bg-[#0d1117] border border-white/10 rounded-xl p-4 flex items-center gap-4 text-left transition-colors ${locked ? 'opacity-50' : 'active:bg-white/5'}`}
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${item.color}`}>
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white">{item.label}</p>
+                        <p className="text-xs text-gray-400">{item.desc}</p>
+                      </div>
+                      {locked ? <span className="text-gray-600 text-sm">🔒</span> : <ChevronRight className="w-5 h-5 text-gray-500" />}
+                    </button>
+                  )
+                })}
+
+                {/* Account card */}
+                <div className="mt-4 bg-[#0d1117] border border-white/10 rounded-2xl p-4">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{user?.email}</p>
+                      <p className="text-xs font-bold mt-0.5" style={{ color: getTierConfig(userRole).color }}>
+                        {getTierConfig(userRole).name} Plan
+                      </p>
+                    </div>
+                    <button
+                      onClick={onSignOut}
+                      className="px-3 py-1.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-xs font-medium"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

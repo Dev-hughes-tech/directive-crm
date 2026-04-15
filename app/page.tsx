@@ -1610,6 +1610,8 @@ Only respond with the JSON array, no other text.` }
         }}
         settingsSaved={settingsSaved}
         setCompanySettings={setCompanySettings}
+        mapCenter={mapCenter}
+        territoryMarkers={territoryMarkers}
       />
     )
   }
