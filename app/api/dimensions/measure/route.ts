@@ -200,11 +200,13 @@ export async function POST(request: NextRequest) {
     // Step 2: Get Solar API data
     const solarUrl = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=HIGH&key=${apiKey}`
     let solarRes = await fetchWithTimeout(solarUrl, {}, 8000)
+    let solarApiStatus = solarRes.status
 
     // Fallback to MEDIUM if HIGH fails
     if (!solarRes.ok) {
       const solarUrlMedium = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=MEDIUM&key=${apiKey}`
       solarRes = await fetchWithTimeout(solarUrlMedium, {}, 8000)
+      if (!solarRes.ok) solarApiStatus = solarRes.status
     }
 
     // Steps 3+4: OSM footprint and USGS elevation (fetch in parallel, needed for fallback too)
@@ -303,6 +305,28 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Calculate proper per-segment bounding boxes so the two gable slopes
+      // sit on OPPOSITE halves of the building (not stacked on top of each other)
+      const sideM = Math.sqrt(footprintSqM)
+      const halfLat = (sideM / 2) / 111000
+      const halfLng = (sideM / 2) / (111000 * Math.cos((lat * Math.PI) / 180))
+      // Ridge runs E-W → slopes split N/S; ridge runs N-S → slopes split E/W
+      const splitNS = Math.abs(dominantAzimuth - 180) < 45 || dominantAzimuth < 45
+
+      const seg1BBox = splitNS
+        ? { sw: { latitude: lat - halfLat, longitude: lng - halfLng }, ne: { latitude: lat,           longitude: lng + halfLng } }
+        : { sw: { latitude: lat - halfLat, longitude: lng - halfLng }, ne: { latitude: lat + halfLat, longitude: lng          } }
+      const seg1Center = splitNS
+        ? { latitude: lat - halfLat * 0.5, longitude: lng }
+        : { latitude: lat, longitude: lng - halfLng * 0.5 }
+
+      const seg2BBox = splitNS
+        ? { sw: { latitude: lat,           longitude: lng - halfLng }, ne: { latitude: lat + halfLat, longitude: lng + halfLng } }
+        : { sw: { latitude: lat - halfLat, longitude: lng           }, ne: { latitude: lat + halfLat, longitude: lng + halfLng } }
+      const seg2Center = splitNS
+        ? { latitude: lat + halfLat * 0.5, longitude: lng }
+        : { latitude: lat, longitude: lng + halfLng * 0.5 }
+
       const today = new Date()
       solar = {
         name: `estimated/${lat},${lng}`,
@@ -318,28 +342,26 @@ export async function POST(request: NextRequest) {
               pitchDegrees: DEFAULT_PITCH_DEG,
               azimuthDegrees: dominantAzimuth,
               stats: { areaMeters2: roofHalfArea },
-              center: { latitude: lat, longitude: lng },
-              boundingBox: {
-                sw: { latitude: lat - 0.0001, longitude: lng - 0.0002 },
-                ne: { latitude: lat + 0.0001, longitude: lng + 0.0002 },
-              },
+              center: seg1Center,
+              boundingBox: seg1BBox,
               planeHeightAtCenterMeters: 4.5,
             },
             {
               pitchDegrees: DEFAULT_PITCH_DEG,
               azimuthDegrees: (dominantAzimuth + 180) % 360,
               stats: { areaMeters2: roofHalfArea },
-              center: { latitude: lat, longitude: lng },
-              boundingBox: {
-                sw: { latitude: lat - 0.0001, longitude: lng - 0.0002 },
-                ne: { latitude: lat + 0.0001, longitude: lng + 0.0002 },
-              },
+              center: seg2Center,
+              boundingBox: seg2BBox,
               planeHeightAtCenterMeters: 4.5,
             },
           ],
         },
         imageryDate: { year: today.getFullYear(), month: today.getMonth() + 1, day: today.getDate() },
-        imageryQuality: 'ESTIMATED',
+        imageryQuality: solarApiStatus === 403
+          ? 'ESTIMATED — Solar API not enabled (enable it at console.cloud.google.com)'
+          : solarApiStatus === 404
+          ? 'ESTIMATED — No Solar coverage for this address; measurements derived from building footprint'
+          : 'ESTIMATED — Measurements derived from building footprint',
       }
     }
 
@@ -590,7 +612,9 @@ export async function POST(request: NextRequest) {
       lat,
       lng,
       imageryDate: `${solar.imageryDate.year}-${String(solar.imageryDate.month).padStart(2, '0')}-${String(solar.imageryDate.day).padStart(2, '0')}`,
-      imageryQuality: isEstimated ? 'ESTIMATED — No Solar coverage; measurements derived from building footprint' : solar.imageryQuality,
+      imageryQuality: isEstimated ? solar.imageryQuality : solar.imageryQuality,
+      isEstimated,
+      solarApiStatus: isEstimated ? solarApiStatus : null,
       roof: {
         totalRoofSqFt: Math.round(totalRoofSqFt),
         footprintSqFt: Math.round(footprintSqFt),

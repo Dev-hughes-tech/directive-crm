@@ -69,6 +69,8 @@ interface DimensionsResult {
   lng: number
   imageryDate: string
   imageryQuality: string
+  isEstimated?: boolean
+  solarApiStatus?: number | null
   roof: {
     totalRoofSqFt: number
     footprintSqFt: number
@@ -355,8 +357,10 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
           </button>
         </form>
         <div className="flex-1" />
-        {result.imageryQuality.startsWith('ESTIMATED') && (
-          <span className="text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded px-2 py-0.5">Estimated</span>
+        {result.isEstimated && (
+          <span className="text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded px-2 py-0.5 flex items-center gap-1">
+            <AlertTriangle className="w-2.5 h-2.5" /> Estimated
+          </span>
         )}
         <button
           onClick={() => onExportToProposal?.(result)}
@@ -372,6 +376,23 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
         <span className="text-[10px] text-gray-500">📍</span>
         <span className="text-xs text-gray-400 truncate">{result.address}</span>
       </div>
+
+      {/* Estimated data warning banner */}
+      {result.isEstimated && (
+        <div className="flex items-start gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/30 flex-shrink-0">
+          <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-amber-300">
+              {result.solarApiStatus === 404
+                ? 'No Solar imagery for this address — showing footprint estimate'
+                : 'Measurements estimated from building footprint'}
+            </p>
+            <p className="text-[10px] text-amber-400/70 mt-0.5">
+              {result.imageryQuality} — For precise measurements, ensure the Google Solar API is enabled in your Cloud Console and the address has Solar coverage.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Full-width tab bar */}
       <div className="flex gap-0 border-b border-white/10 bg-[#0d1117]/30 flex-shrink-0">
@@ -454,30 +475,30 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
                 <div className="grid grid-cols-2 gap-3">
                   <StatCard
                     label="Total Squares"
-                    value={result.roof.totalSquares.toFixed(1)}
+                    value={`${result.isEstimated ? '~' : ''}${result.roof.totalSquares.toFixed(1)}`}
                     icon={<Square className="w-4 h-4" />}
                   />
                   <StatCard
                     label="Adjusted Squares"
-                    value={result.roof.adjustedSquares.toFixed(1)}
+                    value={`${result.isEstimated ? '~' : ''}${result.roof.adjustedSquares.toFixed(1)}`}
                     sublabel={`+${(result.roof.wasteFactor * 100).toFixed(0)}% waste`}
                     icon={<Zap className="w-4 h-4" />}
                   />
                   <StatCard
                     label="Footprint Area"
-                    value={result.building.footprintSqFt.toLocaleString()}
+                    value={`${result.isEstimated ? '~' : ''}${result.building.footprintSqFt.toLocaleString()}`}
                     sublabel="sq ft"
                     icon={<Home className="w-4 h-4" />}
                   />
                   <StatCard
                     label="Perimeter"
-                    value={result.building.perimeterFt.toLocaleString()}
+                    value={`${result.isEstimated ? '~' : ''}${result.building.perimeterFt.toLocaleString()}`}
                     sublabel="linear ft"
                     icon={<Wind className="w-4 h-4" />}
                   />
                   <StatCard
                     label="Wall Area"
-                    value={result.building.wallAreaSqFt.toLocaleString()}
+                    value={`${result.isEstimated ? '~' : ''}${result.building.wallAreaSqFt.toLocaleString()}`}
                     sublabel="sq ft"
                     icon={<BarChart3 className="w-4 h-4" />}
                   />
