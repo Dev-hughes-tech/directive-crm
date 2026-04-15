@@ -250,6 +250,10 @@ export default function Dashboard() {
   const [estimateText, setEstimateText] = useState('')
   const [estimateError, setEstimateError] = useState<string | null>(null)
 
+  // AI Proposal generation state
+  const [proposalAiLoading, setProposalAiLoading] = useState(false)
+  const [proposalAiError, setProposalAiError] = useState<string | null>(null)
+
   // Materials screen state — upgraded calculator
   const [materials, setMaterials] = useState<Material[]>([])
   const [roofWidth, setRoofWidth] = useState('')
@@ -4918,6 +4922,136 @@ Only respond with the JSON array, no other text.` }
                         </div>
                       </div>
                     ) : null
+                  })()}
+
+                  {/* AI Generate Proposal from Damage Assessment + Aerial Imagery */}
+                  {(() => {
+                    const prop = properties.find(p => p.id === selectedProposal.property_id)
+                    const client = clients.find(c => c.id === selectedProposal.client_id)
+                    const hasDamageData = client && (client.damage_severity || client.inspection_findings || client.damage_notes)
+                    if (!hasDamageData) return null
+                    return (
+                      <div className="p-3 bg-cyan/5 border border-cyan/20 rounded">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <h4 className="text-xs font-semibold text-cyan">Michael AI</h4>
+                            <p className="text-xs text-gray-400 mt-0.5">Generate proposal line items from damage assessment + aerial view</p>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              setProposalAiLoading(true)
+                              setProposalAiError(null)
+                              try {
+                                const satelliteUrl = prop?.satellite_image_url
+                                  ? prop.satellite_image_url
+                                  : prop
+                                    ? `https://maps.googleapis.com/maps/api/staticmap?center=${prop.lat},${prop.lng}&zoom=19&size=600x400&maptype=satellite&key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}`
+                                    : null
+
+                                const prompt = `You are a professional roofing estimator. Based on the damage assessment and property data below, generate a detailed roofing proposal with realistic line items.
+
+PROPERTY:
+Address: ${prop?.address || 'Unknown'}
+Year Built: ${prop?.year_built || 'Unknown'}
+Roof Age: ${prop?.roof_age_years ? prop.roof_age_years + ' years' : 'Unknown'}
+Square Footage: ${prop?.sqft ? prop.sqft.toLocaleString() + ' sqft' : 'Unknown'}
+Roof Pitch: ${prop?.roof_pitch || 'Unknown'}
+Roofing Squares: ${prop?.roofing_squares ? prop.roofing_squares.toFixed(1) + ' sq' : 'Unknown'}
+Storm Risk: ${prop?.storm_history?.stormRiskLevel || 'Unknown'}
+
+DAMAGE ASSESSMENT:
+Severity: ${client?.damage_severity?.replace(/_/g, ' ') || 'Not specified'}
+Shingle Layers: ${client?.layers_of_shingles || 'Unknown'}
+Inspection Findings: ${client?.inspection_findings || 'None'}
+Damage Notes: ${client?.damage_notes || 'None'}
+Assessment Date: ${client?.assessment_date || 'Unknown'}
+${satelliteUrl ? '\nAerial/satellite imagery has been reviewed for this property.' : ''}
+
+Generate ONLY a JSON array of line items with NO additional text before or after. Each item must follow this exact structure:
+[
+  {"description": "...", "quantity": 0, "unit": "sq", "unit_price": 0, "total": 0},
+  ...
+]
+
+Be specific with quantities based on the roof size. Use realistic 2025 pricing. Include: shingles, underlayment, ice & water shield, drip edge, flashing, labor, tear-off & disposal, and any damage-specific repairs.`
+
+                                const messages: Array<{role: string; content: string | Array<{type: string; text?: string; image_url?: {url: string}}>}> = []
+                                if (satelliteUrl) {
+                                  messages.push({
+                                    role: 'user',
+                                    content: [
+                                      { type: 'image_url', image_url: { url: satelliteUrl } },
+                                      { type: 'text', text: prompt }
+                                    ]
+                                  })
+                                } else {
+                                  messages.push({ role: 'user', content: prompt })
+                                }
+
+                                const response = await authFetch('/api/michael', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    messages,
+                                    context: {
+                                      activeScreen: 'proposals',
+                                      leadCount: properties.length,
+                                      hotLeadCount: 0,
+                                      alertCount: 0,
+                                    }
+                                  })
+                                })
+
+                                if (!response.ok) throw new Error('Failed to generate proposal')
+                                const data = await response.json()
+                                const raw = data.reply || ''
+
+                                // Parse JSON array from response
+                                const jsonMatch = raw.match(/\[[\s\S]*\]/)
+                                if (!jsonMatch) throw new Error('No line items found in response')
+                                const parsed = JSON.parse(jsonMatch[0]) as Array<{
+                                  description: string; quantity: number; unit: string; unit_price: number; total: number
+                                }>
+
+                                const newItems = parsed.map(item => ({
+                                  id: crypto.randomUUID(),
+                                  description: item.description || 'Line Item',
+                                  quantity: Number(item.quantity) || 1,
+                                  unit: item.unit || 'ea',
+                                  unit_price: Number(item.unit_price) || 0,
+                                  total: Number(item.total) || (Number(item.quantity) * Number(item.unit_price)) || 0,
+                                }))
+
+                                const newTotal = newItems.reduce((s, li) => s + li.total, 0)
+                                const updated = { ...selectedProposal, line_items: newItems, total: newTotal }
+                                setSelectedProposal(updated)
+                                const idx = proposals.findIndex(p => p.id === selectedProposal.id)
+                                const newProposals = [...proposals]; newProposals[idx] = updated; setProposals(newProposals)
+                                await saveProposal(updated)
+                                addNotification('Proposal line items generated by Michael', 'success')
+                              } catch (err) {
+                                setProposalAiError('Could not generate proposal. Please try again.')
+                                addNotification('Error generating proposal', 'warning')
+                              } finally {
+                                setProposalAiLoading(false)
+                              }
+                            }}
+                            disabled={proposalAiLoading}
+                            className="ml-3 shrink-0 bg-cyan text-dark px-3 py-1.5 rounded text-xs font-semibold hover:bg-cyan/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                          >
+                            {proposalAiLoading ? 'Generating…' : '✦ Generate'}
+                          </button>
+                        </div>
+                        {proposalAiError && (
+                          <p className="text-xs text-red-400 mt-1">{proposalAiError}</p>
+                        )}
+                        {proposalAiLoading && (
+                          <div className="mt-2 h-1 bg-cyan/20 rounded overflow-hidden">
+                            <div className="h-full bg-cyan rounded animate-pulse" style={{ width: '60%' }} />
+                          </div>
+                        )}
+                      </div>
+                    )
                   })()}
 
                   <div>
