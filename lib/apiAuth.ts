@@ -16,6 +16,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { canAccess } from './tiers'
 
+const UPGRADE_MESSAGE = 'Upgrade at directivecrm.com'
+
 export type UserRole =
   | 'admin'
   | 'enterprise_manager'
@@ -206,7 +208,7 @@ export function requireTier(
   const hasAccess = canAccess(ctx.profile.role, feature as any)
   if (!hasAccess) {
     return NextResponse.json(
-      { error: `Your plan does not include ${feature}. Upgrade at directivecrm.com.` },
+      { error: `Your plan does not include ${feature}. ${UPGRADE_MESSAGE}.` },
       { status: 403 },
     )
   }

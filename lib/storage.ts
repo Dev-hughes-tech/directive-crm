@@ -27,10 +27,10 @@ async function getOwnerId(): Promise<string | null> {
 // Attach owner_id + updated_at if missing. Returns the payload unchanged when
 // no user is signed in so that local-only tests don't throw; RLS will still
 // reject the write at the DB layer in that case.
-async function withOwner<T extends Record<string, unknown>>(row: T): Promise<T & { owner_id?: string }> {
+async function withOwner<T extends Record<string, unknown>>(row: T): Promise<T & { owner_id?: string; updated_at?: string }> {
   const ownerId = await getOwnerId()
   if (!ownerId) return row
-  return { owner_id: ownerId, ...row }
+  return { ...row, owner_id: ownerId, updated_at: new Date().toISOString() }
 }
 
 // ── USER PROFILE / ROLE ──────────────────────────────────────────────────────
@@ -45,12 +45,14 @@ export interface UserProfile {
   created_at: string
 }
 
-export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+export async function getUserProfile(): Promise<UserProfile | null> {
   try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return null
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .eq('id', userId)
+      .eq('id', ownerId)
       .single()
     if (error) return null
     return data as UserProfile
@@ -146,6 +148,7 @@ export async function deleteProperty(id: string): Promise<StorageResult> {
     if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
     const { error } = await supabase.from('properties').delete().eq('id', id).eq('owner_id', ownerId)
     if (error) return { ok: false, source: 'supabase', error: error.message }
+    await saveActivity({ entityType: 'property', entityId: id, action: 'delete' })
     return { ok: true, source: 'supabase' }
   } catch (e) {
     return { ok: false, source: null, error: String(e) }
@@ -187,6 +190,7 @@ export async function deleteClient(id: string): Promise<StorageResult> {
     if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
     const { error } = await supabase.from('clients').delete().eq('id', id).eq('owner_id', ownerId)
     if (error) return { ok: false, source: 'supabase', error: error.message }
+    await saveActivity({ entityType: 'client', entityId: id, action: 'delete' })
     return { ok: true, source: 'supabase' }
   } catch (e) {
     return { ok: false, source: null, error: String(e) }
@@ -243,12 +247,14 @@ export async function getProposals(): Promise<Proposal[]> {
 
 export async function saveProposal(proposal: Proposal): Promise<StorageResult> {
   try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
     const { line_items, ...proposalData } = proposal
     const payload = await withOwner(proposalData as unknown as Record<string, unknown>)
     const { error: proposalError } = await supabase.from('proposals').upsert(payload)
     if (proposalError) return { ok: false, source: 'supabase', error: proposalError.message }
     if (line_items?.length) {
-      await supabase.from('proposal_line_items').delete().eq('proposal_id', proposal.id)
+      await supabase.from('proposal_line_items').delete().eq('proposal_id', proposal.id).eq('owner_id', ownerId)
       const { error: itemsError } = await supabase.from('proposal_line_items').insert(
         line_items.map((item: ProposalLineItem, idx: number) => ({
           ...item,
@@ -268,9 +274,10 @@ export async function deleteProposal(id: string): Promise<StorageResult> {
   try {
     const ownerId = await getOwnerId()
     if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
-    await supabase.from('proposal_line_items').delete().eq('proposal_id', id)
+    await supabase.from('proposal_line_items').delete().eq('proposal_id', id).eq('owner_id', ownerId)
     const { error } = await supabase.from('proposals').delete().eq('id', id).eq('owner_id', ownerId)
     if (error) return { ok: false, source: 'supabase', error: error.message }
+    await saveActivity({ entityType: 'proposal', entityId: id, action: 'delete' })
     return { ok: true, source: 'supabase' }
   } catch (e) {
     return { ok: false, source: null, error: String(e) }
@@ -377,12 +384,9 @@ export async function markMessagesRead(channel: string, role: string): Promise<S
 
 export async function getJobs(): Promise<Job[]> {
   const ownerId = await getOwnerId()
-  const lsKey = ownerId ? `directive_jobs_${ownerId}` : 'directive_jobs'
+  if (!ownerId) return []
+  const lsKey = `directive_jobs_${ownerId}`
   try {
-    if (!ownerId) {
-      const stored = localStorage.getItem(lsKey)
-      return stored ? (JSON.parse(stored) as Job[]) : []
-    }
     const { data, error } = await supabase
       .from('jobs')
       .select('*')
@@ -408,7 +412,8 @@ export async function getJobs(): Promise<Job[]> {
 
 export async function saveJob(job: Job): Promise<StorageResult> {
   const ownerId = await getOwnerId()
-  const lsKey = ownerId ? `directive_jobs_${ownerId}` : 'directive_jobs'
+  if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+  const lsKey = `directive_jobs_${ownerId}`
   let localOk = false
   // Always save to per-user localStorage for offline resilience
   try {
@@ -432,15 +437,16 @@ export async function saveJob(job: Job): Promise<StorageResult> {
 
 export async function deleteJob(id: string): Promise<StorageResult> {
   const ownerId = await getOwnerId()
-  const lsKey = ownerId ? `directive_jobs_${ownerId}` : 'directive_jobs'
+  if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+  const lsKey = `directive_jobs_${ownerId}`
   try {
     const existing = JSON.parse(localStorage.getItem(lsKey) || '[]') as Job[]
     localStorage.setItem(lsKey, JSON.stringify(existing.filter((j: Job) => j.id !== id)))
   } catch { /* ignore */ }
   try {
-    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
     const { error } = await supabase.from('jobs').delete().eq('id', id).eq('owner_id', ownerId)
     if (error) throw error
+    await saveActivity({ entityType: 'job', entityId: id, action: 'delete' })
     return { ok: true, source: 'supabase' }
   } catch (e) {
     return { ok: false, source: 'local', error: String(e) }

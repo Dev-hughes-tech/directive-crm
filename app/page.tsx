@@ -1,5 +1,6 @@
 'use client'
 
+import { randomUUID } from 'crypto'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
@@ -450,12 +451,12 @@ export default function Dashboard() {
         }
       } else {
         // Fallback: try direct Supabase
-        const profile = await getUserProfile(userId)
+        const profile = await getUserProfile()
         if (profile) { setUserProfile(profile); setUserRole(profile.role) }
         else setUserRole('trial')
       }
     } catch {
-      const profile = await getUserProfile(userId)
+      const profile = await getUserProfile()
       if (profile) { setUserProfile(profile); setUserRole(profile.role) }
       else setUserRole('trial')
     }
@@ -1731,38 +1732,45 @@ export default function Dashboard() {
 
   // Territory markers — color-coded by workflow status, NOT storm data.
   // Priority (highest wins): Active Job → Negotiation → Proposal → Knocked → Unvisited
-  const territoryMarkers: MapMarker[] = properties.map((p) => {
-    const client = clients.find(c => c.property_id === p.id)
-    const job = jobs.find(j => j.property_id === p.id)
-    const proposal = proposals.find(pr => pr.property_id === p.id)
+  const territoryMarkers: MapMarker[] = useMemo(() => {
+    // Precompute lookup maps to avoid O(n²) find operations
+    const clientsByPropId = new Map(clients.map(c => [c.property_id, c]))
+    const jobsByPropId = new Map(jobs.map(j => [j.property_id, j]))
+    const proposalsByPropId = new Map(proposals.map(pr => [pr.property_id, pr]))
 
-    let color: 'green' | 'amber' | 'red' | 'cyan' = 'cyan'
-    // Active Job — work is in progress (any job not marked complete)
-    if (job && job.stage !== 'collected') {
-      color = 'green'
-    } else if (proposal && proposal.status === 'sent') {
-      // Negotiation — proposal has been sent, awaiting response
-      color = 'amber'
-    } else if (proposal && (proposal.status === 'draft' || proposal.status === 'accepted')) {
-      // Proposal — drafted or accepted but not yet scheduled as a job
-      color = 'cyan'
-    } else if (client && (client.status === 'new_lead' || client.status === 'contacted')) {
-      // Knocked — rep visited, no proposal yet
-      color = 'red'
-    } else {
-      // Unvisited — property exists in territory but no workflow activity
-      color = 'cyan'
-    }
+    return properties.map((p) => {
+      const client = clientsByPropId.get(p.id)
+      const job = jobsByPropId.get(p.id)
+      const proposal = proposalsByPropId.get(p.id)
 
-    return {
-      id: p.id,
-      lat: p.lat,
-      lng: p.lng,
-      color,
-      label: p.address,
-      onClick: () => setSelectedProperty(p),
-    }
-  })
+      let color: 'green' | 'amber' | 'red' | 'cyan' = 'cyan'
+      // Active Job — work is in progress (any job not marked complete)
+      if (job && job.stage !== 'collected') {
+        color = 'green'
+      } else if (proposal && proposal.status === 'sent') {
+        // Negotiation — proposal has been sent, awaiting response
+        color = 'amber'
+      } else if (proposal && (proposal.status === 'draft' || proposal.status === 'accepted')) {
+        // Proposal — drafted or accepted but not yet scheduled as a job
+        color = 'cyan'
+      } else if (client && (client.status === 'new_lead' || client.status === 'contacted')) {
+        // Knocked — rep visited, no proposal yet
+        color = 'red'
+      } else {
+        // Unvisited — property exists in territory but no workflow activity
+        color = 'cyan'
+      }
+
+      return {
+        id: p.id,
+        lat: p.lat,
+        lng: p.lng,
+        color,
+        label: p.address,
+        onClick: () => setSelectedProperty(p),
+      }
+    })
+  }, [properties, clients, jobs, proposals])
 
   // Filtered properties for territory
   const filteredProperties = properties.filter((p) => {
@@ -2458,7 +2466,7 @@ export default function Dashboard() {
                     <button
                       onClick={handleWeatherZipLookup}
                       disabled={weatherLookupLoading}
-                      className="bg-cyan/20 hover:bg-cyan/30 disabled:opacity-50 text-cyan px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-1"
+                      className="bg-cyan/20 hover:bg-cyan/30 disabled:opacity-60 text-cyan px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-1"
                     >
                       {weatherLookupLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Go'}
                     </button>
@@ -2646,7 +2654,7 @@ export default function Dashboard() {
                 <button
                   onClick={runMichaelLeadEngine}
                   disabled={michaelLeadsLoading}
-                  className="w-full bg-cyan/20 hover:bg-cyan/30 disabled:opacity-50 disabled:cursor-not-allowed text-cyan px-4 py-2 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
+                  className="w-full bg-cyan/20 hover:bg-cyan/30 disabled:opacity-60 disabled:cursor-not-allowed text-cyan px-4 py-2 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
                 >
                   {michaelLeadsLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing...</> : 'Generate Leads'}
                 </button>
@@ -2854,7 +2862,7 @@ export default function Dashboard() {
                 setDashRefreshing(false)
               }
             }}
-            className="absolute bottom-4 right-4 z-30 w-10 h-10 rounded-lg bg-cyan/20 hover:bg-cyan/30 disabled:opacity-50 flex items-center justify-center transition-all"
+            className="absolute bottom-4 right-4 z-30 w-10 h-10 rounded-lg bg-cyan/20 hover:bg-cyan/30 disabled:opacity-60 flex items-center justify-center transition-all"
             title="Refresh dashboard data"
           >
             {dashRefreshing
@@ -3017,7 +3025,7 @@ export default function Dashboard() {
                   <button
                     onClick={() => handleGeoJsonToggle('territory')}
                     disabled={geoJsonLoading}
-                    className={`flex-1 text-xs px-3 py-1.5 rounded border transition-colors disabled:opacity-50 ${
+                    className={`flex-1 text-xs px-3 py-1.5 rounded border transition-colors disabled:opacity-60 ${
                       geoJsonMode === 'territory'
                         ? 'bg-cyan-500/30 text-cyan-400 border-cyan-500/40'
                         : 'bg-white/10 text-white/60 border-white/20 hover:bg-white/20'
@@ -3028,7 +3036,7 @@ export default function Dashboard() {
                   <button
                     onClick={() => handleGeoJsonToggle('heatzone')}
                     disabled={geoJsonLoading}
-                    className={`flex-1 text-xs px-3 py-1.5 rounded border transition-colors disabled:opacity-50 ${
+                    className={`flex-1 text-xs px-3 py-1.5 rounded border transition-colors disabled:opacity-60 ${
                       geoJsonMode === 'heatzone'
                         ? 'bg-amber-500/30 text-amber-400 border-amber-500/40'
                         : 'bg-white/10 text-white/60 border-white/20 hover:bg-white/20'
@@ -3053,7 +3061,7 @@ export default function Dashboard() {
                 <button
                   onClick={handlePlanRoute}
                   disabled={routeLoading}
-                  className="w-full mb-4 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-400 text-sm px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="w-full mb-4 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-400 text-sm px-3 py-2 rounded-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {routeLoading ? (
                     <>
@@ -3267,7 +3275,7 @@ export default function Dashboard() {
                 <button
                   onClick={() => handleSweepResearch()}
                   disabled={sweepLoading}
-                  className="w-full bg-cyan text-dark font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50 disabled:opacity-60"
+                  className="w-full bg-cyan text-dark font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {sweepLoading ? 'Researching...' : 'Run GPS Sweep'}
                 </button>
@@ -3312,7 +3320,7 @@ export default function Dashboard() {
                     <button
                       onClick={handleSnapToRoads}
                       disabled={snapLoading}
-                      className="w-full mt-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-400 text-sm px-3 py-2 rounded-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      className="w-full mt-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-400 text-sm px-3 py-2 rounded-lg transition-all disabled:opacity-60 flex items-center justify-center gap-2"
                     >
                       {snapLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🗺</span>}
                       {snapLoading ? 'Snapping...' : `Snap to Roads (${sweepPath.length})`}
@@ -3432,7 +3440,7 @@ export default function Dashboard() {
                 <button
                   onClick={residentialSearchMode === 'zip' ? handleSearchResidentialByZip : handleSearchResidential}
                   disabled={residentialLoading}
-                  className="w-full bg-cyan text-dark font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50"
+                  className="w-full bg-cyan text-dark font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-60"
                 >
                   {residentialLoading ? 'Searching...' : residentialSearchMode === 'zip' ? `Search ZIP ${residentialZip || '—'}` : 'Find Residential Leads'}
                 </button>
@@ -3566,7 +3574,7 @@ export default function Dashboard() {
                 <button
                   onClick={handleSearchCommercial}
                   disabled={commercialLoading}
-                  className="w-full bg-green text-dark font-medium py-2 rounded-lg hover:bg-green/90 transition-all disabled:opacity-50"
+                  className="w-full bg-green text-dark font-medium py-2 rounded-lg hover:bg-green/90 transition-all disabled:opacity-60"
                 >
                   {commercialLoading ? 'Searching...' : commercialSearchMode === 'zip' ? `Search ZIP ${commercialZip || '—'}` : 'Find Commercial Leads'}
                 </button>
@@ -3963,7 +3971,7 @@ export default function Dashboard() {
               <button
                 onClick={() => handleStormLocationSearch(stormLocation)}
                 disabled={stormLoading}
-                className="w-full mt-2 bg-cyan text-dark text-xs font-medium py-1.5 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50"
+                className="w-full mt-2 bg-cyan text-dark text-xs font-medium py-1.5 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-60"
               >
                 {stormLoading ? 'Loading...' : 'Search'}
               </button>
@@ -3982,7 +3990,7 @@ export default function Dashboard() {
                   <button
                     onClick={handleStormSearchPin}
                     disabled={stormLoading}
-                    className="w-full bg-amber/20 hover:bg-amber/30 text-amber border border-amber/30 text-xs font-medium py-1.5 rounded-lg transition-all disabled:opacity-50"
+                    className="w-full bg-amber/20 hover:bg-amber/30 text-amber border border-amber/30 text-xs font-medium py-1.5 rounded-lg transition-all disabled:opacity-60"
                   >
                     {stormLoading ? 'Loading storm data...' : '⚡ Search This Area'}
                   </button>
@@ -4085,7 +4093,7 @@ export default function Dashboard() {
               <button
                 onClick={handleStormAssess}
                 disabled={stormLoading}
-                className="w-full bg-cyan text-dark text-sm font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50"
+                className="w-full bg-cyan text-dark text-sm font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-60"
               >
                 {stormLoading ? 'Assessing...' : 'Assess Risk'}
               </button>
@@ -4300,7 +4308,7 @@ export default function Dashboard() {
               // Build proposal line items from materials
               const lineItems: ProposalLineItem[] = [
                 {
-                  id: Math.random().toString(36).substr(2, 9),
+                  id: randomUUID(),
                   description: `Architectural Shingles (${data.roof.adjustedSquares} sq adj)`,
                   quantity: data.materials.shinglesBundles,
                   unit: 'bundle',
@@ -4308,7 +4316,7 @@ export default function Dashboard() {
                   total: 0,
                 },
                 {
-                  id: Math.random().toString(36).substr(2, 9),
+                  id: randomUUID(),
                   description: 'Synthetic Underlayment',
                   quantity: Math.ceil(data.materials.underlaySqFt / 1000),
                   unit: 'roll',
@@ -4316,7 +4324,7 @@ export default function Dashboard() {
                   total: 0,
                 },
                 {
-                  id: Math.random().toString(36).substr(2, 9),
+                  id: randomUUID(),
                   description: 'Ice & Water Shield',
                   quantity: data.materials.iceWaterLinearFt,
                   unit: 'lf',
@@ -4324,7 +4332,7 @@ export default function Dashboard() {
                   total: 0,
                 },
                 {
-                  id: Math.random().toString(36).substr(2, 9),
+                  id: randomUUID(),
                   description: 'Drip Edge',
                   quantity: data.materials.dripEdgeLinearFt,
                   unit: 'lf',
@@ -4332,7 +4340,7 @@ export default function Dashboard() {
                   total: 0,
                 },
                 {
-                  id: Math.random().toString(36).substr(2, 9),
+                  id: randomUUID(),
                   description: 'Ridge Cap Shingles',
                   quantity: data.materials.ridgeCapLinearFt,
                   unit: 'lf',
@@ -4397,7 +4405,7 @@ export default function Dashboard() {
                 <button
                   disabled={michaelLeadsLoading || michaelZip.trim().length < 5}
                   onClick={() => handleMichaelZipSearch(michaelZip)}
-                  className="bg-cyan text-dark px-4 py-2 rounded-lg font-bold text-sm hover:bg-cyan/90 transition-all disabled:opacity-50"
+                  className="bg-cyan text-dark px-4 py-2 rounded-lg font-bold text-sm hover:bg-cyan/90 transition-all disabled:opacity-60"
                 >
                   {michaelLeadsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                 </button>
@@ -4668,12 +4676,12 @@ export default function Dashboard() {
                     onChange={e => setChatInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && !chatLoading && handleSendChat()}
                     disabled={chatLoading}
-                    className="flex-1 bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 disabled:opacity-50"
+                    className="flex-1 bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50 disabled:opacity-60"
                   />
                   <button
                     onClick={handleSendChat}
                     disabled={chatLoading || !chatInput.trim()}
-                    className="bg-cyan text-dark px-4 py-2 rounded-lg font-medium hover:bg-cyan/90 transition-all disabled:opacity-50"
+                    className="bg-cyan text-dark px-4 py-2 rounded-lg font-medium hover:bg-cyan/90 transition-all disabled:opacity-60"
                   >
                     <Send className="w-4 h-4" />
                   </button>
@@ -5544,7 +5552,7 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                               }
                             }}
                             disabled={proposalAiLoading}
-                            className="ml-3 shrink-0 bg-cyan text-dark px-3 py-1.5 rounded text-xs font-semibold hover:bg-cyan/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                            className="ml-3 shrink-0 bg-cyan text-dark px-3 py-1.5 rounded text-xs font-semibold hover:bg-cyan/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
                           >
                             {proposalAiLoading ? 'Generating…' : '✦ Generate'}
                           </button>
@@ -5976,7 +5984,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                                 }
                               }}
                               disabled={estimateLoading}
-                              className="w-full bg-cyan text-dark px-4 py-2 rounded-lg text-sm font-semibold hover:bg-cyan/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="w-full bg-cyan text-dark px-4 py-2 rounded-lg text-sm font-semibold hover:bg-cyan/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                               {estimateLoading ? 'Generating...' : 'Generate Smart Estimate'}
                             </button>
@@ -6159,7 +6167,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                   onKeyDown={async (e) => {
                     if (e.key === 'Enter' && teamChatInput.trim()) {
                       const newMsg: ChatMessage = {
-                        id: Math.random().toString(36).substr(2, 9),
+                        id: randomUUID(),
                         sender_name: userProfile?.email || 'Team Member',
                         sender_role: currentUserRole,
                         message: teamChatInput,
@@ -6179,7 +6187,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                   onClick={async () => {
                     if (teamChatInput.trim()) {
                       const newMsg: ChatMessage = {
-                        id: Math.random().toString(36).substr(2, 9),
+                        id: randomUUID(),
                         sender_name: userProfile?.email || 'Team Member',
                         sender_role: currentUserRole,
                         message: teamChatInput,
@@ -6403,7 +6411,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                   onClick={async () => {
                     if (!newJobTitle.trim() || !newJobAddress.trim()) return
                     const newJob: Job = {
-                      id: Math.random().toString(36).substr(2, 9),
+                      id: randomUUID(),
                       property_id: null, client_id: null, proposal_id: null,
                       stage: 'sold',
                       title: newJobTitle.trim(),
@@ -6757,7 +6765,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                         <button
                           onClick={async () => {
                             const claim: InsuranceClaim = {
-                              id: Math.random().toString(36).substr(2, 9),
+                              id: randomUUID(),
                               job_id: selectedJob.id,
                               insurance_company: '',
                               claim_number: '',
@@ -6916,7 +6924,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                           onChange={async (e) => {
                             const file = e.target.files?.[0]
                             if (!file) return
-                            const photoId = Math.random().toString(36).substr(2, 9)
+                            const photoId = randomUUID()
                             // Optimistically add a placeholder while uploading
                             const reader = new FileReader()
                             reader.onload = async (ev) => {
@@ -7354,7 +7362,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                   <button
                     onClick={handleInviteUser}
                     disabled={!inviteEmail || inviteLoading}
-                    className="w-full bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90 disabled:opacity-50 transition-all"
+                    className="w-full bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90 disabled:opacity-60 transition-all"
                   >
                     {inviteLoading ? 'Sending...' : 'Invite User'}
                   </button>

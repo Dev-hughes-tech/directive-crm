@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/apiAuth'
+import { requireUser, requireTier } from '@/lib/apiAuth'
 import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
 
+  const tierDenied = requireTier(auth, 'maps')
+  if (tierDenied) return tierDenied
+
   const apiKey = process.env.MAPS_API_KEY
   if (!apiKey) return NextResponse.json({ error: 'No key' }, { status: 500 })
 
   try {
     // Create a map tile session for photorealistic 3D tiles
+    // Server-side only; key never returned to client
     const res = await fetchWithTimeout(
       `https://tile.googleapis.com/v1/createSession?key=${apiKey}`,
       {
