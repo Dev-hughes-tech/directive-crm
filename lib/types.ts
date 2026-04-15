@@ -141,7 +141,7 @@ export interface StormEvent {
   description: string
 }
 
-export type Screen = 'dashboard' | 'territory' | 'sweep' | 'stormscope' | 'michael' | 'clients' | 'proposals' | 'estimates' | 'materials' | 'team' | 'jobs' | 'timeline' | 'settings'
+export type Screen = 'dashboard' | 'territory' | 'sweep' | 'stormscope' | 'roof_analyzer' | 'michael' | 'clients' | 'email' | 'proposals' | 'estimates' | 'materials' | 'team' | 'jobs' | 'timeline' | 'settings'
 
 export type JobStage =
   | 'sold'

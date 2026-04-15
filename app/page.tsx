@@ -48,6 +48,7 @@ import {
   CheckCircle,
   CalendarDays,
   Activity,
+  Ruler,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
@@ -68,11 +69,14 @@ const WeatherWidget = dynamic(() => import('@/components/WeatherWidget'), { ssr:
 const PropertyMapEmbed = dynamic(() => import('@/components/PropertyMapEmbed'), { ssr: false })
 const DamagePhotoUpload = dynamic(() => import('@/components/DamagePhotoUpload'), { ssr: false })
 const MobileLayout = dynamic(() => import('@/components/mobile/MobileLayout'), { ssr: false })
+const RoofAnalyzer = dynamic(() => import('@/components/RoofAnalyzer'), { ssr: false })
+const EmailClient = dynamic(() => import('@/components/EmailClient'), { ssr: false })
 import StreetView from '@/components/StreetView'
 import AerialView from '@/components/AerialView'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { PropertyCard } from '@/components/PropertyCard'
 import { calculateLeadScore, getScoreBadgeColor, logClientActivity } from '@/lib/scoring'
+import KanbanBoard from '@/components/KanbanBoard'
 
 // Huntsville AL coordinates (Directive CRM HQ)
 const HQ_LAT = 34.7304
@@ -97,8 +101,8 @@ function isApartmentComplex(address: string | null, types: string[]): boolean {
 
 
 const VALID_SCREENS: readonly Screen[] = [
-  'dashboard', 'territory', 'sweep', 'stormscope', 'michael',
-  'clients', 'proposals', 'estimates', 'materials', 'team', 'jobs', 'timeline', 'settings',
+  'dashboard', 'territory', 'sweep', 'stormscope', 'roof_analyzer', 'michael',
+  'clients', 'email', 'proposals', 'estimates', 'materials', 'team', 'jobs', 'timeline', 'settings',
 ] as const
 
 function readInitialScreen(): Screen {
@@ -1741,7 +1745,7 @@ Only respond with the JSON array, no other text.` }
               height={108}
               className="h-[108px] w-auto object-contain"
             />
-            <span className="text-[10px] font-semibold tracking-[0.2em] text-gray-400 uppercase -mt-1">Directive CRM</span>
+            <span className="text-sm font-bold tracking-[0.2em] text-white uppercase -mt-1">Directive CRM</span>
           </div>
 
           <div className="flex gap-1 overflow-x-auto scrollbar-hide">
@@ -1750,9 +1754,11 @@ Only respond with the JSON array, no other text.` }
               { id: 'territory' as Screen, label: 'Territory', icon: MapPin, feature: 'territory' as const },
               { id: 'sweep' as Screen, label: 'Sweep', icon: Navigation, feature: 'sweep' as const },
               { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio, feature: 'stormscope' as const },
+              { id: 'roof_analyzer' as Screen, label: 'Roof Analyzer', icon: Ruler, feature: 'sweep' as const },
               { id: 'michael' as Screen, label: 'Michael', icon: Brain, feature: 'michael' as const },
               { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, feature: 'jobs' as const },
               { id: 'clients' as Screen, label: 'Clients', icon: Users, feature: 'clients' as const },
+              { id: 'email' as Screen, label: 'Email', icon: Mail, feature: 'clients' as const },
               { id: 'proposals' as Screen, label: 'Proposals', icon: FileText, feature: 'proposals' as const },
               { id: 'estimates' as Screen, label: 'Smart Estimates', icon: Calculator, feature: 'proposals' as const },
               { id: 'materials' as Screen, label: 'Materials', icon: Package, feature: 'materials' as const },
@@ -3988,7 +3994,43 @@ Only respond with the JSON array, no other text.` }
         </>
       )}
 
-      {/* SCREEN 5: MICHAEL AI */}
+      {/* SCREEN 5: ROOF ANALYZER */}
+      {activeScreen === 'roof_analyzer' && (
+        <RoofAnalyzer
+          initialAddress={sweepAddress}
+          initialLat={sweepResult?.lat}
+          initialLng={sweepResult?.lng}
+          mapsApiKey={process.env.NEXT_PUBLIC_MAPS_API_KEY || ''}
+          onExportToProposal={(data) => {
+            // Create a new proposal with roof measurements as line items
+            const newProposal: Proposal = {
+              id: Math.random().toString(36).substr(2, 9),
+              client_id: '',
+              property_id: '',
+              status: 'draft',
+              line_items: [
+                {
+                  id: Math.random().toString(36).substr(2, 9),
+                  description: `Roofing - ${data.totalSquares.toFixed(0)} squares (${data.roofPitch} pitch)`,
+                  quantity: data.pitchAdjustedSquares,
+                  unit: 'squares',
+                  unit_price: 350,
+                  total: data.pitchAdjustedSquares * 350,
+                }
+              ],
+              total: data.pitchAdjustedSquares * 350,
+              notes: `Roof measurements: ${data.totalAreaSqft.toLocaleString()} sqft total area. ${data.segments.length} segments analyzed.`,
+              created_at: new Date().toISOString(),
+              sent_at: null,
+            }
+            saveProposal(newProposal).then(() => {
+              setActiveScreen('proposals')
+            })
+          }}
+        />
+      )}
+
+      {/* SCREEN 6: MICHAEL AI */}
       {activeScreen === 'michael' && (
         <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
 
@@ -4268,7 +4310,7 @@ Only respond with the JSON array, no other text.` }
         </div>
       )}
 
-      {/* SCREEN 6: CLIENTS */}
+      {/* SCREEN 7: CLIENTS */}
       {activeScreen === 'clients' && (
         <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
           {/* Left Panel: Client List */}
@@ -4761,7 +4803,21 @@ Only respond with the JSON array, no other text.` }
         </div>
       )}
 
-      {/* SCREEN 7: PROPOSALS */}
+      {/* SCREEN 8: EMAIL */}
+      {activeScreen === 'email' && (
+        <div className="absolute inset-4 top-[184px] z-30 overflow-hidden md:h-[calc(100vh-224px)]">
+          <EmailClient
+            clients={clients}
+            properties={properties}
+            onNavigateToSweep={(address) => {
+              setSweepAddress(address)
+              setActiveScreen('sweep')
+            }}
+          />
+        </div>
+      )}
+
+      {/* SCREEN 9: PROPOSALS */}
       {activeScreen === 'proposals' && (
         <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
           {/* Left Panel: Proposal List */}
@@ -5352,7 +5408,7 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
         </div>
       )}
 
-      {/* SCREEN 8: SMART ESTIMATES */}
+      {/* SCREEN 9: SMART ESTIMATES */}
       {activeScreen === 'estimates' && (
         <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
           {/* Check if user has completed proposals */}
@@ -5560,7 +5616,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
         </div>
       )}
 
-      {/* SCREEN 8: MATERIALS */}
+      {/* SCREEN 10: MATERIALS */}
       {activeScreen === 'materials' && (
         <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
           {/* Roof Calculator */}
@@ -6037,7 +6093,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
         </div>
       )}
 
-      {/* SCREEN 9: COMMUNICATIONS HUB */}
+      {/* SCREEN 11: COMMUNICATIONS HUB */}
       {activeScreen === 'team' && (
         <div className="absolute inset-4 top-[184px] z-30 flex flex-col h-[calc(100vh-224px)]">
           {/* Header */}
@@ -6332,7 +6388,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
         </div>
       )}
 
-      {/* SCREEN 10: JOBS */}
+      {/* SCREEN 12: JOBS */}
       {activeScreen === 'jobs' && (
         <div className="absolute inset-4 top-[184px] z-30 flex flex-col h-[calc(100vh-224px)] gap-4">
 
@@ -7060,36 +7116,22 @@ Be specific with quantities and realistic pricing for the roofing industry.`
             </div>
             </div>
           ) : (
-            // KANBAN BOARD VIEW
-            <div className="flex-1 flex gap-3 overflow-x-auto pb-4" style={{ minHeight: '60vh' }}>
-              {JOB_STAGES.map(stage => {
-                const stageJobs = jobs.filter(j => j.stage === stage.key)
-                return (
-                  <div key={stage.key} className="flex-shrink-0 w-64">
-                    <div className="glass rounded-lg p-3 mb-2">
-                      <h3 className="text-sm font-bold text-white">{stage.label}</h3>
-                      <span className="text-xs text-cyan">{stageJobs.length} jobs</span>
-                    </div>
-                    <div className="space-y-2">
-                      {stageJobs.map(job => (
-                        <div
-                          key={job.id}
-                          className="glass rounded-lg p-3 cursor-pointer hover:border-cyan/30 border border-transparent transition-all"
-                          onClick={() => setSelectedJob(job)}
-                        >
-                          <p className="text-sm text-white font-medium truncate">{job.title}</p>
-                          <p className="text-xs text-gray-400">{job.owner_name}</p>
-                          <p className="text-sm text-cyan font-bold mt-2">${(job.contract_amount || 0).toLocaleString()}</p>
-                        </div>
-                      ))}
-                      {stageJobs.length === 0 && (
-                        <p className="text-xs text-gray-500 text-center py-4">No jobs</p>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+            <KanbanBoard
+              jobs={jobs}
+              onJobClick={(job) => {
+                setSelectedJob(job)
+                setJobTab('pipeline')
+              }}
+              onStageChange={async (jobId: string, newStage: JobStage) => {
+                const job = jobs.find(j => j.id === jobId)
+                if (!job) return
+                const updated = { ...job, stage: newStage }
+                setJobs(prev => prev.map(j => j.id === jobId ? updated : j))
+                await saveJob(updated)
+                const stageLabel = JOB_STAGES.find(s => s.key === newStage)?.label || newStage
+                addNotification(`Job moved to ${stageLabel}`, 'info')
+              }}
+            />
           )}
         </div>
       )}
@@ -7277,6 +7319,75 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                     </button>
                   </div>
                 ))}
+              </div>
+            </section>
+
+            {/* Communications */}
+            <section className="mb-8">
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Communications</h3>
+              <div className="bg-dark-700/50 rounded-lg p-4 space-y-4">
+                <div>
+                  <p className="text-sm text-white font-medium mb-2">Twilio Integration</p>
+                  <p className="text-xs text-gray-400 mb-4">
+                    Receive calls and SMS messages directly in Directive CRM using Twilio Voice and Messaging APIs.
+                  </p>
+                </div>
+
+                <div className="border-t border-white/10 pt-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-sm text-white font-medium">Configuration Status</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {process.env.NEXT_PUBLIC_TWILIO_ACCOUNT_SID
+                          ? 'Twilio is configured'
+                          : 'Twilio is not configured'}
+                      </p>
+                    </div>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                        process.env.NEXT_PUBLIC_TWILIO_ACCOUNT_SID
+                          ? 'bg-green-500/20 text-green-400'
+                          : 'bg-yellow-500/20 text-yellow-400'
+                      }`}
+                    >
+                      {process.env.NEXT_PUBLIC_TWILIO_ACCOUNT_SID ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/twilio/token')
+                        const data = await res.json()
+                        if (data.configured) {
+                          addNotification('Twilio connection successful', 'success')
+                        } else {
+                          addNotification('Twilio not configured — add credentials to .env.local', 'warning')
+                        }
+                      } catch {
+                        addNotification('Could not test Twilio connection', 'warning')
+                      }
+                    }}
+                    className="px-4 py-2 bg-cyan/20 text-cyan rounded-lg text-sm font-medium hover:bg-cyan/30 transition-all"
+                  >
+                    Test Connection
+                  </button>
+                </div>
+
+                <div className="border-t border-white/10 pt-4">
+                  <p className="text-xs text-gray-400 mb-3 font-semibold uppercase tracking-wide">
+                    Required Environment Variables
+                  </p>
+                  <div className="bg-dark-800 rounded p-3 text-xs text-gray-300 font-mono space-y-1 overflow-x-auto">
+                    <p>TWILIO_ACCOUNT_SID=your_account_sid</p>
+                    <p>TWILIO_AUTH_TOKEN=your_auth_token</p>
+                    <p>TWILIO_API_KEY=your_api_key</p>
+                    <p>TWILIO_API_SECRET=your_api_secret</p>
+                    <p>TWILIO_TWIML_APP_SID=your_twiml_app_sid</p>
+                    <p>TWILIO_PHONE_NUMBER=+1234567890</p>
+                    <p>TWILIO_FORWARD_TO=+1234567890 (optional)</p>
+                  </div>
+                </div>
               </div>
             </section>
 
