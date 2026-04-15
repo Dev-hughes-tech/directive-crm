@@ -15,5 +15,7 @@ export async function GET(request: NextRequest) {
   }
 
   const data = await getForecast(lat, lng)
-  return NextResponse.json(data)
+  return NextResponse.json(data, {
+    headers: { 'Cache-Control': 'public, max-age=600, stale-while-revalidate=1200' }, // 10 min fresh
+  })
 }

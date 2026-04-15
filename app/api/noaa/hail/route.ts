@@ -73,7 +73,9 @@ export async function GET(request: NextRequest) {
       (b.date || '').localeCompare(a.date || '')
     )
 
-    return NextResponse.json(allEvents)
+    return NextResponse.json(allEvents, {
+      headers: { 'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400' }, // 1 hr fresh, 24 hr stale-ok (historical data)
+    })
   } catch {
     return NextResponse.json([])
   }

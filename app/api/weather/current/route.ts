@@ -17,5 +17,7 @@ export async function GET(request: NextRequest) {
   const data = await getCurrentWeather(lat, lng)
   if (!data) return NextResponse.json({ error: 'Weather data unavailable' }, { status: 502 })
 
-  return NextResponse.json(data)
+  return NextResponse.json(data, {
+    headers: { 'Cache-Control': 'public, max-age=300, stale-while-revalidate=600' }, // 5 min fresh, 10 min stale-ok
+  })
 }

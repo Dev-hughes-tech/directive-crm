@@ -54,6 +54,7 @@ import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Cl
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
 import { getClients, saveClient, deleteClient, saveActivity, getProposals, saveProposal, deleteProposal, getMaterials, saveMaterial, deleteMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile, getCompanySettings, saveCompanySettings } from '@/lib/storage'
+import { sessionCache } from '@/lib/sessionCache'
 import type { UserProfile } from '@/lib/storage'
 import { canAccess, getTierConfig, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
@@ -963,10 +964,27 @@ export default function Dashboard() {
     loadData()
   }, [])
 
-  // Fetch weather data on mount
+  // Fetch weather data on mount (session-cached — no re-fetch on screen switches)
   useEffect(() => {
     const fetchWeather = async () => {
       try {
+        const cacheKey = `weather:${HQ_LAT}:${HQ_LNG}`
+
+        // Serve from session cache if fresh
+        const cached = sessionCache.get<{
+          weather: unknown; alerts: unknown; forecast: unknown
+          hail: unknown; hwel: unknown
+        }>(cacheKey)
+        if (cached) {
+          if (cached.weather) setWeather(cached.weather as Parameters<typeof setWeather>[0])
+          if (cached.alerts) setAlerts(cached.alerts as Parameters<typeof setAlerts>[0])
+          if (cached.forecast) setForecast(cached.forecast as Parameters<typeof setForecast>[0])
+          if (cached.hail) setHailEvents(cached.hail as Parameters<typeof setHailEvents>[0])
+          if (cached.hwel) setHwelData(cached.hwel as Parameters<typeof setHwelData>[0])
+          setLoading(false)
+          return
+        }
+
         const [weatherRes, alertsRes, forecastRes, hailRes, hwelRes] = await Promise.all([
           authFetch(`/api/weather/current?lat=${HQ_LAT}&lng=${HQ_LNG}`),
           authFetch(`/api/weather/alerts?lat=${HQ_LAT}&lng=${HQ_LNG}`),
@@ -975,11 +993,23 @@ export default function Dashboard() {
           authFetch(`/api/noaa/hwel?lat=${HQ_LAT}&lng=${HQ_LNG}&years=10`),
         ])
 
-        if (weatherRes.ok) setWeather(await weatherRes.json())
-        if (alertsRes.ok) setAlerts(await alertsRes.json())
-        if (forecastRes.ok) setForecast(await forecastRes.json())
-        if (hailRes.ok) setHailEvents(await hailRes.json())
-        if (hwelRes.ok) setHwelData(await hwelRes.json())
+        const weatherData = weatherRes.ok ? await weatherRes.json() : null
+        const alertsData = alertsRes.ok ? await alertsRes.json() : null
+        const forecastData = forecastRes.ok ? await forecastRes.json() : null
+        const hailData = hailRes.ok ? await hailRes.json() : null
+        const hwelData = hwelRes.ok ? await hwelRes.json() : null
+
+        if (weatherData) setWeather(weatherData)
+        if (alertsData) setAlerts(alertsData)
+        if (forecastData) setForecast(forecastData)
+        if (hailData) setHailEvents(hailData)
+        if (hwelData) setHwelData(hwelData)
+
+        // Store in session cache — 5 min for current weather, NOAA cached longer on server
+        sessionCache.set(cacheKey, {
+          weather: weatherData, alerts: alertsData, forecast: forecastData,
+          hail: hailData, hwel: hwelData,
+        }, 5 * 60 * 1000)
       } catch (error) {
         console.error('Error fetching weather:', error)
       } finally {

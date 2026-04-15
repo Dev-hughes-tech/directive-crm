@@ -179,6 +179,8 @@ export async function GET(request: NextRequest) {
       },
       yearSummary,
       events: allEvents.slice(0, 200), // Cap at 200 most recent
+    }, {
+      headers: { 'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400' },
     })
   } catch (err) {
     console.error('HWEL fetch error:', err)
