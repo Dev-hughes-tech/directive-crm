@@ -82,6 +82,17 @@ const HQ_CITY = 'Huntsville, AL'
 
 // Lead scoring function
 // (calculateLeadScore, getScoreBadgeColor, logClientActivity → lib/scoring.ts)
+
+/** Returns true if an address/types combination looks like an apartment complex (commercial). */
+function isApartmentComplex(address: string | null, types: string[]): boolean {
+  if (!address) return false
+  const addr = address.toLowerCase()
+  // Individual apartment units (subpremise) → treat as commercial complex
+  if (types.includes('subpremise')) return true
+  // Address keywords for complexes or units
+  const aptKeywords = [' apt ', ' apt.', ' unit ', ' suite ', ' ste ', ' #', 'apartments', ' apts', 'complex', 'towers', 'plaza', 'villas', 'garden', 'court', 'manor']
+  return aptKeywords.some(k => addr.includes(k))
+}
 // (PropertyCard → components/PropertyCard.tsx)
 
 
@@ -151,6 +162,8 @@ export default function Dashboard() {
   }>>([])
   const [commercialLoading, setCommercialLoading] = useState(false)
   const [commercialRadius, setCommercialRadius] = useState(1000)
+  const [commercialSearchMode, setCommercialSearchMode] = useState<'location' | 'zip'>('location')
+  const [commercialZip, setCommercialZip] = useState('')
   const [residentialResults, setResidentialResults] = useState<Array<{
     id: string; name: string | null; address: string | null;
     lat: number | null; lng: number | null; types: string[]; phone: string | null
@@ -630,18 +643,39 @@ export default function Dashboard() {
   const handleSearchCommercial = async () => {
     if (commercialLoading) return
     let useLoc = sweepUserLocation
-    if (!useLoc) {
-      const fresh = await getAccurateLocation()
-      if (!fresh) {
-        addNotification('Could not get your location. Please allow location access and try again.', 'warning')
+
+    if (commercialSearchMode === 'zip') {
+      if (!commercialZip || commercialZip.length < 5) {
+        addNotification('Enter a 5-digit ZIP code first.', 'warning')
         return
       }
-      setSweepUserLocation({ lat: fresh.lat, lng: fresh.lng })
-      setSweepLocationAccuracy(fresh.accuracy || null)
-      useLoc = { lat: fresh.lat, lng: fresh.lng }
+      setCommercialLoading(true)
+      try {
+        // Geocode the ZIP first
+        const geoRes = await authFetch(`/api/geocode?q=${encodeURIComponent(commercialZip + ' USA')}`)
+        if (!geoRes.ok) throw new Error('Geocoding failed')
+        const geoData = await geoRes.json()
+        useLoc = { lat: geoData.lat, lng: geoData.lng }
+        setMapCenter(useLoc)
+      } catch {
+        addNotification('Could not find that ZIP code.', 'warning')
+        setCommercialLoading(false)
+        return
+      }
+    } else {
+      if (!useLoc) {
+        const fresh = await getAccurateLocation()
+        if (!fresh) {
+          addNotification('Could not get your location. Please allow location access and try again.', 'warning')
+          return
+        }
+        setSweepUserLocation({ lat: fresh.lat, lng: fresh.lng })
+        setSweepLocationAccuracy(fresh.accuracy || null)
+        useLoc = { lat: fresh.lat, lng: fresh.lng }
+      }
+      setCommercialLoading(true)
     }
 
-    setCommercialLoading(true)
     try {
       const res = await authFetch('/api/places-search', {
         method: 'POST',
@@ -3127,19 +3161,26 @@ Only respond with the JSON array, no other text.` }
                     <p className="text-xs text-gray-400 font-semibold">Results: {residentialResults.length} — tap any to research</p>
                     {residentialResults.map(place => {
                       const alreadySaved = properties.some(p => p.address === place.address)
+                      const isCommercial = isApartmentComplex(place.address, place.types)
                       return (
                         <div
                           key={place.id}
-                          className={`rounded-lg p-3 text-sm space-y-2 cursor-pointer transition-all border ${
-                            alreadySaved
-                              ? 'bg-green/10 border-green/30'
-                              : 'bg-dark-700/50 border-transparent hover:bg-dark-700 hover:border-white/10'
+                          className={`rounded-lg p-3 text-sm space-y-2 transition-all border ${
+                            isCommercial
+                              ? 'bg-amber/5 border-amber/20 opacity-70'
+                              : alreadySaved
+                              ? 'bg-green/10 border-green/30 cursor-pointer'
+                              : 'bg-dark-700/50 border-transparent hover:bg-dark-700 hover:border-white/10 cursor-pointer'
                           }`}
-                          onClick={() => place.address && handleSweepResearch(place.address)}
+                          onClick={() => !isCommercial && place.address && handleSweepResearch(place.address)}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <p className="text-white font-medium truncate">{place.name || 'Residential Property'}</p>
-                            {alreadySaved && (
+                            <p className="text-white font-medium truncate">{place.name || (isCommercial ? 'Apartment Complex' : 'Residential Property')}</p>
+                            {isCommercial ? (
+                              <span className="flex-shrink-0 text-amber text-[10px] font-semibold bg-amber/10 border border-amber/30 px-1.5 py-0.5 rounded">
+                                COMMERCIAL
+                              </span>
+                            ) : alreadySaved && (
                               <span className="flex-shrink-0 text-green text-xs font-semibold flex items-center gap-1">
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -3150,24 +3191,28 @@ Only respond with the JSON array, no other text.` }
                           </div>
                           <p className="text-xs text-gray-400 truncate">{place.address || '—'}</p>
                           {place.phone && <p className="text-xs text-cyan">{place.phone}</p>}
-                          <div className="flex gap-2">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); place.address && handleSweepResearch(place.address) }}
-                              className="flex-1 bg-cyan/20 hover:bg-cyan/30 text-cyan border border-cyan/30 text-xs px-2 py-1.5 rounded transition-all"
-                            >
-                              Research
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleAddResidentialLead(place) }}
-                              className={`flex-1 text-xs px-2 py-1.5 rounded border transition-all ${
-                                alreadySaved
-                                  ? 'bg-green/20 text-green border-green/30'
-                                  : 'bg-dark-600 hover:bg-dark-500 text-gray-300 border-white/10'
-                              }`}
-                            >
-                              {alreadySaved ? '✓ Added' : 'Add Lead'}
-                            </button>
-                          </div>
+                          {isCommercial ? (
+                            <p className="text-[10px] text-amber/70">Use Commercial Search for this property</p>
+                          ) : (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); place.address && handleSweepResearch(place.address) }}
+                                className="flex-1 bg-cyan/20 hover:bg-cyan/30 text-cyan border border-cyan/30 text-xs px-2 py-1.5 rounded transition-all"
+                              >
+                                Research
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleAddResidentialLead(place) }}
+                                className={`flex-1 text-xs px-2 py-1.5 rounded border transition-all ${
+                                  alreadySaved
+                                    ? 'bg-green/20 text-green border-green/30'
+                                    : 'bg-dark-600 hover:bg-dark-500 text-gray-300 border-white/10'
+                                }`}
+                              >
+                                {alreadySaved ? '✓ Added' : 'Add Lead'}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )
                     })}
@@ -3184,6 +3229,35 @@ Only respond with the JSON array, no other text.` }
               </div>
 
               <div className="space-y-3">
+                {/* Mode toggle */}
+                <div className="flex gap-1 bg-dark-700/40 rounded-lg p-0.5">
+                  <button
+                    onClick={() => setCommercialSearchMode('location')}
+                    className={`flex-1 text-xs py-1.5 rounded transition-all ${commercialSearchMode === 'location' ? 'bg-green text-dark font-medium' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    📍 My Location
+                  </button>
+                  <button
+                    onClick={() => setCommercialSearchMode('zip')}
+                    className={`flex-1 text-xs py-1.5 rounded transition-all ${commercialSearchMode === 'zip' ? 'bg-green text-dark font-medium' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    🔢 By ZIP Code
+                  </button>
+                </div>
+
+                {/* ZIP input */}
+                {commercialSearchMode === 'zip' && (
+                  <input
+                    type="text"
+                    placeholder="Enter ZIP code (e.g. 35801)"
+                    value={commercialZip}
+                    onChange={(e) => setCommercialZip(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearchCommercial()}
+                    maxLength={5}
+                    className="w-full bg-dark-700 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green/50 tracking-widest"
+                  />
+                )}
+
                 <div>
                   <label className="text-xs text-gray-400 block mb-2">Radius</label>
                   <div className="flex gap-2">
@@ -3213,7 +3287,7 @@ Only respond with the JSON array, no other text.` }
                   disabled={commercialLoading}
                   className="w-full bg-green text-dark font-medium py-2 rounded-lg hover:bg-green/90 transition-all disabled:opacity-50"
                 >
-                  {commercialLoading ? 'Searching...' : 'Find Commercial Leads'}
+                  {commercialLoading ? 'Searching...' : commercialSearchMode === 'zip' ? `Search ZIP ${commercialZip || '—'}` : 'Find Commercial Leads'}
                 </button>
 
                 {commercialResults.length > 0 && (
