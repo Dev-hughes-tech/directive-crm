@@ -324,7 +324,7 @@ export default function Dashboard() {
   const [weatherLookupLoading, setWeatherLookupLoading] = useState(false)
 
   // Dashboard enhanced state
-  const [dashboardTab, setDashboardTab] = useState<'overview' | 'storm-leads' | 'michael-leads' | 'historical' | 'analytics' | 'timeline'>('overview')
+  const [dashboardTab, setDashboardTab] = useState<'overview' | 'storm-leads' | 'michael-leads' | 'historical' | 'analytics'>('overview')
   const [weatherZip, setWeatherZip] = useState('')
   const [stormOverlay, setStormOverlay] = useState(false)
   const [dashWeather, setDashWeather] = useState<WeatherCurrent | null>(null)
@@ -353,8 +353,6 @@ export default function Dashboard() {
   }>>(() => {
     try { return JSON.parse(localStorage.getItem('directive_impact_zones') || '[]') } catch { return [] }
   })
-  const [timelineView, setTimelineView] = useState<'month' | 'week' | 'day'>('month')
-  const [timelinePlaying, setTimelinePlaying] = useState(false)
 
   // Notification system state
   interface AppNotification {
@@ -2242,16 +2240,6 @@ export default function Dashboard() {
             >
               Analytics
             </button>
-            <button
-              onClick={() => setDashboardTab('timeline')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
-                dashboardTab === 'timeline'
-                  ? 'bg-cyan/20 text-cyan border border-cyan/30'
-                  : 'glass text-gray-300 hover:text-white'
-              }`}
-            >
-              Timeline
-            </button>
           </div>
 
           {/* OVERVIEW TAB */}
@@ -2849,165 +2837,24 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* TIMELINE TAB */}
-          {dashboardTab === 'timeline' && (
-            <div className="absolute left-4 right-4 top-[324px] bottom-16 z-30 flex gap-4 overflow-hidden">
-              {/* Left: Job Milestones */}
-              <div className="flex-1 glass rounded-lg p-6 overflow-y-auto">
-                <h2 className="text-base font-semibold text-white mb-5 flex items-center gap-2">
-                  <CalendarDays className="w-4 h-4 text-cyan" />
-                  Job Pipeline Timeline
-                </h2>
-                {jobs.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-8">No jobs yet — create one from the Jobs tab</p>
-                ) : (
-                  <div className="space-y-6">
-                    {jobs.map(job => {
-                      const currentStageIdx = JOB_STAGES.findIndex(s => s.key === job.stage)
-                      return (
-                        <div key={job.id} className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold text-white truncate pr-2">{job.title}</p>
-                            {job.contract_amount && (
-                              <span className="text-xs text-green flex-shrink-0">${job.contract_amount.toLocaleString()}</span>
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-500 truncate">{job.address}</p>
-                          <div className="relative flex items-center pt-1">
-                            <div className="absolute left-0 right-0 h-0.5 bg-dark-700" />
-                            <div className="relative flex justify-between w-full">
-                              {JOB_STAGES.map((stage, idx) => {
-                                const isDone = idx <= currentStageIdx
-                                const isCurrent = idx === currentStageIdx
-                                return (
-                                  <div key={stage.key} className="flex flex-col items-center gap-1 z-10" title={stage.label}>
-                                    <div className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${
-                                      isCurrent
-                                        ? 'border-cyan bg-cyan shadow-[0_0_6px_rgba(6,182,212,0.7)]'
-                                        : isDone
-                                        ? 'border-green bg-green'
-                                        : 'border-dark-500 bg-dark-800'
-                                    }`} />
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                          <div className="flex justify-between text-[10px] text-gray-600 mt-1">
-                            <span>{JOB_STAGES[0].label}</span>
-                            <span className="text-cyan font-medium">{JOB_STAGES[currentStageIdx]?.label}</span>
-                            <span>{JOB_STAGES[JOB_STAGES.length - 1].label}</span>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Right: Activity Feed */}
-              <div className="w-80 flex-shrink-0 glass rounded-lg p-6 overflow-y-auto">
-                <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-cyan" />
-                  Activity Feed
-                </h2>
-                {(() => {
-                  const allActivity: Array<{ action: string; timestamp: string; clientId: string }> = []
-                  try {
-                    const stored = localStorage.getItem('directive_client_activities')
-                    if (stored) {
-                      const parsed = JSON.parse(stored)
-                      if (parsed && typeof parsed === 'object') {
-                        Object.entries(parsed as Record<string, unknown>).forEach(([clientId, acts]) => {
-                          if (Array.isArray(acts)) {
-                            acts.forEach((a: Record<string, unknown>) => {
-                              if (a && typeof a.action === 'string' && typeof a.timestamp === 'string') {
-                                allActivity.push({ action: a.action, timestamp: a.timestamp, clientId })
-                              }
-                            })
-                          }
-                        })
-                      }
-                    }
-                  } catch { /* corrupted localStorage — ignore and show empty state */ }
-                  allActivity.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-                  if (allActivity.length === 0) {
-                    return <p className="text-sm text-gray-400 text-center py-8">No activity yet — client interactions will appear here</p>
-                  }
-                  return (
-                    <div className="space-y-2">
-                      {allActivity.slice(0, 50).map((item, i) => {
-                        const client = clients.find(c => c.id === item.clientId)
-                        const prop = properties.find(p => p.id === client?.property_id)
-                        return (
-                          <div key={i} className="flex items-start gap-3 p-2 rounded bg-dark-700/30">
-                            <div className="w-1.5 h-1.5 rounded-full bg-cyan mt-1.5 flex-shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-white">{item.action}</p>
-                              {prop && <p className="text-[11px] text-gray-500 mt-0.5">{prop.address}</p>}
-                            </div>
-                            <span className="text-[10px] text-gray-600 flex-shrink-0">
-                              {new Date(item.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )
-                })()}
-              </div>
-            </div>
-          )}
-
-          {/* Bottom Control Timeline */}
-          <div className="absolute bottom-4 left-4 right-4 z-30 glass px-6 py-3 rounded-lg flex items-center justify-between h-14">
-            <span className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Timeline View</span>
-
-            {/* Control Icons */}
-            <div className="flex gap-2 ml-4">
-              <button
-                onClick={() => {
-                  const views: Array<'month' | 'week' | 'day'> = ['month', 'week', 'day']
-                  const current = views.indexOf(timelineView)
-                  setTimelineView(views[(current + 1) % views.length])
-                }}
-                className="w-8 h-8 rounded-lg bg-dark-700/50 hover:bg-dark-700 flex items-center justify-center transition-all"
-                title="Cycle timeline view"
-              >
-                <Clock className="w-4 h-4 text-gray-400" />
-              </button>
-              <button
-                onClick={() => {
-                  setTimelineView('day')
-                  setTimelinePlaying(false)
-                }}
-                className="w-8 h-8 rounded-lg bg-dark-700/50 hover:bg-dark-700 flex items-center justify-center transition-all"
-                title="Jump to today"
-              >
-                <div className="w-1.5 h-1.5 bg-gray-400" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }} />
-              </button>
-              <button
-                disabled={dashRefreshing}
-                onClick={async () => {
-                  setDashRefreshing(true)
-                  try {
-                    await Promise.all([
-                      handleWeatherZipLookup(),
-                      runMichaelLeadEngine(),
-                    ])
-                  } finally {
-                    setDashRefreshing(false)
-                  }
-                }}
-                className="w-8 h-8 rounded-lg bg-cyan/20 hover:bg-cyan/30 disabled:opacity-50 flex items-center justify-center transition-all"
-                title="Quick refresh all dashboard data"
-              >
-                {dashRefreshing
-                  ? <Loader2 className="w-4 h-4 text-cyan animate-spin" />
-                  : <Zap className="w-4 h-4 text-cyan" />}
-              </button>
-            </div>
-          </div>
+          {/* Dashboard Refresh Button */}
+          <button
+            disabled={dashRefreshing}
+            onClick={async () => {
+              setDashRefreshing(true)
+              try {
+                await Promise.all([handleWeatherZipLookup(), runMichaelLeadEngine()])
+              } finally {
+                setDashRefreshing(false)
+              }
+            }}
+            className="absolute bottom-4 right-4 z-30 w-10 h-10 rounded-lg bg-cyan/20 hover:bg-cyan/30 disabled:opacity-50 flex items-center justify-center transition-all"
+            title="Refresh dashboard data"
+          >
+            {dashRefreshing
+              ? <Loader2 className="w-4 h-4 text-cyan animate-spin" />
+              : <Zap className="w-4 h-4 text-cyan" />}
+          </button>
 
           {/* PropertyCard Modal */}
           {selectedProperty && (
