@@ -305,6 +305,7 @@ export default function Dashboard() {
   // Dashboard enhanced state
   const [dashboardTab, setDashboardTab] = useState<'overview' | 'storm-leads' | 'michael-leads' | 'historical' | 'analytics' | 'timeline'>('overview')
   const [weatherZip, setWeatherZip] = useState('')
+  const [stormOverlay, setStormOverlay] = useState(false)
   const [dashWeather, setDashWeather] = useState<WeatherCurrent | null>(null)
   const [dashAlerts, setDashAlerts] = useState<WeatherAlert[]>([])
   const [recentAlerts90d, setRecentAlerts90d] = useState<any[]>([])
@@ -1465,11 +1466,21 @@ Only respond with the JSON array, no other text.` }
   // Territory markers
   const territoryMarkers: MapMarker[] = properties.map((p) => {
     const score = calculateLeadScore(p)
+    let color: 'green' | 'amber' | 'red' | 'cyan'
+    if (stormOverlay && p.storm_history) {
+      color = p.storm_history.stormRiskLevel === 'high' ? 'red'
+        : p.storm_history.stormRiskLevel === 'moderate' ? 'amber'
+        : 'cyan'
+    } else if (stormOverlay && !p.storm_history) {
+      color = 'cyan' // no data = neutral
+    } else {
+      color = score >= 70 ? 'green' : score >= 50 ? 'amber' : 'red'
+    }
     return {
       id: p.id,
       lat: p.lat,
       lng: p.lng,
-      color: score >= 70 ? 'green' : score >= 50 ? 'amber' : 'red',
+      color,
       label: p.address,
       onClick: () => setSelectedProperty(p),
     }
@@ -2111,7 +2122,7 @@ Only respond with the JSON array, no other text.` }
                   <div className="flex gap-2 mb-3">
                     <input
                       type="text"
-                      placeholder="Enter ZIP code..."
+                      placeholder="Address or ZIP code..."
                       value={weatherZip}
                       onChange={(e) => setWeatherZip(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleWeatherZipLookup()}
@@ -2121,15 +2132,21 @@ Only respond with the JSON array, no other text.` }
                       onClick={handleWeatherZipLookup}
                       className="bg-cyan/20 hover:bg-cyan/30 text-cyan px-3 py-2 rounded-lg text-xs font-semibold transition-all"
                     >
-                      Update
+                      Go
                     </button>
                   </div>
 
                   {/* Current Weather Display */}
                   {dashWeather && (
-                    <div className="bg-dark-700/50 rounded-lg p-3 mb-3">
-                      <p className="text-xs font-semibold text-white">{dashWeather.temperature_f}°F</p>
-                      <p className="text-xs text-gray-400">{dashWeather.conditions}</p>
+                    <div className="bg-dark-700/50 rounded-lg p-3 mb-3 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-lg font-bold text-white">{dashWeather.temperature_f}°F</p>
+                        <span className="text-xs text-cyan">{dashWeather.wind_speed_mph ? `${dashWeather.wind_speed_mph} mph wind` : ''}</span>
+                      </div>
+                      <p className="text-xs text-gray-300">{dashWeather.conditions}</p>
+                      {dashWeather.humidity_pct && (
+                        <p className="text-[10px] text-gray-500">Humidity: {dashWeather.humidity_pct}%</p>
+                      )}
                     </div>
                   )}
 
@@ -2705,6 +2722,26 @@ Only respond with the JSON array, no other text.` }
                   </span>
                 </div>
               </div>
+
+              {/* Storm Overlay Toggle */}
+              <button
+                onClick={() => setStormOverlay(v => !v)}
+                className={`w-full mb-3 text-sm px-3 py-2 rounded-lg transition-all flex items-center justify-center gap-2 font-semibold ${
+                  stormOverlay
+                    ? 'bg-red/20 text-red border border-red/40'
+                    : 'bg-dark-700 hover:bg-dark-700/80 text-gray-300'
+                }`}
+              >
+                <span>⛈</span>
+                {stormOverlay ? 'Storm Overlay ON' : 'Storm Overlay'}
+              </button>
+              {stormOverlay && (
+                <div className="flex gap-2 text-[10px] mb-3 px-1">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red inline-block" />High</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber inline-block" />Moderate</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan inline-block" />Low/Unknown</span>
+                </div>
+              )}
 
               {/* Satellite Snapshot Button */}
               <button

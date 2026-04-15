@@ -8,7 +8,7 @@ export interface MapMarker {
   id: string
   lat: number
   lng: number
-  color: 'green' | 'amber' | 'red'
+  color: 'green' | 'amber' | 'red' | 'cyan'
   label?: string
   onClick?: () => void
 }
@@ -43,6 +43,7 @@ const colorMap = {
   green: '#22c55e',
   amber: '#f59e0b',
   red: '#ef4444',
+  cyan: '#06b6d4',
 }
 
 type MapViewMode = 'roadmap' | 'satellite' | 'hybrid' | 'terrain' | 'night' | 'night-terrain'
@@ -292,7 +293,7 @@ function MapInner({
     }
   }
 
-  const getMarkerIcon = (color: 'green' | 'amber' | 'red'): google.maps.Symbol => ({
+  const getMarkerIcon = (color: 'green' | 'amber' | 'red' | 'cyan'): google.maps.Symbol => ({
     path: google.maps.SymbolPath.CIRCLE,
     scale: 10,
     fillColor: colorMap[color],
