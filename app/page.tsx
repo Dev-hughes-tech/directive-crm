@@ -811,8 +811,10 @@ export default function Dashboard() {
   }
 
   // Handle GPS Sweep research
-  const handleSweepResearch = async () => {
-    if (!sweepAddress.trim() || sweepLoading) return
+  const handleSweepResearch = async (overrideAddress?: string) => {
+    const addrToUse = (overrideAddress || sweepAddress).trim()
+    if (!addrToUse || sweepLoading) return
+    if (overrideAddress) setSweepAddress(overrideAddress)
 
     setSweepResult(null) // Clear previous result so stale data never lingers
     setSweepError(null)
@@ -824,10 +826,10 @@ export default function Dashboard() {
       const validateRes = await authFetch('/api/validate-address', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: sweepAddress })
+        body: JSON.stringify({ address: addrToUse })
       })
       const validation = await validateRes.json()
-      const addressToResearch = validation.canonical || sweepAddress
+      const addressToResearch = validation.canonical || addrToUse
 
       // Phase 1: Geocode — get coordinates immediately so map can fly there
       const geocodeRes = await authFetch(`/api/geocode?q=${encodeURIComponent(addressToResearch)}`)
@@ -891,7 +893,7 @@ export default function Dashboard() {
       // Phase 4: Build property from whatever research returned
       const newProperty: Property = {
         id: `prop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        address: display_name || sweepAddress,
+        address: display_name || addrToUse,
         lat,
         lng,
         owner_name: (data.ownerName as string) || null,
@@ -1479,7 +1481,7 @@ Only respond with the JSON array, no other text.` }
         sweepPhase={sweepPhase}
         sweepResult={sweepResult}
         sweepError={sweepError}
-        onSweepResearch={handleSweepResearch}
+        onSweepResearch={() => handleSweepResearch()}
         onSaveProperty={async (p) => {
           const updated = [...properties.filter(x => x.id !== p.id), p]
           setProperties(updated)
@@ -2948,7 +2950,7 @@ Only respond with the JSON array, no other text.` }
                 />
 
                 <button
-                  onClick={handleSweepResearch}
+                  onClick={() => handleSweepResearch()}
                   disabled={sweepLoading}
                   className="w-full bg-cyan text-dark font-medium py-2 rounded-lg hover:bg-cyan/90 transition-all disabled:opacity-50"
                 >
@@ -3051,70 +3053,7 @@ Only respond with the JSON array, no other text.` }
               </div>
             </div>
 
-            {/* Commercial Search */}
-            <div className="glass p-6 rounded-xl">
-              <div className="flex items-center gap-2 mb-4">
-                <Search className="w-5 h-5 text-green" />
-                <h2 className="text-lg font-heading font-semibold">Commercial Search</h2>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs text-gray-400 block mb-2">Radius</label>
-                  <div className="flex gap-2">
-                    {[
-                      { label: '0.25mi', value: 402 },
-                      { label: '0.5mi', value: 804 },
-                      { label: '1mi', value: 1609 },
-                      { label: '2mi', value: 3218 }
-                    ].map(r => (
-                      <button
-                        key={r.value}
-                        onClick={() => setCommercialRadius(r.value)}
-                        className={`flex-1 text-xs px-2 py-1.5 rounded transition-all ${
-                          commercialRadius === r.value
-                            ? 'bg-green text-dark font-medium'
-                            : 'bg-dark-700 text-gray-300 hover:text-white'
-                        }`}
-                      >
-                        {r.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleSearchCommercial}
-                  disabled={commercialLoading}
-                  className="w-full bg-green text-dark font-medium py-2 rounded-lg hover:bg-green/90 transition-all disabled:opacity-50"
-                >
-                  {commercialLoading ? 'Searching...' : 'Find Commercial Leads'}
-                </button>
-
-                {commercialResults.length > 0 && (
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    <p className="text-xs text-gray-400 font-semibold">Results: {commercialResults.length}</p>
-                    {commercialResults.map(place => (
-                      <div key={place.id} className="bg-dark-700/50 rounded-lg p-3 text-sm space-y-2">
-                        <p className="text-white font-medium truncate">{place.name || 'Unknown'}</p>
-                        <p className="text-xs text-gray-400 truncate">{place.address || '—'}</p>
-                        {place.phone && (
-                          <p className="text-xs text-cyan">{place.phone}</p>
-                        )}
-                        <button
-                          onClick={() => handleAddCommercialLead(place)}
-                          className="w-full bg-green/20 hover:bg-green/30 text-green border border-green/30 text-xs px-2 py-1.5 rounded transition-all"
-                        >
-                          Add as Lead
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Residential Search */}
+            {/* Residential Search — first */}
             <div className="glass p-6 rounded-xl">
               <div className="flex items-center gap-2 mb-4">
                 <MapPin className="w-5 h-5 text-cyan" />
@@ -3185,17 +3124,111 @@ Only respond with the JSON array, no other text.` }
 
                 {residentialResults.length > 0 && (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
-                    <p className="text-xs text-gray-400 font-semibold">Results: {residentialResults.length}</p>
-                    {residentialResults.map(place => (
+                    <p className="text-xs text-gray-400 font-semibold">Results: {residentialResults.length} — tap any to research</p>
+                    {residentialResults.map(place => {
+                      const alreadySaved = properties.some(p => p.address === place.address)
+                      return (
+                        <div
+                          key={place.id}
+                          className={`rounded-lg p-3 text-sm space-y-2 cursor-pointer transition-all border ${
+                            alreadySaved
+                              ? 'bg-green/10 border-green/30'
+                              : 'bg-dark-700/50 border-transparent hover:bg-dark-700 hover:border-white/10'
+                          }`}
+                          onClick={() => place.address && handleSweepResearch(place.address)}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-white font-medium truncate">{place.name || 'Residential Property'}</p>
+                            {alreadySaved && (
+                              <span className="flex-shrink-0 text-green text-xs font-semibold flex items-center gap-1">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                                Saved
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 truncate">{place.address || '—'}</p>
+                          {place.phone && <p className="text-xs text-cyan">{place.phone}</p>}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); place.address && handleSweepResearch(place.address) }}
+                              className="flex-1 bg-cyan/20 hover:bg-cyan/30 text-cyan border border-cyan/30 text-xs px-2 py-1.5 rounded transition-all"
+                            >
+                              Research
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleAddResidentialLead(place) }}
+                              className={`flex-1 text-xs px-2 py-1.5 rounded border transition-all ${
+                                alreadySaved
+                                  ? 'bg-green/20 text-green border-green/30'
+                                  : 'bg-dark-600 hover:bg-dark-500 text-gray-300 border-white/10'
+                              }`}
+                            >
+                              {alreadySaved ? '✓ Added' : 'Add Lead'}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Commercial Search — second */}
+            <div className="glass p-6 rounded-xl">
+              <div className="flex items-center gap-2 mb-4">
+                <Search className="w-5 h-5 text-green" />
+                <h2 className="text-lg font-heading font-semibold">Commercial Search</h2>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-gray-400 block mb-2">Radius</label>
+                  <div className="flex gap-2">
+                    {[
+                      { label: '0.25mi', value: 402 },
+                      { label: '0.5mi', value: 804 },
+                      { label: '1mi', value: 1609 },
+                      { label: '2mi', value: 3218 }
+                    ].map(r => (
+                      <button
+                        key={r.value}
+                        onClick={() => setCommercialRadius(r.value)}
+                        className={`flex-1 text-xs px-2 py-1.5 rounded transition-all ${
+                          commercialRadius === r.value
+                            ? 'bg-green text-dark font-medium'
+                            : 'bg-dark-700 text-gray-300 hover:text-white'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSearchCommercial}
+                  disabled={commercialLoading}
+                  className="w-full bg-green text-dark font-medium py-2 rounded-lg hover:bg-green/90 transition-all disabled:opacity-50"
+                >
+                  {commercialLoading ? 'Searching...' : 'Find Commercial Leads'}
+                </button>
+
+                {commercialResults.length > 0 && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    <p className="text-xs text-gray-400 font-semibold">Results: {commercialResults.length}</p>
+                    {commercialResults.map(place => (
                       <div key={place.id} className="bg-dark-700/50 rounded-lg p-3 text-sm space-y-2">
-                        <p className="text-white font-medium truncate">{place.name || 'Residential Property'}</p>
+                        <p className="text-white font-medium truncate">{place.name || 'Unknown'}</p>
                         <p className="text-xs text-gray-400 truncate">{place.address || '—'}</p>
                         {place.phone && (
                           <p className="text-xs text-cyan">{place.phone}</p>
                         )}
                         <button
-                          onClick={() => handleAddResidentialLead(place)}
-                          className="w-full bg-cyan/20 hover:bg-cyan/30 text-cyan border border-cyan/30 text-xs px-2 py-1.5 rounded transition-all"
+                          onClick={() => handleAddCommercialLead(place)}
+                          className="w-full bg-green/20 hover:bg-green/30 text-green border border-green/30 text-xs px-2 py-1.5 rounded transition-all"
                         >
                           Add as Lead
                         </button>
