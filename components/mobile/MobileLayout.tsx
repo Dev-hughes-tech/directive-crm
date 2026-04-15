@@ -1449,147 +1449,6 @@ export default function MobileLayout(props: MobileLayoutProps) {
     )
   }
 
-  // ── Mobile Materials Calculator ────────────────────────────────────────────
-  const renderMaterials = () => {
-    const squares = parseFloat(mobileMaterialsSquares) || 0
-    const pitch = parseFloat(mobileMaterialsPitch) || 1.0
-
-    const calculations = {
-      shingles: Math.ceil(squares * 1.1),
-      underlayment: Math.ceil(squares * 1.05),
-      felt: Math.ceil(squares * 0.95),
-      flashing: Math.ceil(squares * 0.3),
-      nails: Math.ceil(squares * 2.5),
-      vents: Math.ceil(squares * 0.15)
-    }
-
-    return (
-      <div className="flex-1 overflow-y-auto pb-24">
-        <div className="px-4 pt-4 space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <button onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
-            <h2 className="text-base font-bold text-white ml-1">Materials Calculator</h2>
-          </div>
-
-          {/* Inputs */}
-          <div className="bg-[#161b22] border border-white/10 rounded-xl p-4 space-y-3">
-            <div>
-              <label className="text-xs text-gray-400 mb-1 block">Roofing Squares</label>
-              <input
-                type="number"
-                value={mobileMaterialsSquares}
-                onChange={e => setMobileMaterialsSquares(e.target.value)}
-                placeholder="Enter number of squares"
-                className="w-full bg-[#0d1117] border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400/50 text-sm"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-400 mb-1 block">Roof Pitch Multiplier</label>
-              <input
-                type="number"
-                value={mobileMaterialsPitch}
-                onChange={e => setMobileMaterialsPitch(e.target.value)}
-                placeholder="1.0"
-                step="0.1"
-                className="w-full bg-[#0d1117] border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400/50 text-sm"
-              />
-              <p className="text-xs text-gray-500 mt-1">Default: 1.0 (flat roof)</p>
-            </div>
-          </div>
-
-          {squares > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs text-gray-400 uppercase tracking-wide">Estimated Materials</p>
-              {[
-                { label: 'Shingles (bundles)', value: calculations.shingles },
-                { label: 'Underlayment (rolls)', value: calculations.underlayment },
-                { label: 'Felt (rolls)', value: calculations.felt },
-                { label: 'Flashing (linear ft)', value: calculations.flashing },
-                { label: 'Nails (lbs)', value: calculations.nails },
-                { label: 'Vents (qty)', value: calculations.vents },
-              ].map(({ label, value }) => (
-                <div key={label} className="bg-[#161b22] border border-white/10 rounded-xl p-4 flex justify-between items-center">
-                  <p className="text-sm text-white">{label}</p>
-                  <p className="text-lg font-bold text-cyan-400">{value}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {squares === 0 && (
-            <div className="text-center py-8">
-              <Package className="w-10 h-10 text-gray-600 mx-auto mb-3" />
-              <p className="text-gray-400 text-sm">Enter roofing squares to calculate materials</p>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  // ── Mobile Timeline ────────────────────────────────────────────────────────
-  const renderTimeline = () => {
-    const sortedJobs = [...jobs].sort((a, b) => {
-      const dateA = a.scheduled_date ? new Date(a.scheduled_date).getTime() : 0
-      const dateB = b.scheduled_date ? new Date(b.scheduled_date).getTime() : 0
-      return dateB - dateA
-    })
-
-    const stageColor = (stage: Job['stage']) => {
-      if (stage === 'sold') return 'bg-cyan-400/20 text-cyan-400'
-      if (stage === 'crew_scheduled') return 'bg-blue-400/20 text-blue-400'
-      if (stage === 'in_progress') return 'bg-amber-400/20 text-amber-400'
-      if (stage === 'collected') return 'bg-green-400/20 text-green-400'
-      return 'bg-gray-400/20 text-gray-400'
-    }
-
-    return (
-      <div className="flex-1 overflow-y-auto pb-24">
-        <div className="px-4 pt-4 space-y-3">
-          <div className="flex items-center gap-2 mb-2">
-            <button onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
-            <h2 className="text-base font-bold text-white ml-1">Timeline</h2>
-            <span className="ml-auto px-2 py-0.5 rounded-full bg-cyan-400/20 text-cyan-400 text-xs font-semibold">{jobs.length}</span>
-          </div>
-
-          {jobs.length === 0 ? (
-            <div className="text-center py-12">
-              <CalendarDays className="w-10 h-10 text-gray-600 mx-auto mb-3" />
-              <p className="text-gray-400 text-sm">No jobs scheduled</p>
-              <p className="text-xs text-gray-500 mt-1">Create jobs from the desktop app</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {sortedJobs.map(job => {
-                const stage = JOB_STAGES.find(s => s.key === job.stage)
-                return (
-                  <div key={job.id} className="bg-[#161b22] border border-white/10 rounded-xl p-4">
-                    <div className="flex justify-between items-start gap-2 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-white truncate">{job.title || job.address}</p>
-                        {job.scheduled_date && (
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            {new Date(job.scheduled_date).toLocaleDateString()}
-                          </p>
-                        )}
-                      </div>
-                      <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-semibold ${stageColor(job.stage)}`}>
-                        {stage?.label}
-                      </span>
-                    </div>
-                    {job.contract_amount && (
-                      <p className="text-sm font-semibold text-green-400">${job.contract_amount.toLocaleString()}</p>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
   // ── Mobile Team Chat ──────────────────────────────────────────────────────
   const renderTeamMobile = () => {
     return (
@@ -1655,10 +1514,8 @@ export default function MobileLayout(props: MobileLayoutProps) {
           { screen: 'territory' as Screen, label: 'Territory', icon: MapPin, desc: 'Property map & route planning', color: 'text-blue-400 bg-blue-400/10', feature: 'territory' as const },
           { screen: 'stormscope' as Screen, label: 'StormScope', icon: Radio, desc: 'Live radar & storm alerts', color: 'text-amber-400 bg-amber-400/10', feature: 'stormscope' as const },
           { screen: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, desc: 'Production pipeline & insurance', color: 'text-orange-400 bg-orange-400/10', feature: 'jobs' as const },
-          { screen: 'timeline' as Screen, label: 'Timeline', icon: CalendarDays, desc: 'Job milestones & activity', color: 'text-cyan-400 bg-cyan-400/10', feature: 'timeline' as const },
           { screen: 'proposals' as Screen, label: 'Proposals', icon: FileText, desc: 'Create & manage proposals', color: 'text-yellow-400 bg-yellow-400/10', feature: 'proposals' as const },
           { screen: 'estimates' as Screen, label: 'Smart Estimates', icon: Calculator, desc: 'AI-powered line-item estimates', color: 'text-teal-400 bg-teal-400/10', feature: 'smartEstimates' as const },
-          { screen: 'materials' as Screen, label: 'Materials', icon: Package, desc: 'Calculator & estimating', color: 'text-green-400 bg-green-400/10', feature: 'materials' as const },
           { screen: 'team' as Screen, label: 'Team', icon: MessageSquare, desc: 'Chat with your team', color: 'text-purple-400 bg-purple-400/10', feature: 'team' as const },
           { screen: 'settings' as Screen, label: 'Settings', icon: Settings, desc: 'Account & preferences', color: 'text-gray-400 bg-gray-400/10', feature: 'settings' as const },
         ].map(item => {
@@ -1711,8 +1568,6 @@ export default function MobileLayout(props: MobileLayoutProps) {
       if (activeScreen === 'settings') return renderSettings()
       if (activeScreen === 'proposals') return renderProposals()
       if (activeScreen === 'estimates') return renderEstimates()
-      if (activeScreen === 'materials') return renderMaterials()
-      if (activeScreen === 'timeline') return renderTimeline()
       if (activeScreen === 'team') return renderTeamMobile()
       // Screens not yet mobile-optimised
       if (activeScreen !== 'dashboard' && activeScreen !== 'sweep' && activeScreen !== 'michael' && activeScreen !== 'clients') {
@@ -1849,10 +1704,8 @@ export default function MobileLayout(props: MobileLayoutProps) {
                   { screen: 'territory' as Screen, label: 'Territory', icon: MapPin, desc: 'Property map & route planning', color: 'text-blue-400 bg-blue-400/10', feature: 'territory' as const },
                   { screen: 'stormscope' as Screen, label: 'StormScope', icon: Radio, desc: 'Live radar & storm alerts', color: 'text-amber-400 bg-amber-400/10', feature: 'stormscope' as const },
                   { screen: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, desc: 'Production pipeline & insurance', color: 'text-orange-400 bg-orange-400/10', feature: 'jobs' as const },
-                  { screen: 'timeline' as Screen, label: 'Timeline', icon: CalendarDays, desc: 'Job milestones & activity', color: 'text-cyan-400 bg-cyan-400/10', feature: 'timeline' as const },
                   { screen: 'proposals' as Screen, label: 'Proposals', icon: FileText, desc: 'Create & manage proposals', color: 'text-yellow-400 bg-yellow-400/10', feature: 'proposals' as const },
                   { screen: 'estimates' as Screen, label: 'Smart Estimates', icon: Calculator, desc: 'AI-powered line-item estimates', color: 'text-teal-400 bg-teal-400/10', feature: 'smartEstimates' as const },
-                  { screen: 'materials' as Screen, label: 'Materials', icon: Package, desc: 'Calculator & estimating', color: 'text-green-400 bg-green-400/10', feature: 'materials' as const },
                   { screen: 'team' as Screen, label: 'Team', icon: MessageSquare, desc: 'Chat with your team', color: 'text-purple-400 bg-purple-400/10', feature: 'team' as const },
                   { screen: 'settings' as Screen, label: 'Settings', icon: Settings, desc: 'Account & preferences', color: 'text-gray-400 bg-gray-400/10', feature: 'settings' as const },
                 ].map(item => {

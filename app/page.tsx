@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
@@ -101,8 +101,8 @@ function isApartmentComplex(address: string | null, types: string[]): boolean {
 
 
 const VALID_SCREENS: readonly Screen[] = [
-  'dashboard', 'territory', 'sweep', 'stormscope', 'dimensions', 'michael',
-  'clients', 'email', 'proposals', 'estimates', 'materials', 'team', 'jobs', 'timeline', 'settings',
+  'dashboard', 'sweep', 'stormscope', 'clients', 'dimensions', 'estimates',
+  'proposals', 'jobs', 'territory', 'michael', 'email', 'team', 'settings',
 ] as const
 
 function readInitialScreen(): Screen {
@@ -1623,6 +1623,14 @@ Only respond with the JSON array, no other text.` }
     }
   }
 
+  // Rep color palette for territory map
+  const REP_COLOR_PALETTE: Array<'green' | 'amber' | 'red' | 'cyan'> = ['cyan', 'green', 'amber', 'red']
+  const repNames = Array.from(new Set([
+    ...clients.map(c => c.assigned_to).filter(Boolean),
+    ...jobs.map(j => j.crew_lead).filter(Boolean),
+  ] as string[])).sort()
+  const repColorMap = Object.fromEntries(repNames.map((name, i) => [name, REP_COLOR_PALETTE[i % REP_COLOR_PALETTE.length]]))
+
   // Territory markers
   const territoryMarkers: MapMarker[] = properties.map((p) => {
     const score = calculateLeadScore(p)
@@ -1631,10 +1639,16 @@ Only respond with the JSON array, no other text.` }
       color = p.storm_history.stormRiskLevel === 'high' ? 'red'
         : p.storm_history.stormRiskLevel === 'moderate' ? 'amber'
         : 'cyan'
-    } else if (stormOverlay && !p.storm_history) {
-      color = 'cyan' // no data = neutral
     } else {
-      color = score >= 70 ? 'green' : score >= 50 ? 'amber' : 'red'
+      // Use rep color if assigned, otherwise fall back to lead score
+      const client = clients.find(c => c.property_id === p.id)
+      const job = jobs.find(j => j.property_id === p.id)
+      const rep = client?.assigned_to || job?.crew_lead
+      if (rep && repColorMap[rep]) {
+        color = repColorMap[rep]
+      } else {
+        color = score >= 70 ? 'green' : score >= 50 ? 'amber' : 'red'
+      }
     }
     return {
       id: p.id,
@@ -1832,17 +1846,16 @@ Only respond with the JSON array, no other text.` }
           <div className="flex gap-1 overflow-x-auto scrollbar-hide">
             {[
               { id: 'dashboard' as Screen, label: 'Dashboard', icon: BarChart3, feature: 'dashboard' as const },
-              { id: 'territory' as Screen, label: 'Territory', icon: MapPin, feature: 'territory' as const },
               { id: 'sweep' as Screen, label: 'Sweep', icon: Navigation, feature: 'sweep' as const },
               { id: 'stormscope' as Screen, label: 'StormScope', icon: Radio, feature: 'stormscope' as const },
-              { id: 'dimensions' as Screen, label: 'Dimensions', icon: Ruler, feature: 'sweep' as const },
-              { id: 'michael' as Screen, label: 'Michael', icon: Brain, feature: 'michael' as const },
-              { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, feature: 'jobs' as const },
               { id: 'clients' as Screen, label: 'Clients', icon: Users, feature: 'clients' as const },
-              { id: 'email' as Screen, label: 'Email', icon: Mail, feature: 'clients' as const },
+              { id: 'dimensions' as Screen, label: 'Dimensions', icon: Ruler, feature: 'sweep' as const },
+              { id: 'estimates' as Screen, label: 'Estimates', icon: Calculator, feature: 'proposals' as const },
               { id: 'proposals' as Screen, label: 'Proposals', icon: FileText, feature: 'proposals' as const },
-              { id: 'estimates' as Screen, label: 'Smart Estimates', icon: Calculator, feature: 'proposals' as const },
-              { id: 'materials' as Screen, label: 'Materials', icon: Package, feature: 'materials' as const },
+              { id: 'jobs' as Screen, label: 'Jobs', icon: Briefcase, feature: 'jobs' as const },
+              { id: 'territory' as Screen, label: 'Territory', icon: MapPin, feature: 'territory' as const },
+              { id: 'michael' as Screen, label: 'Michael', icon: Brain, feature: 'michael' as const },
+              { id: 'email' as Screen, label: 'Email', icon: Mail, feature: 'clients' as const },
               { id: 'team' as Screen, label: 'Team', icon: MessageSquare, feature: 'team' as const },
               { id: 'settings' as Screen, label: 'Settings', icon: Settings, feature: 'settings' as const },
             ].map((tab) => {
@@ -2907,6 +2920,27 @@ Only respond with the JSON array, no other text.` }
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan inline-block" />Low/Unknown</span>
                 </div>
               )}
+              {!stormOverlay && repNames.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Rep Territory</p>
+                  <div className="space-y-1">
+                    {repNames.map((rep) => {
+                      const c = repColorMap[rep]
+                      const dot = c === 'cyan' ? 'bg-cyan' : c === 'green' ? 'bg-green' : c === 'amber' ? 'bg-amber' : 'bg-red'
+                      return (
+                        <div key={rep} className="flex items-center gap-2 text-[11px] text-gray-300">
+                          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dot}`} />
+                          <span className="truncate">{rep}</span>
+                        </div>
+                      )
+                    })}
+                    <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-gray-600" />
+                      <span>Unassigned</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Satellite Snapshot Button */}
               <button
@@ -3557,6 +3591,15 @@ Only respond with the JSON array, no other text.` }
               )}
             </div>
           </div>
+          {/* Next Step CTA */}
+          <div className="absolute bottom-6 right-6 z-40">
+            <button
+              onClick={() => setActiveScreen('stormscope')}
+              className="flex items-center gap-2 bg-cyan text-dark px-5 py-3 rounded-xl font-bold text-sm shadow-lg shadow-cyan/30 hover:bg-cyan/90 transition-all"
+            >
+              Assess Storm History <span className="text-lg">→</span>
+            </button>
+          </div>
         </>
       )}
 
@@ -4124,6 +4167,15 @@ Only respond with the JSON array, no other text.` }
               </div>
             </div>
           </div>
+          {/* Next Step CTA */}
+          <div className="absolute bottom-6 right-6 z-40">
+            <button
+              onClick={() => setActiveScreen('clients')}
+              className="flex items-center gap-2 bg-cyan text-dark px-5 py-3 rounded-xl font-bold text-sm shadow-lg shadow-cyan/30 hover:bg-cyan/90 transition-all"
+            >
+              Add to Clients <span className="text-lg">→</span>
+            </button>
+          </div>
         </>
       )}
 
@@ -4247,6 +4299,17 @@ Only respond with the JSON array, no other text.` }
               setActiveScreen('proposals')
             }}
           />
+        </div>
+      )}
+
+      {activeScreen === 'dimensions' && (
+        <div className="absolute bottom-0 left-0 right-0 z-40 flex justify-end px-6 py-3 bg-gradient-to-t from-dark-900/95 to-transparent pointer-events-none">
+          <button
+            onClick={() => setActiveScreen('estimates')}
+            className="pointer-events-auto flex items-center gap-2 bg-cyan text-dark font-bold px-5 py-2.5 rounded-xl shadow-lg hover:bg-cyan/90 transition-all text-sm"
+          >
+            Build Estimate <span>→</span>
+          </button>
         </div>
       )}
 
@@ -5020,6 +5083,15 @@ Only respond with the JSON array, no other text.` }
               </div>
             )}
           </div>
+          {/* Next Step CTA */}
+          <div className="flex justify-end mt-4 pt-4 border-t border-white/10">
+            <button
+              onClick={() => setActiveScreen('dimensions')}
+              className="flex items-center gap-2 bg-cyan text-dark px-5 py-3 rounded-xl font-bold text-sm hover:bg-cyan/90 transition-all"
+            >
+              Measure Roof <span className="text-lg">→</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -5628,7 +5700,18 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
         </div>
       )}
 
-      {/* SCREEN 9: SMART ESTIMATES */}
+      {activeScreen === 'proposals' && (
+        <div className="absolute bottom-0 left-0 right-0 z-40 flex justify-end px-6 py-3 bg-gradient-to-t from-dark-900/95 to-transparent pointer-events-none">
+          <button
+            onClick={() => setActiveScreen('jobs')}
+            className="pointer-events-auto flex items-center gap-2 bg-cyan text-dark font-bold px-5 py-2.5 rounded-xl shadow-lg hover:bg-cyan/90 transition-all text-sm"
+          >
+            Create Job <span>→</span>
+          </button>
+        </div>
+      )}
+
+      {/* SCREEN 10: SMART ESTIMATES */}
       {activeScreen === 'estimates' && (
         <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
           {/* Check if user has completed proposals */}
@@ -5831,485 +5914,17 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                   </div>
                 )}
               </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* SCREEN 10: MATERIALS */}
-      {activeScreen === 'materials' && (
-        <div className="absolute inset-4 top-[184px] z-30 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden md:h-[calc(100vh-224px)]">
-          {/* Roof Calculator */}
-          {materialsTab === 'catalog' && (
-            <>
-            <div className="glass rounded-lg p-6">
-              <div className="flex items-center gap-2 mb-4">
-              <Calculator className="w-5 h-5 text-cyan" />
-              <h3 className="text-lg font-semibold text-white">Roof Area Calculator</h3>
-            </div>
-            {(() => {
-              const PITCH_MULTIPLIERS: Record<string, number> = {
-                '4/12': 1.054, '5/12': 1.083, '6/12': 1.118, '7/12': 1.158,
-                '8/12': 1.202, '9/12': 1.250, '10/12': 1.302, '12/12': 1.414
-              }
-              const baseSqft = roofWidth && roofLength ? parseFloat(roofWidth) * parseFloat(roofLength) : 0
-              const multiplier = PITCH_MULTIPLIERS[roofPitch] || 1.118
-              const dormer = parseFloat(dormerSqft) || 0
-              const valley = parseFloat(valleyDeductSqft) || 0
-              const adjusted = baseSqft * multiplier * (1 + wastePercent / 100) + dormer - valley
-              const squares = adjusted / 100
-              return (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="text-xs text-gray-400 uppercase tracking-wide">Width (ft)</label>
-                      <input type="number" value={roofWidth} onChange={(e) => setRoofWidth(e.target.value)}
-                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 uppercase tracking-wide">Length (ft)</label>
-                      <input type="number" value={roofLength} onChange={(e) => setRoofLength(e.target.value)}
-                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 uppercase tracking-wide">Pitch</label>
-                      <select value={roofPitch} onChange={(e) => setRoofPitch(e.target.value)}
-                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50">
-                        {Object.keys(PITCH_MULTIPLIERS).map(p => (
-                          <option key={p} value={p}>{p} (×{PITCH_MULTIPLIERS[p]})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 uppercase tracking-wide">Waste %</label>
-                      <input type="number" value={wastePercent} onChange={(e) => setWastePercent(parseFloat(e.target.value) || 0)}
-                        min="0" max="50" step="1"
-                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="text-xs text-gray-400 uppercase tracking-wide">Dormer Add (sqft)</label>
-                      <input type="number" value={dormerSqft} onChange={(e) => setDormerSqft(e.target.value)}
-                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 uppercase tracking-wide">Valley Deduct (sqft)</label>
-                      <input type="number" value={valleyDeductSqft} onChange={(e) => setValleyDeductSqft(e.target.value)}
-                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 uppercase tracking-wide">Roof Type</label>
-                      <select value={roofType} onChange={(e) => setRoofType(e.target.value as 'gable' | 'hip')}
-                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan/50">
-                        <option value="gable">Gable</option>
-                        <option value="hip">Hip</option>
-                      </select>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-400 uppercase tracking-wide">Base Sq Ft</p>
-                      <p className="mt-1 text-xl font-bold text-gray-300">{baseSqft > 0 ? baseSqft.toLocaleString() : '—'}</p>
-                    </div>
-                  </div>
-                  {baseSqft > 0 && (
-                    <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/10">
-                      <div className="bg-dark-700/50 rounded-lg p-3 text-center">
-                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Adjusted Sq Ft</p>
-                        <p className="text-2xl font-bold text-cyan">{Math.round(adjusted).toLocaleString()}</p>
-                        <p className="text-xs text-gray-500 mt-1">pitch + waste + dormers</p>
-                      </div>
-                      <div className="bg-dark-700/50 rounded-lg p-3 text-center">
-                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Squares Needed</p>
-                        <p className="text-2xl font-bold text-green">{squares > 0 ? squares.toFixed(1) : '—'}</p>
-                        <p className="text-xs text-gray-500 mt-1">order this amount</p>
-                      </div>
-                      <div className="bg-dark-700/50 rounded-lg p-3 text-center">
-                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Pitch Multiplier</p>
-                        <p className="text-2xl font-bold text-purple-400">×{multiplier.toFixed(3)}</p>
-                        <p className="text-xs text-gray-500 mt-1">{roofPitch} pitch</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
-            </div>
-
-            {/* Smart Estimate Panel */}
-            <div className="glass rounded-lg p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Brain className="w-5 h-5 text-cyan" />
-                <h3 className="text-lg font-semibold text-white">Smart Estimate Builder</h3>
-              </div>
-              <p className="text-xs text-gray-400 mb-4">Select a property to auto-build a material estimate based on roof size, pitch, and age.</p>
-              <div className="space-y-3">
-                <select
-                  className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
-                  onChange={(e) => {
-                    const prop = properties.find(p => p.id === e.target.value)
-                    if (prop && prop.sqft) {
-                      setRoofWidth(String(Math.round(Math.sqrt(prop.sqft))))
-                      setRoofLength(String(Math.round(Math.sqrt(prop.sqft))))
-                    }
-                  }}
-                >
-                  <option value="">Select property from pipeline...</option>
-                  {properties.map(prop => (
-                    <option key={prop.id} value={prop.id}>
-                      {prop.address} {prop.sqft ? `— ${prop.sqft.toLocaleString()} sqft` : ''}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500">Selecting a property auto-fills the roof dimensions above. Then use the calculator to get material quantities and costs.</p>
-              </div>
-            </div>
-
-            {/* Materials Catalog */}
-              <div className="flex-1 glass rounded-lg p-6 overflow-y-auto flex flex-col">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white">Materials Catalog</h3>
-                  <button
-                    onClick={() => setAddingMaterial(!addingMaterial)}
-                    className="p-1.5 rounded hover:bg-dark-700 text-cyan"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {/* Add Material Form */}
-                {addingMaterial && (
-                  <div className="mb-4 p-4 bg-dark-700/50 rounded-lg border border-white/10 space-y-3">
-                    <h4 className="text-sm font-semibold text-white mb-3">New Material</h4>
-                    <input
-                      type="text"
-                      value={newMatName}
-                      onChange={(e) => setNewMatName(e.target.value)}
-                      placeholder="Material name..."
-                      className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <select
-                        value={newMatCategory}
-                        onChange={(e) => setNewMatCategory(e.target.value)}
-                        className="bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
-                      >
-                        <option value="">Category</option>
-                        <option value="shingles">Shingles</option>
-                        <option value="underlayment">Underlayment</option>
-                        <option value="flashing">Flashing</option>
-                        <option value="ventilation">Ventilation</option>
-                        <option value="fasteners">Fasteners</option>
-                        <option value="sealant">Sealant</option>
-                        <option value="other">Other</option>
-                      </select>
-                      <select
-                        value={newMatUnit}
-                        onChange={(e) => setNewMatUnit(e.target.value)}
-                        className="bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
-                      >
-                        <option value="">Unit</option>
-                        <option value="ea">Each</option>
-                        <option value="sq">Square</option>
-                        <option value="bundle">Bundle</option>
-                        <option value="roll">Roll</option>
-                        <option value="box">Box</option>
-                        <option value="lb">Pound</option>
-                      </select>
-                    </div>
-                    <input
-                      type="number"
-                      value={newMatCost}
-                      onChange={(e) => setNewMatCost(e.target.value)}
-                      step="0.01" min="0"
-                      placeholder="Unit cost..."
-                      className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
-                    />
-                    <input
-                      type="text"
-                      value={newMatSupplier}
-                      onChange={(e) => setNewMatSupplier(e.target.value)}
-                      placeholder="Supplier..."
-                      className="w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={async () => {
-                          if (!newMatName.trim() || !newMatCategory || !newMatUnit) {
-                            addNotification('Name, category, and unit are required', 'info')
-                            return
-                          }
-                          const newMaterial: Material = {
-                            id: crypto.randomUUID(),
-                            name: newMatName.trim(),
-                            category: newMatCategory as Material['category'],
-                            unit: newMatUnit,
-                            unit_cost: parseFloat(newMatCost) || 0,
-                            supplier: newMatSupplier.trim(),
-                            supplier_phone: null,
-                            notes: '',
-                          }
-                          setMaterials(prev => [...prev, newMaterial])
-                          await saveMaterial(newMaterial)
-                          setAddingMaterial(false)
-                          setNewMatName(''); setNewMatCategory(''); setNewMatUnit(''); setNewMatCost(''); setNewMatSupplier('')
-                          addNotification(`${newMaterial.name} added to catalog`, 'success')
-                        }}
-                        className="flex-1 bg-cyan text-dark py-2 rounded font-medium hover:bg-cyan/90 text-sm"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => { setAddingMaterial(false); setNewMatName(''); setNewMatCategory(''); setNewMatUnit(''); setNewMatCost(''); setNewMatSupplier('') }}
-                        className="flex-1 bg-dark-700/50 text-gray-400 py-2 rounded font-medium hover:text-white text-sm"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {materials.length === 0 ? (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="text-gray-400">No materials yet — add your first to build your catalog.</p>
-                  </div>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-white/10">
-                        <th className="text-left py-2 text-gray-400">Name</th>
-                        <th className="text-left py-2 text-gray-400">Category</th>
-                        <th className="text-left py-2 text-gray-400">Unit</th>
-                        <th className="text-right py-2 text-gray-400">Cost</th>
-                        <th className="text-left py-2 text-gray-400">Supplier</th>
-                        <th className="w-6" />
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {materials.map(mat => (
-                        <tr key={mat.id} className="hover:bg-dark-700/50 group">
-                          <td className="py-3 text-white">{mat.name}</td>
-                          <td className="py-3 text-gray-400 text-xs capitalize">{mat.category}</td>
-                          <td className="py-3 text-gray-400">{mat.unit}</td>
-                          <td className="py-3 text-right text-cyan font-semibold">${mat.unit_cost.toFixed(2)}</td>
-                          <td className="py-3 text-gray-400 text-sm">{mat.supplier || '—'}</td>
-                          <td className="py-3">
-                            <button
-                              onClick={async () => {
-                                setMaterials(prev => prev.filter(m => m.id !== mat.id))
-                                await deleteMaterial(mat.id)
-                                addNotification(`${mat.name} removed`, 'info')
-                              }}
-                              className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all px-1"
-                              title="Delete material"
-                            >✕</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-            </div>
-            </>
-          )}
-
-          {/* Orders Tab */}
-          {materialsTab === 'orders' && (
-            <div className="flex-1 glass rounded-lg p-6 overflow-y-auto flex flex-col">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">Material Orders</h3>
+              {/* Next Step CTA */}
+              <div className="flex justify-end mt-4 pt-4 border-t border-white/10">
                 <button
-                  onClick={() => setAddingOrder(!addingOrder)}
-                  className="p-1.5 rounded hover:bg-dark-700 text-cyan"
+                  onClick={() => setActiveScreen('proposals')}
+                  className="flex items-center gap-2 bg-cyan text-dark px-5 py-3 rounded-xl font-bold text-sm hover:bg-cyan/90 transition-all"
                 >
-                  <Plus className="w-5 h-5" />
+                  Create Proposal <span className="text-lg">→</span>
                 </button>
               </div>
-
-              {/* Add Order Form */}
-              {addingOrder && (
-                <div className="mb-4 p-4 bg-dark-700/50 rounded-lg border border-white/10 space-y-3">
-                  <h4 className="text-sm font-semibold text-white mb-3">New Order</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs text-gray-400 uppercase tracking-wide">Supplier</label>
-                      <input
-                        id="order-supplier"
-                        type="text"
-                        placeholder="Supplier name..."
-                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 uppercase tracking-wide">Link to Job (Optional)</label>
-                      <select
-                        id="order-job"
-                        className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white"
-                      >
-                        <option value="">Select job...</option>
-                        {jobs.map(job => (
-                          <option key={job.id} value={job.id}>{job.title}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400 uppercase tracking-wide">Materials</label>
-                    <div className="space-y-2 mt-1 max-h-32 overflow-y-auto">
-                      {materials.map(mat => (
-                        <label key={mat.id} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            value={mat.id}
-                            className="rounded"
-                            id={`mat-checkbox-${mat.id}`}
-                          />
-                          <span className="text-sm text-gray-300">{mat.name} ({mat.unit}) - ${mat.unit_cost}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400 uppercase tracking-wide">Notes</label>
-                    <textarea
-                      id="order-notes"
-                      placeholder="Order notes..."
-                      className="mt-1 w-full bg-dark-700 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan/50"
-                      rows={2}
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        const supplier = (document.getElementById('order-supplier') as HTMLInputElement).value
-                        const jobId = (document.getElementById('order-job') as HTMLSelectElement).value
-                        const notes = (document.getElementById('order-notes') as HTMLTextAreaElement).value
-                        const selectedMaterials = Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(el => {
-                          const id = (el as HTMLInputElement).value
-                          const mat = materials.find(m => m.id === id)
-                          return mat ? { name: mat.name, quantity: 1, unit: mat.unit, unit_cost: mat.unit_cost, total: mat.unit_cost } : null
-                        }).filter(Boolean) as any[]
-
-                        if (supplier && selectedMaterials.length > 0) {
-                          const totalCost = selectedMaterials.reduce((sum, m) => sum + m.total, 0)
-                          const newOrder: MaterialOrder = {
-                            id: crypto.randomUUID(),
-                            materials: selectedMaterials,
-                            job_id: jobId || undefined,
-                            job_title: jobId ? jobs.find(j => j.id === jobId)?.title : undefined,
-                            status: 'draft',
-                            supplier,
-                            order_date: new Date().toISOString().split('T')[0],
-                            notes,
-                            total_cost: totalCost
-                          }
-                          setMaterialOrders([...materialOrders, newOrder])
-                          setAddingOrder(false)
-                          ;(document.getElementById('order-supplier') as HTMLInputElement).value = ''
-                          ;(document.getElementById('order-notes') as HTMLTextAreaElement).value = ''
-                          Array.from(document.querySelectorAll('input[type="checkbox"]')).forEach(el => {
-                            (el as HTMLInputElement).checked = false
-                          })
-                        }
-                      }}
-                      className="flex-1 bg-cyan text-dark py-2 rounded font-medium hover:bg-cyan/90 text-sm"
-                    >
-                      Save Order
-                    </button>
-                    <button
-                      onClick={() => setAddingOrder(false)}
-                      className="flex-1 bg-dark-700/50 text-gray-400 py-2 rounded font-medium hover:text-white text-sm"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {materialOrders.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-gray-400">No orders yet. Create your first order.</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {materialOrders.map(order => (
-                    <div key={order.id} className="bg-dark-700/50 rounded-lg p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="font-semibold text-white">{order.supplier}</p>
-                        <span className={`text-xs font-bold px-2 py-1 rounded ${
-                          order.status === 'draft' ? 'bg-gray-700 text-gray-300' :
-                          order.status === 'ordered' ? 'bg-cyan/20 text-cyan' :
-                          order.status === 'shipped' ? 'bg-amber/20 text-amber' :
-                          'bg-green/20 text-green'
-                        }`}>
-                          {order.status.toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="text-xs text-gray-400">
-                        {order.materials.length} items · ${order.total_cost.toFixed(2)}
-                        {order.job_title && <span> · Job: {order.job_title}</span>}
-                      </div>
-                      <div className="flex gap-2 pt-2">
-                        {order.status === 'draft' && (
-                          <button
-                            onClick={() => {
-                              setMaterialOrders(materialOrders.map(o => o.id === order.id ? { ...o, status: 'ordered' } : o))
-                            }}
-                            className="flex-1 text-xs bg-cyan/20 text-cyan px-2 py-1 rounded hover:bg-cyan/30"
-                          >
-                            Mark Ordered
-                          </button>
-                        )}
-                        {order.status === 'ordered' && (
-                          <button
-                            onClick={() => {
-                              setMaterialOrders(materialOrders.map(o => o.id === order.id ? { ...o, status: 'shipped' } : o))
-                            }}
-                            className="flex-1 text-xs bg-amber/20 text-amber px-2 py-1 rounded hover:bg-amber/30"
-                          >
-                            Mark Shipped
-                          </button>
-                        )}
-                        {order.status === 'shipped' && (
-                          <button
-                            onClick={() => {
-                              setMaterialOrders(materialOrders.map(o => o.id === order.id ? { ...o, status: 'delivered' } : o))
-                            }}
-                            className="flex-1 text-xs bg-green/20 text-green px-2 py-1 rounded hover:bg-green/30"
-                          >
-                            Mark Delivered
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            </>
           )}
-
-          {/* Tab buttons (positioned at top) */}
-          <div className="absolute top-6 right-6 flex gap-2 z-40">
-            <button
-              onClick={() => setMaterialsTab('catalog')}
-              className={`text-xs font-semibold uppercase px-3 py-2 rounded-lg transition-all ${
-                materialsTab === 'catalog'
-                  ? 'bg-cyan text-dark'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Catalog
-            </button>
-            <button
-              onClick={() => setMaterialsTab('orders')}
-              className={`text-xs font-semibold uppercase px-3 py-2 rounded-lg transition-all ${
-                materialsTab === 'orders'
-                  ? 'bg-cyan text-dark'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Orders
-            </button>
-          </div>
         </div>
       )}
 
@@ -6826,16 +6441,7 @@ Be specific with quantities and realistic pricing for the roofing industry.`
                       </button>
                       <button
                         onClick={() => {
-                          setActiveScreen('materials')
-                          setMaterialsTab('orders')
-                          setAddingOrder(true)
-                          const jobSelectEl = document.getElementById('order-job') as HTMLSelectElement
-                          if (jobSelectEl) {
-                            setTimeout(() => {
-                              jobSelectEl.value = selectedJob.id
-                            }, 100)
-                          }
-                          addNotification('Quick order form opened for this job', 'info')
+                          setActiveScreen('dimensions')
                         }}
                         className="flex items-center gap-1 bg-green/20 text-green px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-green/30"
                       >
@@ -7359,6 +6965,16 @@ Be specific with quantities and realistic pricing for the roofing industry.`
         </div>
       )}
 
+      {activeScreen === 'jobs' && (
+        <div className="absolute bottom-0 left-0 right-0 z-40 flex justify-end px-6 py-3 bg-gradient-to-t from-dark-900/95 to-transparent pointer-events-none">
+          <button
+            onClick={() => setActiveScreen('territory')}
+            className="pointer-events-auto flex items-center gap-2 bg-cyan text-dark font-bold px-5 py-2.5 rounded-xl shadow-lg hover:bg-cyan/90 transition-all text-sm"
+          >
+            View Territory <span>→</span>
+          </button>
+        </div>
+      )}
 
       {/* SCREEN: SETTINGS */}
       {activeScreen === 'settings' && (
