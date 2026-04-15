@@ -33,6 +33,48 @@ interface SolarResponse {
   imageryQuality: string
 }
 
+interface MaterialOption {
+  name: string
+  suitable: boolean
+  unit: string
+  quantity?: number
+  bundlesPerSquare?: number
+  totalBundles?: number
+  panelWidthIn?: number
+  panelsNeeded?: number
+  tilesPerSquare?: number
+  totalTiles?: number
+  weightPerSqFt?: number
+  rollsNeeded?: number
+  note: string
+}
+
+interface FlatRoofDrainage {
+  interiorDrainsNeeded: number
+  drainSpacingFt: number
+  scuppersNeeded: number
+  minSlopePct: number
+  sumpsNeeded: number
+  note: string
+}
+
+interface RoofSegmentWithStructural {
+  pitchDegrees: number
+  pitch12: number
+  pitchMultiplier: number
+  azimuthDegrees: number
+  orientation: string
+  areaSqFt: number
+  squares: number
+  center: { lat: number; lng: number }
+  boundingBox: any
+  heightFt: number
+  rafterCount: number
+  rafterLengthFt: number
+  rafterSpacingIn: number
+  plywoodSheets: number
+}
+
 interface DimensionsResult {
   address: string
   lat: number
@@ -46,18 +88,7 @@ interface DimensionsResult {
     adjustedSquares: number
     wasteFactor: number
     complexity: 'simple' | 'moderate' | 'complex'
-    segments: Array<{
-      pitchDegrees: number
-      pitch12: number
-      pitchMultiplier: number
-      azimuthDegrees: number
-      orientation: string
-      areaSqFt: number
-      squares: number
-      center: { lat: number; lng: number }
-      boundingBox: any
-      heightFt: number
-    }>
+    segments: RoofSegmentWithStructural[]
     edges: {
       eaveFt: number
       ridgeFt: number
@@ -75,6 +106,15 @@ interface DimensionsResult {
     wallAreaSqFt: number
     fasciaSoffitLinearFt: number
     footprintPolygon: Array<{ lat: number; lng: number }>
+    gutterSystem: {
+      gutterLinearFt: number
+      downspoutsNeeded: number
+      downspoutLinearFt: number
+      gutterSizeIn: number
+      downspoutSizeIn: number
+      leafGuardLinearFt: number
+      note: string
+    }
   }
   materials: {
     shinglesBundles: number
@@ -84,6 +124,25 @@ interface DimensionsResult {
     ridgeCapLinearFt: number
     nailsBoxes: number
   }
+  structural: {
+    totalRafters: number
+    rafterSpacingIn: number
+    totalPlywoodSheets: number
+    roofType: 'flat' | 'low_slope' | 'standard' | 'steep' | 'mixed'
+    avgPitchDegrees: number
+    structuralNotes: string[]
+  }
+  materialOptions: {
+    asphalt_shingle: MaterialOption
+    metal_standing_seam: MaterialOption
+    metal_corrugated: MaterialOption
+    clay_tile: MaterialOption
+    concrete_tile: MaterialOption
+    tpo_membrane: MaterialOption
+    modified_bitumen: MaterialOption
+    epdm: MaterialOption
+  }
+  flatRoofDrainage: FlatRoofDrainage | null
 }
 
 function azimuthToCardinal(deg: number): string {
@@ -195,12 +254,24 @@ export async function POST(request: NextRequest) {
     const footprintSqFt = solar.solarPotential.wholeRoofStats.groundAreaMeters2 * SQM_TO_SQFT
     const totalSquares = totalRoofSqFt / 100
 
-    // Per-segment calculations
+    // Per-segment calculations with structural data
     const segments = solar.solarPotential.roofSegmentStats.map((s) => {
       const areaSqFt = s.stats.areaMeters2 * SQM_TO_SQFT
       const pitch12 = Math.round(Math.tan((s.pitchDegrees * Math.PI) / 180) * 12 * 10) / 10
       const pitchMultiplier = 1 / Math.cos((s.pitchDegrees * Math.PI) / 180)
       const orientation = azimuthToCardinal(s.azimuthDegrees)
+
+      // STRUCTURAL: Rafter calculations
+      // Estimate segment width from area and pitch
+      const segmentWidthFt =
+        Math.sqrt((areaSqFt / (Math.cos((s.pitchDegrees * Math.PI) / 180))) * 10) / 10
+      const rafterCountPerSegment = Math.ceil(segmentWidthFt / (16 / 12)) + 1
+      const rafterLengthFt =
+        Math.round((Math.sqrt(areaSqFt) / (segmentWidthFt || 1)) / Math.cos((s.pitchDegrees * Math.PI) / 180) * 10) / 10
+
+      // STRUCTURAL: Plywood sheathing (standard sheet = 32 sqft)
+      const plywoodSheetsPerSegment = Math.ceil((areaSqFt * 1.1) / 32)
+
       return {
         pitchDegrees: Math.round(s.pitchDegrees),
         pitch12,
@@ -212,6 +283,10 @@ export async function POST(request: NextRequest) {
         center: { lat: s.center.latitude, lng: s.center.longitude },
         boundingBox: s.boundingBox,
         heightFt: Math.round(s.planeHeightAtCenterMeters * M_TO_FT),
+        rafterCount: rafterCountPerSegment,
+        rafterLengthFt: Math.max(rafterLengthFt, 8), // Minimum 8 ft
+        rafterSpacingIn: 16,
+        plywoodSheets: plywoodSheetsPerSegment,
       }
     })
 
@@ -264,13 +339,153 @@ export async function POST(request: NextRequest) {
     const wallHeightFt = stories * 9
     const wallAreaSqFt = Math.round(perimeterFt * wallHeightFt)
 
-    // Materials
+    // STRUCTURAL: Roof type detection
+    const avgPitch = segments.reduce((sum, s) => sum + s.pitchDegrees, 0) / segments.length
+    const roofType: 'flat' | 'low_slope' | 'standard' | 'steep' | 'mixed' =
+      avgPitch < 2
+        ? 'flat'
+        : avgPitch < 4
+          ? 'low_slope'
+          : avgPitch < 7
+            ? 'standard'
+            : avgPitch < 12
+              ? 'steep'
+              : 'mixed'
+
+    // STRUCTURAL: Total rafters and plywood
+    const totalRafters = segments.reduce((sum, s) => sum + s.rafterCount, 0)
+    const totalPlywoodSheets = segments.reduce((sum, s) => sum + s.plywoodSheets, 0)
+
+    // STRUCTURAL: Structural notes
+    const structuralNotes: string[] = []
+    if (
+      segments.some(
+        (s) =>
+          s.pitchDegrees >= 4 &&
+          segments.some((seg) => seg.pitchDegrees >= 4)
+      )
+    ) {
+      const hasTileOption = segments.some((s) => s.pitchDegrees >= 4)
+      if (hasTileOption) {
+        structuralNotes.push(
+          'Clay/concrete tile adds 10-12 lbs/sqft — verify rafter capacity before installation'
+        )
+      }
+    }
+    if (roofType === 'flat') {
+      structuralNotes.push('Flat roof requires positive drainage slope (min 1/4" per foot)')
+      structuralNotes.push('Consider parapet wall height for drainage scupper elevation')
+    }
+    if (adjustedSquares > 40) {
+      structuralNotes.push('Large roof area — consider phased installation')
+    }
+
+    // MATERIALS: Base materials
     const shinglesBundles = Math.ceil(adjustedSquares * 3)
     const underlaySqFt = Math.round(totalRoofSqFt * 1.1)
     const iceWaterLinearFt = Math.round(eaveFt * 1.5)
     const dripEdgeLinearFt = Math.round(eaveFt + rakeFt)
     const ridgeCapLinearFt = ridgeFt + hipFt
     const nailsBoxes = Math.ceil(adjustedSquares / 4)
+
+    // MATERIALS: Material options by type
+    const averageRafterLength =
+      segments.reduce((sum, s) => sum + s.rafterLengthFt, 0) / segments.length
+    const materialOptions = {
+      asphalt_shingle: {
+        name: 'Architectural Asphalt Shingles',
+        suitable: avgPitch >= 4,
+        unit: 'square',
+        quantity: adjustedSquares,
+        bundlesPerSquare: 3,
+        totalBundles: Math.ceil(adjustedSquares * 3),
+        note: 'Most common. Min 4:12 pitch.',
+      } as MaterialOption,
+      metal_standing_seam: {
+        name: 'Standing Seam Metal Panels',
+        suitable: avgPitch >= 2,
+        unit: 'square',
+        quantity: adjustedSquares,
+        panelWidthIn: 16,
+        panelsNeeded: Math.ceil(totalRoofSqFt / ((16 / 12) * averageRafterLength)),
+        note: 'Durable 40-70yr life. Min 2:12 pitch.',
+      } as MaterialOption,
+      metal_corrugated: {
+        name: 'Corrugated Metal Panels',
+        suitable: avgPitch >= 1,
+        unit: 'panel (3ft × 10ft = 30sqft)',
+        quantity: Math.ceil((adjustedSquares * 100) / 30),
+        note: 'Farm/industrial. Min 1:12 pitch.',
+      } as MaterialOption,
+      clay_tile: {
+        name: 'Clay / Spanish Barrel Tile',
+        suitable: avgPitch >= 4,
+        unit: 'square',
+        quantity: adjustedSquares,
+        tilesPerSquare: 90,
+        totalTiles: Math.ceil(adjustedSquares * 90),
+        weightPerSqFt: 12,
+        note: 'Mediterranean/Spanish style. Heavy — verify structural capacity.',
+      } as MaterialOption,
+      concrete_tile: {
+        name: 'Concrete Roof Tile (S-Tile)',
+        suitable: avgPitch >= 4,
+        unit: 'square',
+        quantity: adjustedSquares,
+        tilesPerSquare: 80,
+        totalTiles: Math.ceil(adjustedSquares * 80),
+        weightPerSqFt: 11,
+        note: 'Durable alternative to clay. Requires reinforced decking.',
+      } as MaterialOption,
+      tpo_membrane: {
+        name: 'TPO Single-Ply Membrane (Flat/Low Slope)',
+        suitable: avgPitch < 4,
+        unit: 'sq ft',
+        quantity: Math.round(footprintSqFt * 1.15),
+        rollsNeeded: Math.ceil((footprintSqFt * 1.15) / 1000),
+        note: 'Best for flat and low-slope roofs. 20-30yr life.',
+      } as MaterialOption,
+      modified_bitumen: {
+        name: 'Modified Bitumen (Flat Roof)',
+        suitable: avgPitch < 4,
+        unit: 'square',
+        quantity: Math.ceil((footprintSqFt / 100) * 1.1),
+        note: 'Torch-down or peel-and-stick. Good for flat roofs.',
+      } as MaterialOption,
+      epdm: {
+        name: 'EPDM Rubber Membrane (Flat Roof)',
+        suitable: avgPitch < 3,
+        unit: 'sq ft',
+        quantity: Math.round(footprintSqFt * 1.1),
+        note: 'Excellent for commercial flat roofs. 25-30yr life.',
+      } as MaterialOption,
+    }
+
+    // DRAINAGE: Flat roof drainage (if applicable)
+    const flatRoofDrainage =
+      roofType === 'flat' || roofType === 'low_slope'
+        ? {
+            interiorDrainsNeeded: Math.max(1, Math.ceil(footprintSqFt / 2000)),
+            drainSpacingFt: Math.round(
+              Math.sqrt(footprintSqFt / Math.max(1, Math.ceil(footprintSqFt / 2000)))
+            ),
+            scuppersNeeded: Math.ceil(perimeterFt / 50),
+            minSlopePct: 2.1,
+            sumpsNeeded: Math.max(1, Math.ceil(footprintSqFt / 1500)),
+            note: 'Flat roof requires minimum 1/4" per foot slope to drains for code compliance.',
+          }
+        : null
+
+    // GUTTERS: Gutter system
+    const gutterSystem = {
+      gutterLinearFt: Math.round(eaveFt),
+      downspoutsNeeded: Math.max(2, Math.ceil(perimeterFt / 40)),
+      downspoutLinearFt: Math.round(Math.max(2, Math.ceil(perimeterFt / 40)) * wallHeightFt * 1.2),
+      gutterSizeIn: totalRoofSqFt > 1500 ? 6 : 5,
+      downspoutSizeIn: totalRoofSqFt > 1500 ? 4 : 3,
+      leafGuardLinearFt: Math.round(eaveFt),
+      note: `${Math.max(2, Math.ceil(perimeterFt / 40))} downspouts recommended based on ${Math.round(perimeterFt)} lf perimeter`,
+    }
 
     const result: DimensionsResult = {
       address: formattedAddress,
@@ -297,6 +512,7 @@ export async function POST(request: NextRequest) {
         wallAreaSqFt,
         fasciaSoffitLinearFt: Math.round(eaveFt),
         footprintPolygon,
+        gutterSystem,
       },
       materials: {
         shinglesBundles,
@@ -306,6 +522,16 @@ export async function POST(request: NextRequest) {
         ridgeCapLinearFt,
         nailsBoxes,
       },
+      structural: {
+        totalRafters,
+        rafterSpacingIn: 16,
+        totalPlywoodSheets,
+        roofType,
+        avgPitchDegrees: Math.round(avgPitch * 10) / 10,
+        structuralNotes,
+      },
+      materialOptions,
+      flatRoofDrainage,
     }
 
     return NextResponse.json(result)

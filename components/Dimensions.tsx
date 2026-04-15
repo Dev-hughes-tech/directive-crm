@@ -12,7 +12,53 @@ import {
   BarChart3,
   Wind,
   Zap,
+  Hammer,
+  Droplets,
+  AlertTriangle,
+  LayoutGrid,
 } from 'lucide-react'
+
+interface MaterialOption {
+  name: string
+  suitable: boolean
+  unit: string
+  quantity?: number
+  bundlesPerSquare?: number
+  totalBundles?: number
+  panelWidthIn?: number
+  panelsNeeded?: number
+  tilesPerSquare?: number
+  totalTiles?: number
+  weightPerSqFt?: number
+  rollsNeeded?: number
+  note: string
+}
+
+interface FlatRoofDrainage {
+  interiorDrainsNeeded: number
+  drainSpacingFt: number
+  scuppersNeeded: number
+  minSlopePct: number
+  sumpsNeeded: number
+  note: string
+}
+
+interface RoofSegmentWithStructural {
+  pitchDegrees: number
+  pitch12: number
+  pitchMultiplier: number
+  azimuthDegrees: number
+  orientation: string
+  areaSqFt: number
+  squares: number
+  center: { lat: number; lng: number }
+  boundingBox: any
+  heightFt: number
+  rafterCount: number
+  rafterLengthFt: number
+  rafterSpacingIn: number
+  plywoodSheets: number
+}
 
 interface DimensionsResult {
   address: string
@@ -27,18 +73,7 @@ interface DimensionsResult {
     adjustedSquares: number
     wasteFactor: number
     complexity: 'simple' | 'moderate' | 'complex'
-    segments: Array<{
-      pitchDegrees: number
-      pitch12: number
-      pitchMultiplier: number
-      azimuthDegrees: number
-      orientation: string
-      areaSqFt: number
-      squares: number
-      center: { lat: number; lng: number }
-      boundingBox: any
-      heightFt: number
-    }>
+    segments: RoofSegmentWithStructural[]
     edges: {
       eaveFt: number
       ridgeFt: number
@@ -56,6 +91,15 @@ interface DimensionsResult {
     wallAreaSqFt: number
     fasciaSoffitLinearFt: number
     footprintPolygon: Array<{ lat: number; lng: number }>
+    gutterSystem: {
+      gutterLinearFt: number
+      downspoutsNeeded: number
+      downspoutLinearFt: number
+      gutterSizeIn: number
+      downspoutSizeIn: number
+      leafGuardLinearFt: number
+      note: string
+    }
   }
   materials: {
     shinglesBundles: number
@@ -65,6 +109,25 @@ interface DimensionsResult {
     ridgeCapLinearFt: number
     nailsBoxes: number
   }
+  structural: {
+    totalRafters: number
+    rafterSpacingIn: number
+    totalPlywoodSheets: number
+    roofType: 'flat' | 'low_slope' | 'standard' | 'steep' | 'mixed'
+    avgPitchDegrees: number
+    structuralNotes: string[]
+  }
+  materialOptions: {
+    asphalt_shingle: MaterialOption
+    metal_standing_seam: MaterialOption
+    metal_corrugated: MaterialOption
+    clay_tile: MaterialOption
+    concrete_tile: MaterialOption
+    tpo_membrane: MaterialOption
+    modified_bitumen: MaterialOption
+    epdm: MaterialOption
+  }
+  flatRoofDrainage: FlatRoofDrainage | null
 }
 
 interface DimensionsProps {
@@ -77,10 +140,11 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
   const [loadingStep, setLoadingStep] = useState('')
   const [result, setResult] = useState<DimensionsResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'roof' | 'building' | 'materials'>(
+  const [activeTab, setActiveTab] = useState<'overview' | 'blueprint' | 'roof' | 'building' | 'materials'>(
     'overview'
   )
   const [mapsApiKey, setMapsApiKey] = useState('')
+  const [selectedRoofType, setSelectedRoofType] = useState<string>('asphalt_shingle')
 
   // Fetch maps API key on mount
   useEffect(() => {
@@ -240,7 +304,7 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
         <div className="w-[45%] flex flex-col">
           {/* Tab buttons */}
           <div className="flex gap-2 mb-4 border-b border-white/10">
-            {(['overview', 'roof', 'building', 'materials'] as const).map((tab) => (
+            {(['overview', 'blueprint', 'roof', 'building', 'materials'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -297,6 +361,139 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
                     icon={<AlertCircle className="w-4 h-4" />}
                   />
                 </div>
+
+                <div className="glass rounded-xl p-4 border border-white/10">
+                  <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                    <Hammer className="w-4 h-4 text-cyan" /> Structural Summary
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <StatCard label="Total Rafters" value={result.structural.totalRafters} unit="pcs" color="cyan" />
+                    <StatCard label="Rafter Spacing" value={result.structural.rafterSpacingIn} unit="in O.C." color="cyan" />
+                    <StatCard label="Plywood Sheets" value={result.structural.totalPlywoodSheets} unit="4×8 sheets" color="amber" />
+                    <StatCard label="Roof Type" value={result.structural.roofType.replace(/_/g, ' ')} color="purple" />
+                  </div>
+                  {result.structural.structuralNotes.length > 0 && (
+                    <div className="mt-3 space-y-1">
+                      {result.structural.structuralNotes.map((note, i) => (
+                        <p key={i} className="text-xs text-amber-400 flex items-start gap-1">
+                          <span className="mt-0.5">⚠</span> {note}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Blueprint */}
+            {activeTab === 'blueprint' && (
+              <div className="bg-[#0a0f15] rounded-xl p-4 border border-cyan/20">
+                <div className="flex items-center gap-2 mb-3">
+                  <LayoutGrid className="w-4 h-4 text-cyan" />
+                  <h3 className="text-sm font-bold text-white">Roof Blueprint</h3>
+                  <span className="ml-auto text-xs text-gray-400">Segment layout from Google Solar API</span>
+                </div>
+
+                <svg viewBox="0 0 500 400" className="w-full border border-white/10 rounded-lg" style={{ background: '#0d1117' }}>
+                  {/* Grid lines */}
+                  {Array.from({ length: 10 }, (_, i) => (
+                    <line key={`h${i}`} x1="0" y1={i * 40} x2="500" y2={i * 40} stroke="#1a2332" strokeWidth="0.5" />
+                  ))}
+                  {Array.from({ length: 13 }, (_, i) => (
+                    <line key={`v${i}`} x1={i * 40} y1="0" x2={i * 40} y2="400" stroke="#1a2332" strokeWidth="0.5" />
+                  ))}
+
+                  {/* Compass rose */}
+                  <text x="480" y="20" fill="#06b6d4" fontSize="10" textAnchor="middle">
+                    N
+                  </text>
+                  <text x="480" y="400" fill="#06b6d4" fontSize="10" textAnchor="middle">
+                    S
+                  </text>
+
+                  {/* Draw each roof segment as a positioned rectangle */}
+                  {result.roof.segments.map((seg, i) => {
+                    // Map lat/lng bounding box to SVG coordinates
+                    const allLats = result.roof.segments
+                      .map((s) => [s.boundingBox.sw.latitude, s.boundingBox.ne.latitude])
+                      .flat()
+                    const allLngs = result.roof.segments
+                      .map((s) => [s.boundingBox.sw.longitude, s.boundingBox.ne.longitude])
+                      .flat()
+                    const minLat = Math.min(...allLats)
+                    const maxLat = Math.max(...allLats)
+                    const minLng = Math.min(...allLngs)
+                    const maxLng = Math.max(...allLngs)
+                    const latRange = maxLat - minLat || 0.001
+                    const lngRange = maxLng - minLng || 0.001
+
+                    // Map to SVG (flip Y since lat increases upward)
+                    const x1 = ((seg.boundingBox.sw.longitude - minLng) / lngRange) * 460 + 20
+                    const y1 = (1 - (seg.boundingBox.ne.latitude - minLat) / latRange) * 360 + 20
+                    const x2 = ((seg.boundingBox.ne.longitude - minLng) / lngRange) * 460 + 20
+                    const y2 = (1 - (seg.boundingBox.sw.latitude - minLat) / latRange) * 360 + 20
+                    const w = Math.max(x2 - x1, 10)
+                    const h = Math.max(y2 - y1, 10)
+                    const cx = x1 + w / 2
+                    const cy = y1 + h / 2
+
+                    // Color by pitch
+                    const pitchColor = seg.pitchDegrees < 10 ? '#22d3ee' : seg.pitchDegrees < 20 ? '#fbbf24' : '#f87171'
+
+                    return (
+                      <g key={i}>
+                        <rect
+                          x={x1}
+                          y={y1}
+                          width={w}
+                          height={h}
+                          fill={pitchColor}
+                          fillOpacity={0.15}
+                          stroke={pitchColor}
+                          strokeWidth="1.5"
+                          rx="2"
+                        />
+                        {/* Rafter lines */}
+                        {Array.from({ length: Math.min(seg.rafterCount, 8) }, (_, ri) => (
+                          <line
+                            key={ri}
+                            x1={x1 + (ri / seg.rafterCount) * w}
+                            y1={y1}
+                            x2={x1 + (ri / seg.rafterCount) * w}
+                            y2={y2}
+                            stroke={pitchColor}
+                            strokeWidth="0.5"
+                            strokeOpacity="0.4"
+                          />
+                        ))}
+                        {/* Label */}
+                        <text x={cx} y={cy - 6} fill="white" fontSize="9" textAnchor="middle" fontWeight="bold">
+                          {seg.pitch12}:12
+                        </text>
+                        <text x={cx} y={cy + 6} fill="#9ca3af" fontSize="8" textAnchor="middle">
+                          {seg.areaSqFt} sqft
+                        </text>
+                        <text x={cx} y={cy + 16} fill={pitchColor} fontSize="8" textAnchor="middle">
+                          {seg.orientation}
+                        </text>
+                      </g>
+                    )
+                  })}
+
+                  {/* Legend */}
+                  <rect x="10" y="370" width="8" height="8" fill="#22d3ee" fillOpacity="0.3" stroke="#22d3ee" />
+                  <text x="22" y="378" fill="#9ca3af" fontSize="8">
+                    Low (&lt;10°)
+                  </text>
+                  <rect x="90" y="370" width="8" height="8" fill="#fbbf24" fillOpacity="0.3" stroke="#fbbf24" />
+                  <text x="102" y="378" fill="#9ca3af" fontSize="8">
+                    Med (10-20°)
+                  </text>
+                  <rect x="175" y="370" width="8" height="8" fill="#f87171" fillOpacity="0.3" stroke="#f87171" />
+                  <text x="187" y="378" fill="#9ca3af" fontSize="8">
+                    Steep (&gt;20°)
+                  </text>
+                </svg>
               </div>
             )}
 
@@ -326,6 +523,38 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
                             <td className="px-3 py-2 text-right">{seg.pitchMultiplier.toFixed(2)}</td>
                           </tr>
                         ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-bold text-white mb-2">Rafter & Sheathing</h3>
+                  <div className="glass border border-white/10 rounded-lg overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-white/5 border-b border-white/10">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Segment</th>
+                          <th className="px-3 py-2 text-right">Rafters</th>
+                          <th className="px-3 py-2 text-right">Rafter Length</th>
+                          <th className="px-3 py-2 text-right">Plywood Sheets</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result.roof.segments.map((seg, i) => (
+                          <tr key={i} className="border-t border-white/5">
+                            <td className="px-3 py-2 text-gray-300">{seg.orientation} ({seg.pitch12}:12)</td>
+                            <td className="px-3 py-2 text-right text-white">{seg.rafterCount}</td>
+                            <td className="px-3 py-2 text-right text-white">{seg.rafterLengthFt} ft</td>
+                            <td className="px-3 py-2 text-right text-white">{seg.plywoodSheets}</td>
+                          </tr>
+                        ))}
+                        <tr className="border-t border-cyan/20 font-semibold">
+                          <td className="px-3 py-2 text-cyan">Totals</td>
+                          <td className="px-3 py-2 text-right text-cyan">{result.structural.totalRafters}</td>
+                          <td className="px-3 py-2 text-right text-gray-400">—</td>
+                          <td className="px-3 py-2 text-right text-cyan">{result.structural.totalPlywoodSheets}</td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>
@@ -393,6 +622,50 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
                   label="Fascia/Soffit"
                   value={`${result.building.fasciaSoffitLinearFt.toLocaleString()} linear ft`}
                 />
+
+                <div className="glass rounded-xl p-4 border border-white/10 mt-3">
+                  <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                    <Droplets className="w-4 h-4 text-cyan" /> Gutter & Drainage System
+                  </h3>
+                  <div className="space-y-2">
+                    <InfoRow
+                      label={`${result.building.gutterSystem.gutterSizeIn}" K-Style Gutters`}
+                      value={`${result.building.gutterSystem.gutterLinearFt.toLocaleString()} lf`}
+                    />
+                    <InfoRow
+                      label="Downspouts"
+                      value={`${result.building.gutterSystem.downspoutsNeeded} pcs (${result.building.gutterSystem.downspoutSizeIn}" dia)`}
+                    />
+                    <InfoRow
+                      label="Downspout Pipe"
+                      value={`${result.building.gutterSystem.downspoutLinearFt.toLocaleString()} lf total`}
+                    />
+                    <InfoRow label="Leaf Guard" value={`${result.building.gutterSystem.leafGuardLinearFt.toLocaleString()} lf (optional)`} />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">{result.building.gutterSystem.note}</p>
+                </div>
+
+                {result.flatRoofDrainage && (
+                  <div className="glass rounded-xl p-4 border border-amber-400/20 mt-3">
+                    <h3 className="text-sm font-bold text-amber-400 mb-3 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" /> Flat Roof Drainage Required
+                    </h3>
+                    <div className="space-y-2">
+                      <InfoRow
+                        label="Interior Roof Drains"
+                        value={`${result.flatRoofDrainage.interiorDrainsNeeded} drains`}
+                      />
+                      <InfoRow label="Drain Spacing" value={`${result.flatRoofDrainage.drainSpacingFt} ft apart`} />
+                      <InfoRow
+                        label="Overflow Scuppers"
+                        value={`${result.flatRoofDrainage.scuppersNeeded} scuppers`}
+                      />
+                      <InfoRow label="Sump Areas" value={`${result.flatRoofDrainage.sumpsNeeded} sumps`} />
+                    </div>
+                    <p className="text-xs text-amber-400 mt-2">{result.flatRoofDrainage.note}</p>
+                  </div>
+                )}
+
                 <p className="text-xs text-gray-400 mt-4">
                   Wall measurements estimated from building footprint data
                 </p>
@@ -401,57 +674,88 @@ export default function Dimensions({ onExportToProposal }: DimensionsProps) {
 
             {/* Materials */}
             {activeTab === 'materials' && (
-              <div className="space-y-2">
-                <div className="glass border border-white/10 rounded-lg overflow-hidden">
-                  <table className="w-full text-xs">
-                    <thead className="bg-white/5 border-b border-white/10">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Material</th>
-                        <th className="px-3 py-2 text-right">Qty</th>
-                        <th className="px-3 py-2 text-left">Unit</th>
-                        <th className="px-3 py-2 text-left">Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b border-white/5 hover:bg-white/5">
-                        <td className="px-3 py-2">3-Tab / Arch. Shingles</td>
-                        <td className="px-3 py-2 text-right">{result.materials.shinglesBundles}</td>
-                        <td className="px-3 py-2">bundles</td>
-                        <td className="px-3 py-2 text-xs text-gray-400">3 bundles / sq</td>
-                      </tr>
-                      <tr className="border-b border-white/5 hover:bg-white/5">
-                        <td className="px-3 py-2">Synthetic Underlayment</td>
-                        <td className="px-3 py-2 text-right">{result.materials.underlaySqFt.toLocaleString()}</td>
-                        <td className="px-3 py-2">sq ft</td>
-                        <td className="px-3 py-2 text-xs text-gray-400">+10% coverage</td>
-                      </tr>
-                      <tr className="border-b border-white/5 hover:bg-white/5">
-                        <td className="px-3 py-2">Ice &amp; Water Shield</td>
-                        <td className="px-3 py-2 text-right">{result.materials.iceWaterLinearFt.toLocaleString()}</td>
-                        <td className="px-3 py-2">linear ft</td>
-                        <td className="px-3 py-2 text-xs text-gray-400">Eave + valley</td>
-                      </tr>
-                      <tr className="border-b border-white/5 hover:bg-white/5">
-                        <td className="px-3 py-2">Drip Edge</td>
-                        <td className="px-3 py-2 text-right">{result.materials.dripEdgeLinearFt.toLocaleString()}</td>
-                        <td className="px-3 py-2">linear ft</td>
-                        <td className="px-3 py-2 text-xs text-gray-400">Eave + rake</td>
-                      </tr>
-                      <tr className="border-b border-white/5 hover:bg-white/5">
-                        <td className="px-3 py-2">Ridge Cap Shingles</td>
-                        <td className="px-3 py-2 text-right">{result.materials.ridgeCapLinearFt.toLocaleString()}</td>
-                        <td className="px-3 py-2">linear ft</td>
-                        <td className="px-3 py-2 text-xs text-gray-400">Ridge + hip</td>
-                      </tr>
-                      <tr className="hover:bg-white/5">
-                        <td className="px-3 py-2">Roofing Nails</td>
-                        <td className="px-3 py-2 text-right">{result.materials.nailsBoxes}</td>
-                        <td className="px-3 py-2">boxes</td>
-                        <td className="px-3 py-2 text-xs text-gray-400">1 box / 4 sq</td>
-                      </tr>
-                    </tbody>
-                  </table>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-white mb-3">Roofing Material Options</h3>
+                  <div className="space-y-2">
+                    {Object.entries(result.materialOptions).map(([key, option]) => (
+                      <button
+                        key={key}
+                        onClick={() => setSelectedRoofType(key)}
+                        className={`w-full text-left p-3 rounded-lg border transition ${
+                          selectedRoofType === key
+                            ? 'bg-cyan-500/20 border-cyan-500'
+                            : 'bg-white/5 border-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-semibold text-white text-sm">{option.name}</p>
+                            <p className="text-xs text-gray-400 mt-1">{option.note}</p>
+                          </div>
+                          <div
+                            className={`text-xs font-bold px-2 py-1 rounded ${
+                              option.suitable
+                                ? 'bg-green-500/20 text-green-300'
+                                : 'bg-gray-500/20 text-gray-400'
+                            }`}
+                          >
+                            {option.suitable ? 'Suitable' : 'Not recommended'}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                {selectedRoofType && result.materialOptions[selectedRoofType as keyof typeof result.materialOptions] && (
+                  <div className="glass rounded-xl p-4 border border-cyan/20">
+                    <h4 className="text-sm font-bold text-cyan mb-3">
+                      {result.materialOptions[selectedRoofType as keyof typeof result.materialOptions].name}
+                    </h4>
+                    <div className="space-y-2">
+                      <InfoRow
+                        label="Primary Material"
+                        value={`${result.materialOptions[selectedRoofType as keyof typeof result.materialOptions].quantity} ${result.materialOptions[selectedRoofType as keyof typeof result.materialOptions].unit}`}
+                      />
+                      {result.materialOptions[selectedRoofType as keyof typeof result.materialOptions].totalBundles && (
+                        <InfoRow
+                          label="Bundles"
+                          value={result.materialOptions[selectedRoofType as keyof typeof result.materialOptions].totalBundles!.toLocaleString()}
+                        />
+                      )}
+                      {result.materialOptions[selectedRoofType as keyof typeof result.materialOptions].totalTiles && (
+                        <InfoRow
+                          label="Total Tiles"
+                          value={result.materialOptions[selectedRoofType as keyof typeof result.materialOptions].totalTiles!.toLocaleString()}
+                        />
+                      )}
+                      {result.materialOptions[selectedRoofType as keyof typeof result.materialOptions].rollsNeeded && (
+                        <InfoRow
+                          label="Rolls Needed"
+                          value={result.materialOptions[selectedRoofType as keyof typeof result.materialOptions].rollsNeeded!.toLocaleString()}
+                        />
+                      )}
+                      <InfoRow
+                        label="Synthetic Underlayment"
+                        value={`${result.materials.underlaySqFt.toLocaleString()} sq ft`}
+                      />
+                      <InfoRow
+                        label="Ice & Water Shield"
+                        value={`${result.materials.iceWaterLinearFt.toLocaleString()} linear ft`}
+                      />
+                      <InfoRow
+                        label="Drip Edge"
+                        value={`${result.materials.dripEdgeLinearFt.toLocaleString()} linear ft`}
+                      />
+                      <InfoRow
+                        label="Ridge Cap"
+                        value={`${result.materials.ridgeCapLinearFt.toLocaleString()} linear ft`}
+                      />
+                      <InfoRow label="Plywood Sheets (4×8)" value={result.structural.totalPlywoodSheets.toLocaleString()} />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -474,12 +778,14 @@ function StatCard({
   label,
   value,
   sublabel,
+  unit,
   icon,
   color,
 }: {
   label: string
   value: string | number
   sublabel?: string
+  unit?: string
   icon?: React.ReactNode
   color?: string
 }) {
@@ -488,7 +794,10 @@ function StatCard({
       {icon && <div className="text-cyan-400 flex-shrink-0 mt-0.5">{icon}</div>}
       <div className="flex-1">
         <p className="text-xs text-gray-400">{label}</p>
-        <p className={`text-lg font-bold ${color || 'text-white'}`}>{value}</p>
+        <div className="flex items-baseline gap-1">
+          <p className={`text-lg font-bold ${color || 'text-white'}`}>{value}</p>
+          {unit && <p className="text-xs text-gray-500">{unit}</p>}
+        </div>
         {sublabel && <p className="text-xs text-gray-500">{sublabel}</p>}
       </div>
     </div>
