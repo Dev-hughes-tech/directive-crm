@@ -7116,22 +7116,25 @@ Be specific with quantities and realistic pricing for the roofing industry.`
             </div>
             </div>
           ) : (
-            <KanbanBoard
-              jobs={jobs}
-              onJobClick={(job) => {
-                setSelectedJob(job)
-                setJobTab('pipeline')
-              }}
-              onStageChange={async (jobId: string, newStage: JobStage) => {
-                const job = jobs.find(j => j.id === jobId)
-                if (!job) return
-                const updated = { ...job, stage: newStage }
-                setJobs(prev => prev.map(j => j.id === jobId ? updated : j))
-                await saveJob(updated)
-                const stageLabel = JOB_STAGES.find(s => s.key === newStage)?.label || newStage
-                addNotification(`Job moved to ${stageLabel}`, 'info')
-              }}
-            />
+            <div className="flex-1 min-h-0 overflow-hidden glass rounded-lg p-3">
+              <KanbanBoard
+                jobs={jobs}
+                onJobClick={(job) => {
+                  setSelectedJob(job)
+                  setJobViewMode('list')
+                  setJobTab('pipeline')
+                }}
+                onStageChange={async (jobId: string, newStage: JobStage) => {
+                  const job = jobs.find(j => j.id === jobId)
+                  if (!job) return
+                  const updated = { ...job, stage: newStage }
+                  setJobs(prev => prev.map(j => j.id === jobId ? updated : j))
+                  await saveJob(updated)
+                  const stageLabel = JOB_STAGES.find(s => s.key === newStage)?.label || newStage
+                  addNotification(`Job moved to ${stageLabel}`, 'info')
+                }}
+              />
+            </div>
           )}
         </div>
       )}
