@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
@@ -14,8 +15,10 @@ export async function GET(request: NextRequest) {
 
   try {
     // Google Weather API (new)
-    const weatherRes = await fetch(
-      `https://weather.googleapis.com/v1/currentConditions:lookup?key=${apiKey}&location.latitude=${lat}&location.longitude=${lng}`
+    const weatherRes = await fetchWithTimeout(
+      `https://weather.googleapis.com/v1/currentConditions:lookup?key=${apiKey}&location.latitude=${lat}&location.longitude=${lng}`,
+      {},
+      8000
     )
     const weatherData = await weatherRes.json()
 

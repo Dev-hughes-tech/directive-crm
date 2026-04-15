@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 interface LatLng {
   lat: number
@@ -39,8 +40,10 @@ export async function POST(request: NextRequest) {
     if (mode === 'snapToRoads') {
       // Snap GPS points to nearest road
       const pathStr = path.slice(0, 100).map((p: LatLng) => `${p.lat},${p.lng}`).join('|')
-      const res = await fetch(
-        `https://roads.googleapis.com/v1/snapToRoads?path=${pathStr}&interpolate=true&key=${apiKey}`
+      const res = await fetchWithTimeout(
+        `https://roads.googleapis.com/v1/snapToRoads?path=${pathStr}&interpolate=true&key=${apiKey}`,
+        {},
+        8000
       )
       const data = await res.json()
 
@@ -56,8 +59,10 @@ export async function POST(request: NextRequest) {
     if (mode === 'speedLimits') {
       // Get speed limits for roads in path
       const pathStr = path.slice(0, 100).map((p: LatLng) => `${p.lat},${p.lng}`).join('|')
-      const res = await fetch(
-        `https://roads.googleapis.com/v1/speedLimits?path=${pathStr}&key=${apiKey}`
+      const res = await fetchWithTimeout(
+        `https://roads.googleapis.com/v1/speedLimits?path=${pathStr}&key=${apiKey}`,
+        {},
+        8000
       )
       const data = await res.json()
       const speedLimits = (data.speedLimits || []).map((s: SpeedLimit) => ({

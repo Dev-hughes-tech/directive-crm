@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 // Step 1: Create an upload URL for a photo
 export async function POST(request: NextRequest) {
@@ -13,9 +14,10 @@ export async function POST(request: NextRequest) {
   if (action === 'startUpload') {
     try {
       // Request an upload URL from Street View Publish API
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `https://streetviewpublish.googleapis.com/v1/photo:startUpload?key=${apiKey}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+        8000
       )
       const data = await res.json()
       // Returns uploadUrl where the actual photo bytes are PUT
@@ -35,9 +37,10 @@ export async function POST(request: NextRequest) {
         pose: { latLngPair: { latitude: lat, longitude: lng } },
         places: [{ placeId: null, name: address }]
       }
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `https://streetviewpublish.googleapis.com/v1/photo?key=${apiKey}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(photoBody) }
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(photoBody) },
+        8000
       )
       const data = await res.json()
       return NextResponse.json({ photoId: data.photoId?.id || null, shareLink: data.shareLink || null })

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 // Generate grid points around a center for reverse geocoding
 function generateGrid(lat: number, lng: number, radiusMeters: number, count: number) {
@@ -37,8 +38,10 @@ export async function POST(request: NextRequest) {
     // Reverse geocode each grid point in parallel
     const results = await Promise.allSettled(
       gridPoints.map(async (pt) => {
-        const res = await fetch(
-          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${pt.lat},${pt.lng}&result_type=street_address|premise&key=${apiKey}`
+        const res = await fetchWithTimeout(
+          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${pt.lat},${pt.lng}&result_type=street_address|premise&key=${apiKey}`,
+          {},
+          8000
         )
         const data = await res.json()
         if (data.results && data.results.length > 0) {

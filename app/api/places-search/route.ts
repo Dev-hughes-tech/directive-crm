@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const res = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+    const res = await fetchWithTimeout('https://places.googleapis.com/v1/places:searchNearby', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
         'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.businessStatus,places.nationalPhoneNumber'
       },
       body: JSON.stringify(body)
-    })
+    }, 8000)
 
     const data = await res.json()
     if (!data.places) return NextResponse.json({ places: [] })

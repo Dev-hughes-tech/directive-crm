@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 interface Waypoint {
   id: string
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
       requestedReferenceRoutes: ['FUEL_EFFICIENT']
     }
 
-    const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    const res = await fetchWithTimeout('https://routes.googleapis.com/directions/v2:computeRoutes', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
         'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.optimizedIntermediateWaypointIndex,routes.legs,routes.travelAdvisory'
       },
       body: JSON.stringify(requestBody)
-    })
+    }, 8000)
 
     const data = await res.json()
 

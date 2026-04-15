@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
     for (const batch of batches) {
       const destStr = batch.map((d: { lat: number; lng: number }) => `${d.lat},${d.lng}`).join('|')
       const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin.lat},${origin.lng}&destinations=${destStr}&mode=driving&key=${apiKey}`
-      const res = await fetch(url)
+      const res = await fetchWithTimeout(url, {}, 8000)
       const data = await res.json()
 
       if (data.status === 'OK' && data.rows[0]) {

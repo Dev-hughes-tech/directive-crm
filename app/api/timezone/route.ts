@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
@@ -14,8 +15,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const timestamp = Math.floor(Date.now() / 1000)
-    const res = await fetch(
-      `https://maps.googleapis.com/maps/api/timezone/json?location=${lat},${lng}&timestamp=${timestamp}&key=${apiKey}`
+    const res = await fetchWithTimeout(
+      `https://maps.googleapis.com/maps/api/timezone/json?location=${lat},${lng}&timestamp=${timestamp}&key=${apiKey}`,
+      {},
+      8000
     )
     const data = await res.json()
 

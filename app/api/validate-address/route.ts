@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
   if (!apiKey) return NextResponse.json({ valid: false, error: 'Validation unavailable' })
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://addressvalidation.googleapis.com/v1:validateAddress?key=${apiKey}`,
       {
         method: 'POST',
@@ -21,7 +22,8 @@ export async function POST(request: NextRequest) {
           address: { addressLines: [address] },
           enableUspsCass: false
         })
-      }
+      },
+      8000
     )
     const data = await res.json()
 

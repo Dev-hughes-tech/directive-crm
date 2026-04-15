@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
@@ -10,7 +11,7 @@ export async function POST(request: NextRequest) {
 
   try {
     // Create a map tile session for photorealistic 3D tiles
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://tile.googleapis.com/v1/createSession?key=${apiKey}`,
       {
         method: 'POST',
@@ -23,7 +24,8 @@ export async function POST(request: NextRequest) {
           overlay: false,
           scale: 'scaleFactor1x'
         })
-      }
+      },
+      8000
     )
     const data = await res.json()
 

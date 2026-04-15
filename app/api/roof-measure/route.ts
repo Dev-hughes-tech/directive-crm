@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export const maxDuration = 30
 
@@ -66,12 +67,12 @@ export async function GET(request: NextRequest) {
     // Call Google Solar API buildingInsights with HIGH quality first
     const url = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=HIGH&key=${apiKey}`
 
-    let res = await fetch(url)
+    let res = await fetchWithTimeout(url, {}, 8000)
 
     // If HIGH quality not available, try MEDIUM
     if (!res.ok) {
       const url2 = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=MEDIUM&key=${apiKey}`
-      res = await fetch(url2)
+      res = await fetchWithTimeout(url2, {}, 8000)
 
       if (!res.ok) {
         const errText = await res.text()

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
@@ -9,13 +10,14 @@ export async function POST(request: NextRequest) {
   if (!apiKey) return NextResponse.json({ error: 'No key' }, { status: 500 })
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://www.googleapis.com/geolocation/v1/geolocate?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ considerIp: true }) // Uses IP + WiFi signals
-      }
+      },
+      8000
     )
     const data = await res.json()
     if (data.location) {

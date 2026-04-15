@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { fetchWithTimeout } from '@/lib/fetchTimeout'
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
@@ -13,8 +14,10 @@ export async function GET(request: NextRequest) {
 
   try {
     // Step 1: Request the aerial video render
-    const lookupRes = await fetch(
-      `https://aerialview.googleapis.com/v1/videos:lookupVideo?address=${encodeURIComponent(address)}&key=${apiKey}`
+    const lookupRes = await fetchWithTimeout(
+      `https://aerialview.googleapis.com/v1/videos:lookupVideo?address=${encodeURIComponent(address)}&key=${apiKey}`,
+      {},
+      8000
     )
     const lookupData = await lookupRes.json()
 
