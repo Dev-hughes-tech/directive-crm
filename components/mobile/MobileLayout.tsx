@@ -863,7 +863,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
     <div className="flex-1 overflow-y-auto pb-24">
       <div className="px-4 pt-4">
         <div className="flex items-center gap-2 mb-4">
-          <button onClick={() => { setMobileTab('more') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+          <button onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
           <h2 className="text-base font-bold text-white ml-1">Production Jobs</h2>
           <span className="ml-auto px-2 py-0.5 rounded-full bg-cyan-400/20 text-cyan-400 text-xs font-semibold">{jobs.length}</span>
         </div>
@@ -930,7 +930,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
     <div className="flex-1 overflow-y-auto pb-24">
       <div className="px-4 pt-4 space-y-4">
         <div className="flex items-center gap-2 mb-2">
-          <button onClick={() => { setMobileTab('more') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+          <button onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
           <h2 className="text-base font-bold text-white ml-1">Settings</h2>
         </div>
 
@@ -1124,7 +1124,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
         <div className="flex-1 overflow-y-auto pb-24">
           <div className="px-4 pt-4">
             <div className="flex items-center gap-2 mb-4">
-              <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+              <button onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
               <h2 className="text-base font-bold text-white ml-1">Proposals</h2>
             </div>
             <div className="text-center py-12">
@@ -1327,7 +1327,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
         <div className="flex-1 overflow-y-auto pb-24">
           <div className="px-4 pt-4">
             <div className="flex items-center gap-2 mb-4">
-              <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+              <button onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
               <h2 className="text-base font-bold text-white ml-1">Smart Estimates</h2>
             </div>
             <div className="text-center py-12">
@@ -1351,7 +1351,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
         <div className="px-4 pt-4 space-y-3">
           {/* Back button */}
           <div className="flex items-center gap-2 mb-2">
-            <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+            <button onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
             <h2 className="text-base font-bold text-white ml-1">Smart Estimates</h2>
           </div>
 
@@ -1467,7 +1467,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
       <div className="flex-1 overflow-y-auto pb-24">
         <div className="px-4 pt-4 space-y-4">
           <div className="flex items-center gap-2 mb-2">
-            <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+            <button onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
             <h2 className="text-base font-bold text-white ml-1">Materials Calculator</h2>
           </div>
 
@@ -1547,7 +1547,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
       <div className="flex-1 overflow-y-auto pb-24">
         <div className="px-4 pt-4 space-y-3">
           <div className="flex items-center gap-2 mb-2">
-            <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+            <button onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
             <h2 className="text-base font-bold text-white ml-1">Timeline</h2>
             <span className="ml-auto px-2 py-0.5 rounded-full bg-cyan-400/20 text-cyan-400 text-xs font-semibold">{jobs.length}</span>
           </div>
@@ -1596,7 +1596,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
       <div className="flex-1 overflow-y-auto pb-24">
         <div className="px-4 pt-4 space-y-3">
           <div className="flex items-center gap-2 mb-2">
-            <button onClick={() => setMobileTab('more')} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
+            <button onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }} className="text-cyan-400 text-sm active:opacity-70">← Back</button>
             <h2 className="text-base font-bold text-white ml-1">Team Chat</h2>
           </div>
 
@@ -1719,7 +1719,7 @@ export default function MobileLayout(props: MobileLayoutProps) {
         return (
           <div className="flex-1 overflow-y-auto pb-24">
             <button
-              onClick={() => { setMobileTab('more') }}
+              onClick={() => { setMobileTab('more'); setActiveScreen('dashboard') }}
               className="flex items-center gap-2 px-4 pt-4 text-cyan-400 text-sm active:opacity-70 mb-3"
             >
               ← Back
