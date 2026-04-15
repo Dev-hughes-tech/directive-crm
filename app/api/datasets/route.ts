@@ -54,10 +54,12 @@ export async function POST(request: NextRequest) {
   }
 
   if (type === 'territory') {
-    // Convex hull approximation around all properties
+    // Coverage bounding region — axis-aligned bounding box padded by ~200m.
+    // A true convex hull would require a geometry library; this is intentionally
+    // simpler and labeled honestly as a bounding region, not a hull.
     if (properties.length < 3) return NextResponse.json({ geojson: null })
 
-    // Simple bounding box as polygon (convex hull would need a library)
+    // Padded bounding box (not a convex hull)
     const lats = properties.map(p => p.lat)
     const lngs = properties.map(p => p.lng)
     const minLat = Math.min(...lats) - 0.002
@@ -81,7 +83,7 @@ export async function POST(request: NextRequest) {
             ]
           ] as number[][][]
         },
-        properties: { type: 'territory', count: properties.length }
+        properties: { type: 'territory', geometry_type: 'bounding_region', count: properties.length }
       }]
     }
     return NextResponse.json({ geojson })

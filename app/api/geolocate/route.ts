@@ -24,7 +24,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         lat: data.location.lat,
         lng: data.location.lng,
-        accuracy: data.accuracy // meters
+        accuracy: data.accuracy, // meters
+        source: 'google_geolocation'
       })
     }
     return NextResponse.json({ error: 'Could not determine location' }, { status: 404 })

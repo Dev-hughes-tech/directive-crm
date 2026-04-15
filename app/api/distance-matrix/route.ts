@@ -43,13 +43,18 @@ export async function POST(request: NextRequest) {
             })
           }
         })
+      } else if (data.status !== 'OK') {
+        console.warn('[distance-matrix] batch error', { status: data.status, batchIndex: batches.indexOf(batch) })
       }
     }
 
     // Sort by distance
     allResults.sort((a, b) => a.distanceMeters - b.distanceMeters)
     return NextResponse.json({ results: allResults })
-  } catch {
-    return NextResponse.json({ results: [] })
+  } catch (e) {
+    return NextResponse.json(
+      { results: [], error: 'upstream_failure', detail: String(e) },
+      { status: 502 }
+    )
   }
 }

@@ -1,7 +1,8 @@
 import { Anthropic } from '@anthropic-ai/sdk'
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
 import { log } from '@/lib/logger'
+import { canAccess } from '@/lib/tiers'
 
 export const maxDuration = 30
 
@@ -56,6 +57,14 @@ async function groundLocation(text: string, apiKey: string): Promise<string | nu
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req)
   if (!auth.ok) return auth.response
+
+  // Enforce tier: michael feature requires Plus or above (unless admin)
+  if (!canAccess(auth.profile.role, 'michael') && auth.profile.role !== 'admin') {
+    return NextResponse.json(
+      { error: 'Michael AI requires a Plus plan or higher.' },
+      { status: 403 }
+    )
+  }
 
   try {
     const body = await req.json()

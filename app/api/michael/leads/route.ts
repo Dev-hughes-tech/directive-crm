@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { canAccess } from '@/lib/tiers'
 
 export const maxDuration = 60
 
@@ -92,6 +93,14 @@ async function fetchNoaaEvents(lat: number, lng: number, eventType: 'hail' | 'to
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
+
+  // Enforce tier: michael feature requires Plus or above
+  if (!canAccess(auth.profile.role, 'michael')) {
+    return NextResponse.json(
+      { error: 'Michael AI requires a Plus plan or higher. Upgrade at directive-crm.com.' },
+      { status: 403 }
+    )
+  }
 
   const { zip } = await request.json()
   if (!zip?.trim()) return NextResponse.json({ error: 'ZIP code required' }, { status: 400 })

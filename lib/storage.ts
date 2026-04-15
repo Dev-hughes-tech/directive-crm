@@ -2,6 +2,14 @@ import { supabase } from './supabase'
 import type { Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job } from './types'
 import type { UserRole } from './tiers'
 
+// ── STORAGE RESULT TYPE ─────────────────────────────────────────────────────
+
+export interface StorageResult {
+  ok: boolean
+  source: 'supabase' | 'local' | null
+  error?: string
+}
+
 // ── AUTH / OWNERSHIP HELPERS ────────────────────────────────────────────────
 // Every row in the hardened schema (Migration 002) carries an owner_id that
 // RLS policies check against auth.uid(). Client-side writes need to attach
@@ -49,10 +57,14 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
   } catch { return null }
 }
 
-export async function upsertUserProfile(profile: Partial<UserProfile> & { id: string }): Promise<void> {
+export async function upsertUserProfile(profile: Partial<UserProfile> & { id: string }): Promise<StorageResult> {
   try {
-    await supabase.from('profiles').upsert(profile)
-  } catch { /* silent */ }
+    const { error } = await supabase.from('profiles').upsert(profile)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
 }
 
 // ── COMPANY SETTINGS ─────────────────────────────────────────────────────────
@@ -83,16 +95,20 @@ export async function getCompanySettings(): Promise<CompanySettings | null> {
   } catch { return null }
 }
 
-export async function saveCompanySettings(settings: Partial<CompanySettings>): Promise<void> {
+export async function saveCompanySettings(settings: Partial<CompanySettings>): Promise<StorageResult> {
   try {
     const ownerId = await getOwnerId()
-    if (!ownerId) return
-    await supabase.from('company_settings').upsert({
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+    const { error } = await supabase.from('company_settings').upsert({
       owner_id: ownerId,
       ...settings,
       updated_at: new Date().toISOString(),
     })
-  } catch { /* fail silently */ }
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
 }
 
 // ── PROPERTIES ──────────────────────────────────────────────────────────────
@@ -110,20 +126,24 @@ export async function getProperties(): Promise<Property[]> {
   }
 }
 
-export async function saveProperty(property: Property): Promise<void> {
+export async function saveProperty(property: Property): Promise<StorageResult> {
   try {
     const payload = await withOwner(property as unknown as Record<string, unknown>)
-    await supabase.from('properties').upsert(payload)
-  } catch {
-    // Fail silently
+    const { error } = await supabase.from('properties').upsert(payload)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
-export async function deleteProperty(id: string): Promise<void> {
+export async function deleteProperty(id: string): Promise<StorageResult> {
   try {
-    await supabase.from('properties').delete().eq('id', id)
-  } catch {
-    // Fail silently
+    const { error } = await supabase.from('properties').delete().eq('id', id)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
@@ -142,20 +162,24 @@ export async function getClients(): Promise<Client[]> {
   }
 }
 
-export async function saveClient(client: Client): Promise<void> {
+export async function saveClient(client: Client): Promise<StorageResult> {
   try {
     const payload = await withOwner(client as unknown as Record<string, unknown>)
-    await supabase.from('clients').upsert(payload)
-  } catch {
-    // Fail silently
+    const { error } = await supabase.from('clients').upsert(payload)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
-export async function deleteClient(id: string): Promise<void> {
+export async function deleteClient(id: string): Promise<StorageResult> {
   try {
-    await supabase.from('clients').delete().eq('id', id)
-  } catch {
-    // Fail silently
+    const { error } = await supabase.from('clients').delete().eq('id', id)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
@@ -166,11 +190,11 @@ export async function saveActivity(params: {
   entityId: string
   action: 'create' | 'update' | 'delete' | 'status_change' | 'login' | 'ai_call' | string
   metadata?: Record<string, unknown>
-}): Promise<void> {
+}): Promise<StorageResult> {
   try {
     const ownerId = await getOwnerId()
-    if (!ownerId) return
-    await supabase.from('activity_log').insert({
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+    const { error } = await supabase.from('activity_log').insert({
       owner_id: ownerId,
       actor_id: ownerId,
       entity_type: params.entityType,
@@ -178,8 +202,11 @@ export async function saveActivity(params: {
       action: params.action,
       metadata: params.metadata ?? {},
     })
-  } catch {
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
     // Fail silently — activity log is non-critical
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
@@ -201,32 +228,37 @@ export async function getProposals(): Promise<Proposal[]> {
   }
 }
 
-export async function saveProposal(proposal: Proposal): Promise<void> {
+export async function saveProposal(proposal: Proposal): Promise<StorageResult> {
   try {
     const { line_items, ...proposalData } = proposal
     const payload = await withOwner(proposalData as unknown as Record<string, unknown>)
-    await supabase.from('proposals').upsert(payload)
+    const { error: proposalError } = await supabase.from('proposals').upsert(payload)
+    if (proposalError) return { ok: false, source: 'supabase', error: proposalError.message }
     if (line_items?.length) {
       await supabase.from('proposal_line_items').delete().eq('proposal_id', proposal.id)
-      await supabase.from('proposal_line_items').insert(
+      const { error: itemsError } = await supabase.from('proposal_line_items').insert(
         line_items.map((item: ProposalLineItem, idx: number) => ({
           ...item,
           proposal_id: proposal.id,
           sort_order: idx,
         }))
       )
+      if (itemsError) return { ok: false, source: 'supabase', error: itemsError.message }
     }
-  } catch {
-    // Fail silently
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
-export async function deleteProposal(id: string): Promise<void> {
+export async function deleteProposal(id: string): Promise<StorageResult> {
   try {
     await supabase.from('proposal_line_items').delete().eq('proposal_id', id)
-    await supabase.from('proposals').delete().eq('id', id)
-  } catch {
-    // Fail silently
+    const { error } = await supabase.from('proposals').delete().eq('id', id)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
@@ -245,20 +277,24 @@ export async function getMaterials(): Promise<Material[]> {
   }
 }
 
-export async function saveMaterial(material: Material): Promise<void> {
+export async function saveMaterial(material: Material): Promise<StorageResult> {
   try {
     const payload = await withOwner(material as unknown as Record<string, unknown>)
-    await supabase.from('materials').upsert(payload)
-  } catch {
-    // Fail silently
+    const { error } = await supabase.from('materials').upsert(payload)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
-export async function deleteMaterial(id: string): Promise<void> {
+export async function deleteMaterial(id: string): Promise<StorageResult> {
   try {
-    await supabase.from('materials').delete().eq('id', id)
-  } catch {
-    // Fail silently
+    const { error } = await supabase.from('materials').delete().eq('id', id)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
@@ -278,27 +314,31 @@ export async function getChatMessages(channel: string): Promise<ChatMessage[]> {
   }
 }
 
-export async function saveChatMessage(message: ChatMessage): Promise<void> {
+export async function saveChatMessage(message: ChatMessage): Promise<StorageResult> {
   try {
     const ownerId = await getOwnerId()
     const payload = ownerId
       ? { ...message, owner_id: ownerId, sender_id: ownerId }
       : message
-    await supabase.from('chat_messages').insert(payload)
-  } catch {
-    // Fail silently
+    const { error } = await supabase.from('chat_messages').insert(payload)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
-export async function markMessagesRead(channel: string, role: string): Promise<void> {
+export async function markMessagesRead(channel: string, role: string): Promise<StorageResult> {
   try {
-    await supabase
+    const { error } = await supabase
       .from('chat_messages')
       .update({ read: true })
       .eq('channel', channel)
       .neq('sender_role', role)
-  } catch {
-    // Fail silently
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }
 
@@ -328,27 +368,38 @@ export async function getJobs(): Promise<Job[]> {
   }
 }
 
-export async function saveJob(job: Job): Promise<void> {
+export async function saveJob(job: Job): Promise<StorageResult> {
+  let localOk = false
   // Always save to localStorage for offline resilience
   try {
     const existing = JSON.parse(localStorage.getItem('directive_jobs') || '[]') as Job[]
     const updated = existing.filter((j: Job) => j.id !== job.id)
     updated.unshift(job)
     localStorage.setItem('directive_jobs', JSON.stringify(updated))
+    localOk = true
   } catch { /* ignore */ }
 
   try {
     const payload = await withOwner(job as unknown as Record<string, unknown>)
-    await supabase.from('jobs').upsert(payload)
-  } catch { /* fail silently */ }
+    const { error } = await supabase.from('jobs').upsert(payload)
+    if (error) throw error
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    if (localOk) return { ok: false, source: 'local', error: String(e) }
+    return { ok: false, source: null, error: String(e) }
+  }
 }
 
-export async function deleteJob(id: string): Promise<void> {
+export async function deleteJob(id: string): Promise<StorageResult> {
   try {
     const existing = JSON.parse(localStorage.getItem('directive_jobs') || '[]') as Job[]
     localStorage.setItem('directive_jobs', JSON.stringify(existing.filter((j: Job) => j.id !== id)))
   } catch { /* ignore */ }
   try {
-    await supabase.from('jobs').delete().eq('id', id)
-  } catch { /* fail silently */ }
+    const { error } = await supabase.from('jobs').delete().eq('id', id)
+    if (error) throw error
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: 'local', error: String(e) }
+  }
 }

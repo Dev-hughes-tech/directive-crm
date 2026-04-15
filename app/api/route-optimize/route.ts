@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
 import { fetchWithTimeout } from '@/lib/fetchTimeout'
+import { canAccess } from '@/lib/tiers'
 
 interface Waypoint {
   id: string
@@ -12,6 +13,14 @@ interface Waypoint {
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
+
+  // Enforce tier: routeOptimize feature requires Pro or above
+  if (!canAccess(auth.profile.role, 'routeOptimize')) {
+    return NextResponse.json(
+      { error: 'Route optimization requires a Pro plan or higher.' },
+      { status: 403 }
+    )
+  }
 
   const { waypoints, origin, avoidTolls = false } = await request.json() as {
     waypoints: Waypoint[]

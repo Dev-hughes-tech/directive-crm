@@ -55,7 +55,10 @@ export async function GET(request: NextRequest) {
       alerts,
       raw: weatherData
     })
-  } catch {
-    return NextResponse.json({ error: 'Weather lookup failed' }, { status: 500 })
+  } catch (e) {
+    return NextResponse.json(
+      { error: 'upstream_failure', detail: String(e), conditions: null, windSpeed: null, precipitation: null, temperature: null, humidity: null, alerts: [] },
+      { status: 502 }
+    )
   }
 }

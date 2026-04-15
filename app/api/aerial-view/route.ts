@@ -30,8 +30,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Not available for this address
-    return NextResponse.json({ videoUri: null })
-  } catch {
-    return NextResponse.json({ videoUri: null })
+    return NextResponse.json({ videoUri: null, available: false })
+  } catch (e) {
+    return NextResponse.json(
+      { videoUri: null, available: false, error: 'upstream_failure', detail: String(e) },
+      { status: 502 }
+    )
   }
 }
