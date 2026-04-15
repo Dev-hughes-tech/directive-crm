@@ -218,6 +218,9 @@ export default function Dashboard() {
   const [radarProduct, setRadarProduct] = useState<'n0q' | 'n0r' | 'n0s' | 'net' | 'n0z'>('n0q')
   const [stormLocation, setStormLocation] = useState('')
   const [stormCenter, setStormCenter] = useState({ lat: HQ_LAT, lng: HQ_LNG })
+  // Active alert modal
+  const [selectedAlert, setSelectedAlert] = useState<WeatherAlert | null>(null)
+
   // HWEL — Historical Weather Event Library
   const [hwelData, setHwelData] = useState<any>(null)
   const [hwelLoading, setHwelLoading] = useState(false)
@@ -3886,10 +3889,17 @@ Only respond with the JSON array, no other text.` }
               ) : (
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {alerts.map((alert) => (
-                    <div key={alert.id} className="border-l-2 border-amber pl-3 py-2 text-sm">
-                      <p className="font-medium text-amber">{alert.event}</p>
+                    <button
+                      key={alert.id}
+                      onClick={() => setSelectedAlert(alert)}
+                      className="w-full text-left border-l-2 border-amber pl-3 py-2 text-sm hover:bg-white/5 rounded-r-lg transition group"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-medium text-amber">{alert.event}</p>
+                        <span className="text-[10px] text-gray-600 group-hover:text-gray-400 transition whitespace-nowrap">Read full →</span>
+                      </div>
                       <p className="text-xs text-gray-400 mt-1 line-clamp-2">{alert.headline}</p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -3992,6 +4002,74 @@ Only respond with the JSON array, no other text.` }
             </div>
           </div>
         </>
+      )}
+
+      {/* Active Alert Full-Detail Modal */}
+      {selectedAlert && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setSelectedAlert(null)}
+        >
+          <div
+            className="relative w-full max-w-lg glass border border-white/10 rounded-2xl overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className={`px-6 py-4 border-b border-white/10 flex items-start justify-between gap-3 ${
+              selectedAlert.severity === 'Extreme' ? 'bg-red-900/40' :
+              selectedAlert.severity === 'Severe' ? 'bg-red-800/30' :
+              selectedAlert.severity === 'Moderate' ? 'bg-amber-900/30' :
+              'bg-yellow-900/20'
+            }`}>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded ${
+                    selectedAlert.severity === 'Extreme' ? 'bg-red-500 text-white' :
+                    selectedAlert.severity === 'Severe' ? 'bg-red-400/80 text-white' :
+                    selectedAlert.severity === 'Moderate' ? 'bg-amber-400 text-black' :
+                    'bg-yellow-400 text-black'
+                  }`}>{selectedAlert.severity}</span>
+                </div>
+                <h2 className="text-lg font-bold text-white">{selectedAlert.event}</h2>
+                <p className="text-sm text-gray-300 mt-1">{selectedAlert.headline}</p>
+              </div>
+              <button
+                onClick={() => setSelectedAlert(null)}
+                className="text-gray-400 hover:text-white transition text-xl leading-none flex-shrink-0 mt-1"
+              >✕</button>
+            </div>
+
+            {/* Meta row */}
+            <div className="flex gap-4 px-6 py-3 border-b border-white/5 text-xs text-gray-400 bg-white/2">
+              {selectedAlert.onset && (
+                <span><strong className="text-gray-300">Onset:</strong> {new Date(selectedAlert.onset).toLocaleString()}</span>
+              )}
+              {selectedAlert.expires && (
+                <span><strong className="text-gray-300">Expires:</strong> {new Date(selectedAlert.expires).toLocaleString()}</span>
+              )}
+              {selectedAlert.sender && (
+                <span className="ml-auto"><strong className="text-gray-300">Issued by:</strong> {selectedAlert.sender}</span>
+              )}
+            </div>
+
+            {/* Full description */}
+            <div className="px-6 py-5 max-h-96 overflow-y-auto">
+              <p className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">
+                {selectedAlert.description || 'No additional details available.'}
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3 border-t border-white/5 flex justify-end">
+              <button
+                onClick={() => setSelectedAlert(null)}
+                className="text-sm text-gray-400 hover:text-white transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* SCREEN 5: DIMENSIONS */}

@@ -431,6 +431,8 @@ function MapInner({
           // Enable WebGL vector rendering for 3D globe (Google Earth-style)
           mapId: 'DEMO_MAP_ID',
           isFractionalZoomEnabled: true,
+          // Allow two-finger trackpad pan/zoom without holding Ctrl
+          gestureHandling: 'greedy',
         }}
       >
         {markers?.map((marker) => (
