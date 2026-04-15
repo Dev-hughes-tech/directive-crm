@@ -115,9 +115,12 @@ export async function saveCompanySettings(settings: Partial<CompanySettings>): P
 
 export async function getProperties(): Promise<Property[]> {
   try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
     const { data, error } = await supabase
       .from('properties')
       .select('*')
+      .eq('owner_id', ownerId)
       .order('created_at', { ascending: false })
     if (error) throw error
     return (data || []) as Property[]
@@ -139,7 +142,9 @@ export async function saveProperty(property: Property): Promise<StorageResult> {
 
 export async function deleteProperty(id: string): Promise<StorageResult> {
   try {
-    const { error } = await supabase.from('properties').delete().eq('id', id)
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+    const { error } = await supabase.from('properties').delete().eq('id', id).eq('owner_id', ownerId)
     if (error) return { ok: false, source: 'supabase', error: error.message }
     return { ok: true, source: 'supabase' }
   } catch (e) {
@@ -151,9 +156,12 @@ export async function deleteProperty(id: string): Promise<StorageResult> {
 
 export async function getClients(): Promise<Client[]> {
   try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
     const { data, error } = await supabase
       .from('clients')
       .select('*')
+      .eq('owner_id', ownerId)
       .order('created_at', { ascending: false })
     if (error) throw error
     return (data || []) as Client[]
@@ -175,7 +183,9 @@ export async function saveClient(client: Client): Promise<StorageResult> {
 
 export async function deleteClient(id: string): Promise<StorageResult> {
   try {
-    const { error } = await supabase.from('clients').delete().eq('id', id)
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+    const { error } = await supabase.from('clients').delete().eq('id', id).eq('owner_id', ownerId)
     if (error) return { ok: false, source: 'supabase', error: error.message }
     return { ok: true, source: 'supabase' }
   } catch (e) {
@@ -214,9 +224,12 @@ export async function saveActivity(params: {
 
 export async function getProposals(): Promise<Proposal[]> {
   try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
     const { data, error } = await supabase
       .from('proposals')
       .select('*, proposal_line_items(*)')
+      .eq('owner_id', ownerId)
       .order('created_at', { ascending: false })
     if (error) throw error
     return (data || []).map((p: Record<string, unknown>) => ({
@@ -253,8 +266,10 @@ export async function saveProposal(proposal: Proposal): Promise<StorageResult> {
 
 export async function deleteProposal(id: string): Promise<StorageResult> {
   try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
     await supabase.from('proposal_line_items').delete().eq('proposal_id', id)
-    const { error } = await supabase.from('proposals').delete().eq('id', id)
+    const { error } = await supabase.from('proposals').delete().eq('id', id).eq('owner_id', ownerId)
     if (error) return { ok: false, source: 'supabase', error: error.message }
     return { ok: true, source: 'supabase' }
   } catch (e) {
@@ -266,9 +281,12 @@ export async function deleteProposal(id: string): Promise<StorageResult> {
 
 export async function getMaterials(): Promise<Material[]> {
   try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
     const { data, error } = await supabase
       .from('materials')
       .select('*')
+      .eq('owner_id', ownerId)
       .order('name')
     if (error) throw error
     return (data || []) as Material[]
@@ -345,10 +363,17 @@ export async function markMessagesRead(channel: string, role: string): Promise<S
 // ── JOBS ─────────────────────────────────────────────────────────────────────
 
 export async function getJobs(): Promise<Job[]> {
+  const ownerId = await getOwnerId()
+  const lsKey = ownerId ? `directive_jobs_${ownerId}` : 'directive_jobs'
   try {
+    if (!ownerId) {
+      const stored = localStorage.getItem(lsKey)
+      return stored ? (JSON.parse(stored) as Job[]) : []
+    }
     const { data, error } = await supabase
       .from('jobs')
       .select('*')
+      .eq('owner_id', ownerId)
       .order('created_at', { ascending: false })
     if (error) throw error
     return (data || []).map((j: Record<string, unknown>) => ({
@@ -358,10 +383,10 @@ export async function getJobs(): Promise<Job[]> {
       insurance: (j.insurance as Job['insurance']) || null,
     })) as Job[]
   } catch {
-    // Fallback to localStorage for offline support
+    // Fallback to per-user localStorage for offline support
     try {
-      const stored = localStorage.getItem('directive_jobs')
-      return stored ? JSON.parse(stored) : []
+      const stored = localStorage.getItem(lsKey)
+      return stored ? (JSON.parse(stored) as Job[]) : []
     } catch {
       return []
     }
@@ -369,13 +394,15 @@ export async function getJobs(): Promise<Job[]> {
 }
 
 export async function saveJob(job: Job): Promise<StorageResult> {
+  const ownerId = await getOwnerId()
+  const lsKey = ownerId ? `directive_jobs_${ownerId}` : 'directive_jobs'
   let localOk = false
-  // Always save to localStorage for offline resilience
+  // Always save to per-user localStorage for offline resilience
   try {
-    const existing = JSON.parse(localStorage.getItem('directive_jobs') || '[]') as Job[]
+    const existing = JSON.parse(localStorage.getItem(lsKey) || '[]') as Job[]
     const updated = existing.filter((j: Job) => j.id !== job.id)
     updated.unshift(job)
-    localStorage.setItem('directive_jobs', JSON.stringify(updated))
+    localStorage.setItem(lsKey, JSON.stringify(updated))
     localOk = true
   } catch { /* ignore */ }
 
@@ -391,12 +418,15 @@ export async function saveJob(job: Job): Promise<StorageResult> {
 }
 
 export async function deleteJob(id: string): Promise<StorageResult> {
+  const ownerId = await getOwnerId()
+  const lsKey = ownerId ? `directive_jobs_${ownerId}` : 'directive_jobs'
   try {
-    const existing = JSON.parse(localStorage.getItem('directive_jobs') || '[]') as Job[]
-    localStorage.setItem('directive_jobs', JSON.stringify(existing.filter((j: Job) => j.id !== id)))
+    const existing = JSON.parse(localStorage.getItem(lsKey) || '[]') as Job[]
+    localStorage.setItem(lsKey, JSON.stringify(existing.filter((j: Job) => j.id !== id)))
   } catch { /* ignore */ }
   try {
-    const { error } = await supabase.from('jobs').delete().eq('id', id)
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+    const { error } = await supabase.from('jobs').delete().eq('id', id).eq('owner_id', ownerId)
     if (error) throw error
     return { ok: true, source: 'supabase' }
   } catch (e) {

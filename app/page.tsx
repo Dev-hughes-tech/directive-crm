@@ -179,6 +179,7 @@ export default function Dashboard() {
 
   // Territory state
   const [territoryFilter, setTerritoryFilter] = useState<'all' | 'hot' | 'researched'>('all')
+  const [territorySearchQuery, setTerritorySearchQuery] = useState('')
   const [distanceResults, setDistanceResults] = useState<Map<string, { distanceMeters: number; distanceMiles: string; durationMinutes: number }>>(new Map())
   const [sortByDistance, setSortByDistance] = useState(false)
   const [snapLoading, setSnapLoading] = useState(false)
@@ -318,6 +319,10 @@ export default function Dashboard() {
   const [activeChannel, setActiveChannel] = useState<'general' | 'management'>('general')
   const [commsTab, setCommsTab] = useState<'team' | 'voice' | 'gmail'>('team')
 
+  // Dashboard load error state
+  const [dashboardLoadError, setDashboardLoadError] = useState(false)
+  const [weatherLookupLoading, setWeatherLookupLoading] = useState(false)
+
   // Dashboard enhanced state
   const [dashboardTab, setDashboardTab] = useState<'overview' | 'storm-leads' | 'michael-leads' | 'historical' | 'analytics' | 'timeline'>('overview')
   const [weatherZip, setWeatherZip] = useState('')
@@ -327,6 +332,7 @@ export default function Dashboard() {
   const [recentAlerts90d, setRecentAlerts90d] = useState<any[]>([])
   const [michaelLeads, setMichaelLeads] = useState<Array<{ address: string; reason: string; score: number; source: string; roofAge: number | null; stormHits: number }>>([])
   const [michaelLeadsLoading, setMichaelLeadsLoading] = useState(false)
+  const [dashRefreshing, setDashRefreshing] = useState(false)
   const [michaelTab, setMichaelTab] = useState<'leads' | 'chat'>('leads')
   const [michaelZip, setMichaelZip] = useState('')
   const [michaelStormData, setMichaelStormData] = useState<{
@@ -580,10 +586,73 @@ export default function Dashboard() {
     return false
   }
 
+  // ── Dashboard computed stats (single useMemo to avoid race conditions) ───────
+  const dashboardStats = useMemo(() => {
+    const now = Date.now()
+    const weekMs = 7 * 86400000
+    const monthMs = 30 * 86400000
+
+    // Pipeline value from non-rejected proposals
+    const pipelineValue = proposals
+      .filter(p => p.status !== 'rejected')
+      .reduce((sum, p) => sum + (p.total || 0), 0)
+
+    // Weekly/monthly trend
+    const newThisWeek = properties.filter(p =>
+      new Date(p.created_at).getTime() > now - weekMs
+    ).length
+    const prevMonthCount = properties.filter(p => {
+      const t = new Date(p.created_at).getTime()
+      return t > now - monthMs && t <= now - weekMs
+    }).length
+    const monthTrendPct = prevMonthCount > 0
+      ? Math.round((newThisWeek - prevMonthCount) / prevMonthCount * 100)
+      : (newThisWeek > 0 ? 100 : 0)
+
+    // 7-day sparkline (daily adds, normalized to SVG 300×40)
+    const daily = Array.from({ length: 7 }, (_, i) => {
+      const start = now - (6 - i) * weekMs / 7
+      const end = start + weekMs / 7
+      return properties.filter(p => {
+        const t = new Date(p.created_at).getTime()
+        return t >= start && t < end
+      }).length
+    })
+    const maxDay = Math.max(1, ...daily)
+    const sparklinePoints = daily
+      .map((count, i) => `${(i / 6) * 300},${38 - (count / maxDay) * 33}`)
+      .join(' ')
+
+    // Lead score distribution
+    const hot = properties.filter(p => calculateLeadScore(p) >= 70).length
+    const warm = properties.filter(p => { const s = calculateLeadScore(p); return s >= 40 && s < 70 }).length
+    const cool = properties.length - hot - warm
+    const total = Math.max(1, properties.length)
+
+    // Avg roof age (only properties with known age)
+    const withAge = properties.filter(p => p.roof_age_years !== null && p.roof_age_years > 0)
+    const avgRoofAge = withAge.length > 0
+      ? withAge.reduce((sum, p) => sum + (p.roof_age_years ?? 0), 0) / withAge.length
+      : null
+
+    return {
+      pipelineValue,
+      newThisWeek,
+      monthTrendPct,
+      sparklinePoints,
+      hot, warm, cool,
+      hotPct: Math.round(hot / total * 100),
+      warmPct: Math.round(warm / total * 100),
+      coolPct: Math.round(cool / total * 100),
+      avgRoofAge,
+    }
+  }, [properties, proposals])
+
   // Load entity data on mount
   useEffect(() => {
     const loadData = async () => {
       setDataLoading(true)
+      setDashboardLoadError(false)
       try {
         const [propsData, clientsData, proposalsData, materialsData, messagesData, jobsData] = await Promise.all([
           getProperties(),
@@ -599,6 +668,8 @@ export default function Dashboard() {
         setMaterials(materialsData)
         setTeamMessages(messagesData)
         setJobs(jobsData)
+      } catch {
+        setDashboardLoadError(true)
       } finally {
         setDataLoading(false)
       }
@@ -1551,19 +1622,30 @@ export default function Dashboard() {
 
   // Dashboard: Fetch weather by ZIP code
   const handleWeatherZipLookup = async () => {
-    if (!weatherZip.trim()) return
+    if (!weatherZip.trim()) {
+      addNotification('Enter a ZIP code or address first.', 'info')
+      return
+    }
+    setWeatherLookupLoading(true)
     try {
       const geoRes = await authFetch(`/api/geocode?q=${encodeURIComponent(weatherZip)}`)
-      if (!geoRes.ok) return
+      if (!geoRes.ok) {
+        addNotification('Location not found — check the ZIP or address.', 'warning')
+        return
+      }
       const { lat, lng } = await geoRes.json()
       const [wRes, aRes] = await Promise.all([
         authFetch(`/api/weather/current?lat=${lat}&lng=${lng}`),
         authFetch(`/api/weather/alerts?lat=${lat}&lng=${lng}`),
       ])
       if (wRes.ok) setDashWeather(await wRes.json())
+      else addNotification('Weather data unavailable for that location.', 'warning')
       if (aRes.ok) setDashAlerts(await aRes.json())
     } catch (e) {
       console.error('Weather ZIP lookup error:', e)
+      addNotification('Weather lookup failed — check connection and try again.', 'warning')
+    } finally {
+      setWeatherLookupLoading(false)
     }
   }
 
@@ -1606,53 +1688,40 @@ export default function Dashboard() {
     }
   }
 
-  // Michael AI Daily Lead Engine
+  // Michael AI Daily Lead Engine — derives ZIP from top-ranked property in pipeline
   const runMichaelLeadEngine = async () => {
+    if (michaelLeadsLoading) return
+    // Pick a ZIP from the hottest property, or the first property, or prompt the user
+    const topProperty = [...properties].sort((a, b) => calculateLeadScore(b) - calculateLeadScore(a))[0]
+    const derivedZip = topProperty?.address?.match(/\b\d{5}\b/)?.[0]
+    if (!derivedZip) {
+      addNotification('Add a property first — Michael needs a ZIP code to analyze.', 'info')
+      return
+    }
     setMichaelLeadsLoading(true)
+    setMichaelLeads([])
     try {
-      const response = await authFetch('/api/michael', {
+      const response = await authFetch('/api/michael/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [
-            { role: 'user', content: `You are the Directive CRM lead generation engine. Analyze the following data and generate a list of the top 10 leads I should pursue today. For each lead, provide: the address, a reason why this is a good lead, a score from 1-100, and the source of the lead intelligence.
-
-Current data:
-- ${properties.length} total properties in pipeline
-- ${properties.filter(p => calculateLeadScore(p) >= 70).length} hot leads (score 70+)
-- ${properties.filter(p => p.storm_history?.stormRiskLevel === 'high').length} properties in high storm risk zones
-- ${properties.filter(p => p.roof_age_years !== null && p.roof_age_years >= 20).length} properties with roofs 20+ years old
-- ${hailEvents.length} hail events in the past year
-- ${alerts.length} active weather alerts
-
-Property addresses in pipeline:
-${properties.slice(0, 50).map(p => `${p.address} | Roof: ${p.roof_age_years || '?'}yr | Score: ${calculateLeadScore(p)} | Storm Risk: ${p.storm_history?.stormRiskLevel || 'unknown'}`).join('\n')}
-
-Based on storm damage zones, roof age, property values, and weather patterns, identify the best leads. Format your response as JSON array: [{"address":"...","reason":"...","score":85,"source":"Storm Damage Zone"}]
-Only respond with the JSON array, no other text.` }
-          ],
-          context: {
-            activeScreen: 'dashboard',
-            leadCount: properties.length,
-            hotLeadCount: properties.filter(p => calculateLeadScore(p) >= 70).length,
-            alertCount: alerts.length,
-          }
-        })
+        body: JSON.stringify({ zip: derivedZip }),
       })
-      if (response.ok) {
-        const { reply } = await response.json()
-        try {
-          const jsonMatch = reply.match(/\[[\s\S]*\]/)
-          if (jsonMatch) {
-            const leads = JSON.parse(jsonMatch[0])
-            setMichaelLeads(leads.slice(0, 10))
-          }
-        } catch {
-          console.error('Failed to parse Michael leads')
-        }
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        addNotification(err.error || 'Michael lead engine failed — try again.', 'warning')
+        return
+      }
+      const data = await response.json()
+      setMichaelLeads(data.leads || [])
+      setMichaelStormData(data)
+      if (data.leads?.length) {
+        addNotification(`Michael found ${data.leads.length} leads for ZIP ${derivedZip} — ${data.riskLevel} risk zone`, 'success')
+      } else {
+        addNotification('No leads generated for this ZIP. Try an area with more storm history.', 'info')
       }
     } catch (e) {
       console.error('Michael lead engine error:', e)
+      addNotification('Michael lead engine failed — check connection and try again.', 'warning')
     } finally {
       setMichaelLeadsLoading(false)
     }
@@ -1829,6 +1898,14 @@ Only respond with the JSON array, no other text.` }
               zoom={11}
               mode="dark"
               onModeChange={() => {}}
+              markers={properties.slice(0, 200).map(p => ({
+                id: p.id,
+                lat: p.lat,
+                lng: p.lng,
+                color: calculateLeadScore(p) >= 70 ? 'red' : calculateLeadScore(p) >= 40 ? 'amber' : 'cyan',
+                label: p.address?.split(',')[0],
+                onClick: () => setSelectedProperty(p),
+              }))}
             />
             <div className="absolute inset-0 bg-[#0d1117]/10" style={{backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(6,182,212,0.04) 0%, transparent 60%)'}} />
           </div>
@@ -1946,8 +2023,9 @@ Only respond with the JSON array, no other text.` }
                 borderColor: getTierConfig(userRole).color + '60',
                 backgroundColor: getTierConfig(userRole).color + '15',
               }}
+              title="View plan & settings"
             >
-              {getTierConfig(userRole).name}
+              Plan: {getTierConfig(userRole).name}
             </button>
             {/* Notifications Bell */}
             <div className="relative">
@@ -2045,8 +2123,17 @@ Only respond with the JSON array, no other text.` }
       {/* SCREEN 1: DASHBOARD */}
       {activeScreen === 'dashboard' && (
         <>
+          {/* Data load error banner */}
+          {dashboardLoadError && (
+            <div className="absolute left-4 right-4 top-[184px] z-40 bg-red/20 border border-red/40 rounded-lg px-4 py-2 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red flex-shrink-0" />
+              <p className="text-xs text-red">Data sync failed — showing last known state. Check connection and refresh.</p>
+              <button onClick={() => window.location.reload()} className="ml-auto text-xs text-red underline">Reload</button>
+            </div>
+          )}
+
           {/* Stats Bar */}
-          <div className="absolute left-4 right-4 top-[184px] z-30 glass rounded-lg px-6 py-4 flex gap-6 overflow-x-auto flex-nowrap">
+          <div className={`absolute left-4 right-4 z-30 glass rounded-lg px-6 py-4 flex gap-6 overflow-x-auto flex-nowrap ${dashboardLoadError ? 'top-[224px]' : 'top-[184px]'}`}>
             {/* Properties Scanned */}
             <div className="text-center">
               <p className="text-3xl font-bold text-cyan">{properties.length}</p>
@@ -2064,11 +2151,7 @@ Only respond with the JSON array, no other text.` }
             {/* Avg Roof Age */}
             <div className="text-center">
               <p className="text-3xl font-bold text-amber">
-                {properties.length > 0
-                  ? (
-                    properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length
-                  ).toFixed(1)
-                  : '—'}
+                {dashboardStats.avgRoofAge !== null ? dashboardStats.avgRoofAge.toFixed(1) : '—'}
               </p>
               <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Avg Roof Age (yr)</p>
             </div>
@@ -2080,10 +2163,26 @@ Only respond with the JSON array, no other text.` }
               </p>
               <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Critical (20+ yr)</p>
             </div>
+
+            {/* Pipeline Value */}
+            <div className="text-center">
+              <p className="text-3xl font-bold text-green">
+                ${dashboardStats.pipelineValue >= 1000
+                  ? `${(dashboardStats.pipelineValue / 1000).toFixed(0)}k`
+                  : dashboardStats.pipelineValue.toFixed(0)}
+              </p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Pipeline Value</p>
+            </div>
+
+            {/* Hot Leads */}
+            <div className="text-center">
+              <p className="text-3xl font-bold text-red">{dashboardStats.hot}</p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide mt-1">Hot Leads (70+)</p>
+            </div>
           </div>
 
           {/* Dashboard Tab Bar */}
-          <div className="absolute left-4 right-4 top-[276px] z-30 flex gap-2">
+          <div className="absolute left-4 right-4 top-[276px] z-30 flex gap-2 flex-wrap">
             <button
               onClick={() => setDashboardTab('overview')}
               className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
@@ -2095,34 +2194,43 @@ Only respond with the JSON array, no other text.` }
               Overview
             </button>
             <button
-              onClick={() => setDashboardTab('storm-leads')}
+              onClick={() => {
+                if (!requireTier('stormscope', 'Storm Damage Leads')) return
+                setDashboardTab('storm-leads')
+              }}
               className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
                 dashboardTab === 'storm-leads'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
-              }`}
+              }${!canAccess(userRole, 'stormscope') ? ' opacity-60' : ''}`}
             >
-              Storm Damage Leads
+              Storm Leads{!canAccess(userRole, 'stormscope') ? ' 🔒' : ''}
             </button>
             <button
-              onClick={() => setDashboardTab('michael-leads')}
+              onClick={() => {
+                if (!requireTier('michael', 'Michael AI Leads')) return
+                setDashboardTab('michael-leads')
+              }}
               className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
                 dashboardTab === 'michael-leads'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
-              }`}
+              }${!canAccess(userRole, 'michael') ? ' opacity-60' : ''}`}
             >
-              Michael AI Leads
+              Michael AI{!canAccess(userRole, 'michael') ? ' 🔒' : ''}
             </button>
             <button
-              onClick={() => setDashboardTab('historical')}
+              onClick={() => {
+                if (!requireTier('stormscope', 'Historical Weather')) return
+                setDashboardTab('historical')
+              }}
               className={`px-4 py-2 rounded-lg text-sm font-semibold uppercase transition-all ${
                 dashboardTab === 'historical'
                   ? 'bg-cyan/20 text-cyan border border-cyan/30'
                   : 'glass text-gray-300 hover:text-white'
-              }`}
+              }${!canAccess(userRole, 'stormscope') ? ' opacity-60' : ''}`}
             >
-              Historical Weather
+              10yr Hail History{!canAccess(userRole, 'stormscope') ? ' 🔒' : ''}
             </button>
             <button
               onClick={() => setDashboardTab('analytics')}
@@ -2163,18 +2271,19 @@ Only respond with the JSON array, no other text.` }
 
                   <p className="text-4xl font-bold text-cyan">{properties.length}</p>
 
-                  <p className="text-xs text-gray-400">
-                    Active leads across {
-                      Array.from(
-                        new Set(properties.map((p) => p.address.split(',').pop()?.trim() || 'Unknown'))
-                      ).length
-                    } territories
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400">Pipeline value:</span>
+                    <span className="text-xs font-semibold text-green">
+                      ${dashboardStats.pipelineValue >= 1000
+                        ? `${(dashboardStats.pipelineValue / 1000).toFixed(1)}k`
+                        : dashboardStats.pipelineValue.toFixed(0)}
+                    </span>
+                  </div>
 
-                  {/* Mini Sparkline */}
+                  {/* Live Sparkline (7-day daily adds) */}
                   <svg className="w-full h-12" viewBox="0 0 300 40" preserveAspectRatio="none">
                     <polyline
-                      points="0,30 50,28 100,25 150,22 200,20 250,18 300,15"
+                      points={dashboardStats.sparklinePoints}
                       fill="none"
                       stroke="rgb(34, 211, 238)"
                       strokeWidth="2"
@@ -2182,50 +2291,64 @@ Only respond with the JSON array, no other text.` }
                   </svg>
 
                   <div className="flex justify-between text-xs text-gray-400">
-                    <span>+0% vs last month</span>
-                    <span>0 New this week</span>
+                    <span className={dashboardStats.monthTrendPct >= 0 ? 'text-green' : 'text-red'}>
+                      {dashboardStats.monthTrendPct >= 0 ? '+' : ''}{dashboardStats.monthTrendPct}% vs last month
+                    </span>
+                    <span>{dashboardStats.newThisWeek} new this week</span>
                   </div>
                 </div>
 
                 <div className="border-t border-white/5" />
 
-                {/* Source Distribution Card */}
+                {/* Lead Score Distribution Card */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Source Distribution</h3>
-                    <span className="text-xs bg-dark-700/50 px-2 py-1 rounded text-gray-400">Q2 2026</span>
+                    <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Lead Score Distribution</h3>
+                    <span className="text-xs bg-dark-700/50 px-2 py-1 rounded text-gray-400">{properties.length} total</span>
                   </div>
 
-                  {/* Donut Chart */}
-                  <div className="flex justify-center mb-2">
-                    <svg width="100" height="100" viewBox="0 0 100 100">
-                      <circle cx="50" cy="50" r="40" fill="none" stroke="rgb(55, 65, 81)" strokeWidth="8" />
-                    </svg>
-                  </div>
+                  {properties.length === 0 ? (
+                    <p className="text-xs text-gray-500 py-2 text-center">No properties yet — run a Sweep to add leads</p>
+                  ) : (
+                    <>
+                      {/* Stacked bar */}
+                      <div className="flex h-3 rounded overflow-hidden gap-px">
+                        {dashboardStats.hot > 0 && (
+                          <div className="bg-red" style={{ width: `${dashboardStats.hotPct}%` }} title={`Hot: ${dashboardStats.hot}`} />
+                        )}
+                        {dashboardStats.warm > 0 && (
+                          <div className="bg-amber" style={{ width: `${dashboardStats.warmPct}%` }} title={`Warm: ${dashboardStats.warm}`} />
+                        )}
+                        {dashboardStats.cool > 0 && (
+                          <div className="bg-cyan/40" style={{ width: `${dashboardStats.coolPct}%` }} title={`Cool: ${dashboardStats.cool}`} />
+                        )}
+                      </div>
 
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-white">{properties.length}</p>
-                    <p className="text-xs text-gray-400">Total</p>
-                  </div>
-
-                  <div className="space-y-1 text-xs">
-                    <div className="flex justify-between text-gray-400">
-                      <span>GPS Sweep</span>
-                      <span>0%</span>
-                    </div>
-                    <div className="flex justify-between text-gray-400">
-                      <span>Storm Alerts</span>
-                      <span>0%</span>
-                    </div>
-                    <div className="flex justify-between text-gray-400">
-                      <span>Referrals</span>
-                      <span>0%</span>
-                    </div>
-                    <div className="flex justify-between text-gray-400">
-                      <span>Door Knocks</span>
-                      <span>0%</span>
-                    </div>
-                  </div>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-red" />
+                            <span className="text-gray-300">Hot (70+)</span>
+                          </div>
+                          <span className="text-red font-semibold">{dashboardStats.hot} · {dashboardStats.hotPct}%</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-amber" />
+                            <span className="text-gray-300">Warm (40–69)</span>
+                          </div>
+                          <span className="text-amber font-semibold">{dashboardStats.warm} · {dashboardStats.warmPct}%</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-cyan/60" />
+                            <span className="text-gray-300">Cool (&lt;40)</span>
+                          </div>
+                          <span className="text-gray-400 font-semibold">{dashboardStats.cool} · {dashboardStats.coolPct}%</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="border-t border-white/5" />
@@ -2255,11 +2378,9 @@ Only respond with the JSON array, no other text.` }
                         strokeLinecap="round"
                       />
                       <circle
-                        cx={
-                          properties.length > 0
-                            ? 10 + ((properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length / 30) * 100)
-                            : 10
-                        }
+                        cx={dashboardStats.avgRoofAge !== null
+                          ? 10 + (Math.min(dashboardStats.avgRoofAge, 40) / 40) * 100
+                          : 10}
                         cy="70"
                         r="5"
                         fill="rgb(148, 163, 184)"
@@ -2268,13 +2389,11 @@ Only respond with the JSON array, no other text.` }
                   </div>
 
                   <p className="text-2xl font-bold text-center text-white">
-                    {properties.length > 0
-                      ? (
-                        properties.reduce((sum, p) => sum + (p.roof_age_years || 0), 0) / properties.length
-                      ).toFixed(1)
+                    {dashboardStats.avgRoofAge !== null
+                      ? dashboardStats.avgRoofAge.toFixed(1)
                       : '—'}
                   </p>
-                  <p className="text-xs text-gray-400 text-center">Avg roof age (territory)</p>
+                  <p className="text-xs text-gray-400 text-center">Avg roof age (known only)</p>
                 </div>
               </div>
 
@@ -2318,8 +2437,9 @@ Only respond with the JSON array, no other text.` }
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && dashboardSearchQuery.trim()) {
                       if (dashboardSearchMode === 'zip') {
-                        setActiveScreen('territory')
+                        setTerritorySearchQuery(dashboardSearchQuery.trim())
                         setTerritoryFilter('all')
+                        setActiveScreen('territory')
                       } else {
                         setSweepAddress(dashboardSearchQuery)
                         setActiveScreen('sweep')
@@ -2343,9 +2463,10 @@ Only respond with the JSON array, no other text.` }
                     />
                     <button
                       onClick={handleWeatherZipLookup}
-                      className="bg-cyan/20 hover:bg-cyan/30 text-cyan px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+                      disabled={weatherLookupLoading}
+                      className="bg-cyan/20 hover:bg-cyan/30 disabled:opacity-50 text-cyan px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-1"
                     >
-                      Go
+                      {weatherLookupLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Go'}
                     </button>
                   </div>
 
@@ -2368,7 +2489,16 @@ Only respond with the JSON array, no other text.` }
                     <div className="mb-3">
                       <h4 className="text-xs font-semibold text-red mb-2">ACTIVE ALERTS</h4>
                       {dashAlerts.slice(0, 3).map((alert, idx) => (
-                        <div key={idx} className="bg-red/10 border border-red/30 rounded-lg p-2 mb-2 text-xs">
+                        <div
+                          key={idx}
+                          className="bg-red/10 border border-red/30 rounded-lg p-2 mb-2 text-xs cursor-pointer hover:bg-red/20 transition-all"
+                          onClick={() => {
+                            if (requireTier('stormscope', 'Historical Weather')) {
+                              setDashboardTab('historical')
+                            }
+                          }}
+                          title="View historical weather"
+                        >
                           <p className="text-red font-semibold">{alert.event}</p>
                           <p className="text-gray-400 text-[10px]">{alert.description}</p>
                         </div>
@@ -2383,7 +2513,7 @@ Only respond with the JSON array, no other text.` }
                 <div className="border-t border-white/5 pt-3">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Property Hub</h3>
-                    {properties.length > 8 && (
+                    {properties.length >= 8 && (
                       <button
                         onClick={() => setActiveScreen('territory')}
                         className="text-xs text-cyan hover:underline"
@@ -2431,13 +2561,28 @@ Only respond with the JSON array, no other text.` }
             <div className="absolute left-4 right-4 top-[324px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
               <h2 className="text-lg font-semibold text-cyan mb-4">Storm Damage Leads</h2>
               <div className="space-y-3">
-                {properties
-                  .filter(p =>
+                {(() => {
+                  const stormProps = properties.filter(p =>
                     p.storm_history?.stormRiskLevel === 'high' ||
                     p.storm_history?.stormRiskLevel === 'moderate' ||
                     (p.storm_history?.severeHailCount || 0) >= 2
                   )
-                  .map(p => (
+                  if (stormProps.length === 0) {
+                    return (
+                      <div className="text-center py-12 space-y-3">
+                        <AlertTriangle className="w-8 h-8 text-gray-500 mx-auto" />
+                        <p className="text-gray-400 text-sm">No storm-affected properties yet.</p>
+                        <p className="text-gray-500 text-xs">Run a GPS Sweep in a storm zone — storm history is fetched automatically.</p>
+                        <button
+                          onClick={() => setActiveScreen('sweep')}
+                          className="mt-2 bg-cyan/20 hover:bg-cyan/30 text-cyan px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                        >
+                          Run GPS Sweep →
+                        </button>
+                      </div>
+                    )
+                  }
+                  return stormProps.map(p => (
                     <div
                       key={p.id}
                       onClick={() => {
@@ -2478,7 +2623,8 @@ Only respond with the JSON array, no other text.` }
                         </span>
                       </div>
                     </div>
-                  ))}
+                  ))
+                })()}
               </div>
               <div className="text-xs text-gray-500 text-center mt-6 pt-4 border-t border-white/5">Powered by StormScope</div>
             </div>
@@ -2505,9 +2651,10 @@ Only respond with the JSON array, no other text.` }
               {michaelLeads.length === 0 ? (
                 <button
                   onClick={runMichaelLeadEngine}
-                  className="w-full bg-cyan/20 hover:bg-cyan/30 text-cyan px-4 py-2 rounded-lg font-semibold transition-all"
+                  disabled={michaelLeadsLoading}
+                  className="w-full bg-cyan/20 hover:bg-cyan/30 disabled:opacity-50 disabled:cursor-not-allowed text-cyan px-4 py-2 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
                 >
-                  Generate Leads
+                  {michaelLeadsLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing...</> : 'Generate Leads'}
                 </button>
               ) : (
                 <div className="space-y-3">
@@ -2542,10 +2689,19 @@ Only respond with the JSON array, no other text.` }
           {/* HISTORICAL WEATHER TAB */}
           {dashboardTab === 'historical' && (
             <div className="absolute left-4 right-4 top-[324px] bottom-16 glass rounded-lg p-6 overflow-y-auto z-30">
-              <h2 className="text-lg font-semibold text-cyan mb-4">Historical Hail Events (Past Year)</h2>
+              <h2 className="text-lg font-semibold text-cyan mb-1">10-Year Hail History</h2>
+              <p className="text-xs text-gray-500 mb-4">Huntsville, AL HQ area · past 10 years · 25mi radius</p>
 
               {hailEvents.length === 0 ? (
-                <p className="text-gray-400">No hail events recorded</p>
+                <div className="text-center py-12 space-y-2">
+                  {loading ? (
+                    <><Loader2 className="w-8 h-8 text-cyan mx-auto animate-spin" /><p className="text-gray-400 text-sm">Loading NOAA hail history…</p></>
+                  ) : !canAccess(userRole, 'stormscope') ? (
+                    <><AlertTriangle className="w-8 h-8 text-amber mx-auto" /><p className="text-amber text-sm font-semibold">StormScope required</p><p className="text-gray-500 text-xs">Upgrade to Plus or higher to access historical weather data.</p><button onClick={() => setShowUpgradeModal(true)} className="mt-2 text-xs bg-cyan/20 text-cyan px-4 py-2 rounded-lg">View Plans</button></>
+                  ) : (
+                    <><AlertTriangle className="w-8 h-8 text-gray-500 mx-auto" /><p className="text-gray-400 text-sm">No hail events recorded for this area.</p><p className="text-gray-500 text-xs">Data sourced from NOAA SWDI — coverage may vary by region.</p></>
+                  )}
+                </div>
               ) : (
                 <>
                   <div className="grid grid-cols-3 gap-4 mb-6">
@@ -2604,8 +2760,11 @@ Only respond with the JSON array, no other text.` }
                   conversionRate: clients.length > 0 ? (clients.filter(c => c.status === 'complete').length / clients.length * 100) : 0,
                   proposalsSent: proposals.filter(p => p.status === 'sent' || p.status === 'accepted').length,
                   proposalsAccepted: proposals.filter(p => p.status === 'accepted').length,
-                  closeRate: proposals.filter(p => p.status === 'sent' || p.status === 'accepted').length > 0
-                    ? (proposals.filter(p => p.status === 'accepted').length / proposals.filter(p => p.status === 'sent' || p.status === 'accepted').length * 100) : 0,
+                  closeRate: (() => {
+                    const sent = proposals.filter(p => p.status === 'sent' || p.status === 'accepted')
+                    const accepted = sent.filter(p => p.status === 'accepted')
+                    return sent.length > 0 ? (accepted.length / sent.length * 100) : 0
+                  })(),
                   propertiesScanned: properties.length,
                   hotLeads: properties.filter(p => calculateLeadScore(p) >= 70).length,
                 }
@@ -2757,12 +2916,20 @@ Only respond with the JSON array, no other text.` }
                   try {
                     const stored = localStorage.getItem('directive_client_activities')
                     if (stored) {
-                      const parsed = JSON.parse(stored) as Record<string, Array<{ action: string; timestamp: string }>>
-                      Object.entries(parsed).forEach(([clientId, acts]) => {
-                        acts.forEach(a => allActivity.push({ ...a, clientId }))
-                      })
+                      const parsed = JSON.parse(stored)
+                      if (parsed && typeof parsed === 'object') {
+                        Object.entries(parsed as Record<string, unknown>).forEach(([clientId, acts]) => {
+                          if (Array.isArray(acts)) {
+                            acts.forEach((a: Record<string, unknown>) => {
+                              if (a && typeof a.action === 'string' && typeof a.timestamp === 'string') {
+                                allActivity.push({ action: a.action, timestamp: a.timestamp, clientId })
+                              }
+                            })
+                          }
+                        })
+                      }
                     }
-                  } catch { /* ignore */ }
+                  } catch { /* corrupted localStorage — ignore and show empty state */ }
                   allActivity.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
                   if (allActivity.length === 0) {
                     return <p className="text-sm text-gray-400 text-center py-8">No activity yet — client interactions will appear here</p>
@@ -2810,19 +2977,6 @@ Only respond with the JSON array, no other text.` }
                 <Clock className="w-4 h-4 text-gray-400" />
               </button>
               <button
-                onClick={() => setTimelinePlaying(!timelinePlaying)}
-                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
-                  timelinePlaying ? 'bg-cyan/20 text-cyan' : 'bg-dark-700/50 text-gray-400 hover:bg-dark-700'
-                }`}
-                title="Toggle auto-play animation"
-              >
-                {timelinePlaying ? (
-                  <div className="w-1 h-1 bg-cyan rounded-full" />
-                ) : (
-                  <div className="w-1.5 h-1.5 bg-gray-400" />
-                )}
-              </button>
-              <button
                 onClick={() => {
                   setTimelineView('day')
                   setTimelinePlaying(false)
@@ -2833,14 +2987,24 @@ Only respond with the JSON array, no other text.` }
                 <div className="w-1.5 h-1.5 bg-gray-400" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }} />
               </button>
               <button
-                onClick={() => {
-                  handleWeatherZipLookup()
-                  runMichaelLeadEngine()
+                disabled={dashRefreshing}
+                onClick={async () => {
+                  setDashRefreshing(true)
+                  try {
+                    await Promise.all([
+                      handleWeatherZipLookup(),
+                      runMichaelLeadEngine(),
+                    ])
+                  } finally {
+                    setDashRefreshing(false)
+                  }
                 }}
-                className="w-8 h-8 rounded-lg bg-cyan/20 hover:bg-cyan/30 flex items-center justify-center transition-all"
+                className="w-8 h-8 rounded-lg bg-cyan/20 hover:bg-cyan/30 disabled:opacity-50 flex items-center justify-center transition-all"
                 title="Quick refresh all dashboard data"
               >
-                <Zap className="w-4 h-4 text-cyan" />
+                {dashRefreshing
+                  ? <Loader2 className="w-4 h-4 text-cyan animate-spin" />
+                  : <Zap className="w-4 h-4 text-cyan" />}
               </button>
             </div>
           </div>

@@ -143,6 +143,8 @@ interface DimensionsResult {
     epdm: MaterialOption
   }
   flatRoofDrainage: FlatRoofDrainage | null
+  isEstimated?: boolean
+  solarApiStatus?: number | null
 }
 
 function azimuthToCardinal(deg: number): string {
