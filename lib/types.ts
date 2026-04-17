@@ -5,6 +5,7 @@ export interface Property {
   address: string
   lat: number
   lng: number
+  session_id: string | null
   owner_name: string | null
   owner_phone: string | null
   owner_email: string | null
@@ -269,6 +270,95 @@ export interface ProposalLineItem {
   total: number
 }
 
+export interface WorkSession {
+  id: string
+  owner_id?: string
+  name: string
+  zip: string | null
+  city: string | null
+  state: string | null
+  property_count: number
+  client_count: number
+  is_active: boolean
+  last_accessed_at: string
+  created_at: string
+  updated_at?: string
+}
+
+export interface InvoiceLineItem {
+  id: string
+  description: string
+  quantity: number
+  unit_price: number
+  total: number
+}
+
+export interface Invoice {
+  id: string
+  property_id: string | null
+  job_id: string | null
+  client_id: string | null
+  invoice_number: string
+  status: 'draft' | 'sent' | 'paid' | 'overdue' | 'void'
+  issue_date: string
+  due_date: string | null
+  bill_to_name: string | null
+  bill_to_address: string | null
+  line_items: InvoiceLineItem[]
+  subtotal: number
+  tax_rate: number
+  tax_amount: number
+  total: number
+  notes: string
+  created_at: string
+  sent_at: string | null
+  paid_at: string | null
+}
+
+export interface Estimate {
+  id: string
+  property_id: string | null
+  client_id: string | null
+  estimate_number: string
+  status: 'draft' | 'sent' | 'approved' | 'rejected'
+  title: string
+  scope: string
+  subtotal: number
+  tax_rate: number
+  tax_amount: number
+  total: number
+  notes: string
+  created_at: string
+  sent_at: string | null
+}
+
+export interface Contract {
+  id: string
+  property_id: string | null
+  client_id: string | null
+  contract_number: string
+  status: 'draft' | 'sent' | 'signed' | 'voided'
+  homeowner_name: string | null
+  property_address: string | null
+  contract_amount: number
+  signed_at: string | null
+  notes: string
+  terms: string
+  created_at: string
+}
+
+export interface DocumentFile {
+  id: string
+  owner_id?: string
+  document_type: 'proposal' | 'estimate' | 'invoice' | 'contract' | 'property'
+  document_id: string
+  file_name: string
+  file_path: string
+  file_size: number
+  mime_type: string | null
+  created_at: string
+}
+
 export interface Material {
   id: string
   name: string
@@ -289,3 +379,5 @@ export interface ChatMessage {
   timestamp: string
   read: boolean
 }
+
+
