@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { requireUser } from '@/lib/apiAuth'
+import {
+  authorizeResearchJob,
+  buildResearchJobStatusPayload,
+} from '@/lib/researchJobs'
 
 // Fast polling endpoint — reads job status from Supabase
 export const maxDuration = 10
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
@@ -21,20 +19,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'jobId required' }, { status: 400 })
   }
 
-  const { data: job, error } = await supabase
+  const { data: job, error } = await auth.supabase
     .from('research_jobs')
-    .select('id, status, result, error_message, created_at, updated_at')
+    .select('id, owner_id, address, status, result, error_message')
     .eq('id', jobId)
-    .single()
+    .eq('owner_id', auth.user.id)
+    .maybeSingle()
 
-  if (error || !job) {
+  const resolvedJob = await authorizeResearchJob(
+    job,
+    async (ownerId) => ownerId === auth.user.id,
+  )
+
+  if (error || !job || !resolvedJob) {
     return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   }
 
-  return NextResponse.json({
-    jobId: job.id,
-    status: job.status, // 'pending' | 'done' | 'error'
-    data: job.result || null,
-    error: job.error_message || null,
-  })
+  return NextResponse.json(
+    buildResearchJobStatusPayload(job),
+  )
 }

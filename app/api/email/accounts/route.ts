@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
+import { encryptEmailCredential } from '@/lib/emailCredentials'
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
           smtp_port: smtp_port || 587,
           smtp_ssl: smtp_ssl === true ? true : false,
           username,
-          password_enc: password, // In production, encrypt this
+          password_enc: encryptEmailCredential(password),
         },
       ])
       .select('id, label, email_address, created_at')

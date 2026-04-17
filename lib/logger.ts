@@ -10,6 +10,8 @@ type Level = 'info' | 'warn' | 'error'
 
 interface LogEntry {
   ts: string
+  service: string
+  env: string
   level: Level
   route: string
   msg: string
@@ -19,6 +21,8 @@ interface LogEntry {
 function emit(level: Level, route: string, msg: string, meta: Record<string, unknown> = {}) {
   const entry: LogEntry = {
     ts: new Date().toISOString(),
+    service: 'directive-crm',
+    env: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development',
     level,
     route,
     msg,
@@ -31,6 +35,14 @@ function emit(level: Level, route: string, msg: string, meta: Record<string, unk
     console.warn(JSON.stringify(entry))
   } else {
     console.log(JSON.stringify(entry))
+  }
+
+  if (level === 'error' && process.env.OBSERVABILITY_WEBHOOK_URL) {
+    fetch(process.env.OBSERVABILITY_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
+    }).catch(() => { /* best-effort mirror */ })
   }
 }
 

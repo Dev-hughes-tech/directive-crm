@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import Image from 'next/image'
 import { Mail, Lock, Loader2, AlertCircle } from 'lucide-react'
@@ -26,7 +27,7 @@ export default function LoginPage() {
     }, 4000)
 
     supabase.auth.getSession()
-      .then(({ data }) => {
+      .then(({ data }: { data: { session: Session | null } }) => {
         if (cancelled) return
         clearTimeout(timeout)
         if (data.session?.user) {

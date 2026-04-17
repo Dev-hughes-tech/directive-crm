@@ -23,7 +23,6 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // Emit structured log to console so Vercel captures it
     console.error(
       JSON.stringify({
         ts: new Date().toISOString(),
@@ -35,6 +34,21 @@ export class ErrorBoundary extends Component<Props, State> {
         componentStack: info.componentStack?.split('\n').slice(0, 5).join(' | '),
       })
     )
+
+    fetch('/api/observability/error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: 'components/ErrorBoundary',
+        route: typeof window !== 'undefined' ? window.location.pathname : null,
+        message: error.message,
+        metadata: {
+          stack: error.stack,
+          componentStack: info.componentStack,
+        },
+      }),
+      keepalive: true,
+    }).catch(() => {})
   }
 
   handleReset = () => {

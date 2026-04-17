@@ -1,5 +1,6 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { authFetch } from '@/lib/authFetch'
 
 interface DamagePhotoUploadProps {
   propertyId: string
@@ -9,33 +10,60 @@ interface DamagePhotoUploadProps {
   onPhotoSaved?: (photoUrl: string) => void
 }
 
-export default function DamagePhotoUpload({ propertyId, lat, lng, address, onPhotoSaved }: DamagePhotoUploadProps) {
+export default function DamagePhotoUpload({ propertyId, onPhotoSaved }: DamagePhotoUploadProps) {
   const [uploading, setUploading] = useState(false)
   const [uploaded, setUploaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let active = true
+
+    const loadExistingPhotos = async () => {
+      try {
+        const res = await authFetch(`/api/properties/photos?property_id=${encodeURIComponent(propertyId)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (active) {
+          setUploaded(Array.isArray(data.photos) && data.photos.length > 0)
+        }
+      } catch {
+        if (active) setUploaded(false)
+      }
+    }
+
+    setUploaded(false)
+    loadExistingPhotos()
+
+    return () => {
+      active = false
+    }
+  }, [propertyId])
 
   const handleUpload = async (file: File) => {
     setUploading(true)
     setError(null)
 
     try {
-      // For now, store locally as base64 (Street View Publish requires OAuth for full publish)
-      // Save photo reference to property record
-      const reader = new FileReader()
-      reader.onload = async (e) => {
-        const dataUrl = e.target?.result as string
-        // Save to localStorage keyed by propertyId
-        const existing = JSON.parse(localStorage.getItem(`photos_${propertyId}`) || '[]')
-        existing.push({ url: dataUrl, timestamp: new Date().toISOString(), address })
-        localStorage.setItem(`photos_${propertyId}`, JSON.stringify(existing))
-        onPhotoSaved?.(dataUrl)
-        setUploaded(true)
-        setUploading(false)
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('property_id', propertyId)
+
+      const res = await authFetch('/api/properties/photos', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.photo?.url) {
+        throw new Error(data.error || 'Upload failed')
       }
-      reader.readAsDataURL(file)
-    } catch {
-      setError('Upload failed')
+
+      onPhotoSaved?.(data.photo.url)
+      setUploaded(true)
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Upload failed')
+    } finally {
       setUploading(false)
     }
   }

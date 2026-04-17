@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { generateId } from '@/lib/uuid'
 import {
   Search,
@@ -55,11 +56,78 @@ import {
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { signOut } from '@/lib/authHooks'
-import type { WeatherCurrent, WeatherAlert, ForecastPeriod, Screen, Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job, JobStage, JobPhoto, InsuranceClaim, PhotoCategory } from '@/lib/types'
+import type {
+  WeatherCurrent,
+  WeatherAlert,
+  ForecastPeriod,
+  Screen,
+  Property,
+  Client,
+  Proposal,
+  ProposalLineItem,
+  Material,
+  ChatMessage,
+  Job,
+  JobStage,
+  JobPhoto,
+  InsuranceClaim,
+  PhotoCategory,
+  WorkSession,
+  Invoice,
+  InvoiceLineItem,
+  Estimate,
+  Contract,
+} from '@/lib/types'
 import { JOB_STAGES } from '@/lib/types'
 import type { MapMarker } from '@/components/map/MapView'
-import { getClients, saveClient, deleteClient, saveActivity, getProposals, saveProposal, deleteProposal, getMaterials, saveMaterial, deleteMaterial, getChatMessages, saveChatMessage, getProperties, saveProperty, deleteProperty, markMessagesRead, getJobs, saveJob, deleteJob, getUserProfile, getCompanySettings, saveCompanySettings } from '@/lib/storage'
+import {
+  getClients,
+  saveClient,
+  deleteClient,
+  saveActivity,
+  getProposals,
+  saveProposal,
+  deleteProposal,
+  getMaterials,
+  saveMaterial,
+  deleteMaterial,
+  getChatMessages,
+  saveChatMessage,
+  getProperties,
+  saveProperty,
+  deleteProperty,
+  markMessagesRead,
+  getJobs,
+  saveJob,
+  deleteJob,
+  getUserProfile,
+  getCompanySettings,
+  saveCompanySettings,
+  getSessions,
+  createSession,
+  activateSession,
+  renameSession,
+  copySession,
+  closeSession,
+  getActiveSession,
+  updateSessionCounts,
+  getInvoices,
+  saveInvoice,
+  deleteInvoice,
+  generateInvoiceNumber,
+  getEstimates,
+  saveEstimate,
+  deleteEstimate,
+  generateEstimateNumber,
+  getContracts,
+  saveContract,
+  deleteContract,
+  generateContractNumber,
+} from '@/lib/storage'
+import { resolveSettledSection } from '@/lib/dashboardHydration'
+import { countSevereHailEvents, SEVERE_HAIL_THRESHOLD_INCHES } from '@/lib/hailEvents'
 import { sessionCache } from '@/lib/sessionCache'
+import { isDurableStorageSuccess } from '@/lib/storageResults'
 import type { UserProfile } from '@/lib/storage'
 import { canAccess, getTierConfig, TIER_DESCRIPTIONS } from '@/lib/tiers'
 import type { UserRole } from '@/lib/tiers'
@@ -77,6 +145,10 @@ import StreetView from '@/components/StreetView'
 import AerialView from '@/components/AerialView'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { PropertyCard } from '@/components/PropertyCard'
+import { InvoiceEditor } from '@/components/InvoiceEditor'
+import { ProposalEditor } from '@/components/ProposalEditor'
+import { SmartEstimateEditor } from '@/components/SmartEstimateEditor'
+import { ContractEditor } from '@/components/ContractEditor'
 import { calculateLeadScore, getScoreBadgeColor, logClientActivity } from '@/lib/scoring'
 import KanbanBoard from '@/components/KanbanBoard'
 
@@ -255,9 +327,13 @@ export default function Dashboard() {
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null)
   const [editingProposal, setEditingProposal] = useState(false)
+  const [showProposalEditor, setShowProposalEditor] = useState(false)
   const [proposalMapMode, setProposalMapMode] = useState<'place' | 'streetview' | 'satellite'>('place')
 
   // Smart Estimates screen state
+  const [estimates, setEstimates] = useState<Estimate[]>([])
+  const [selectedEstimate, setSelectedEstimate] = useState<Estimate | null>(null)
+  const [showEstimateEditor, setShowEstimateEditor] = useState(false)
   const [estimateLoading, setEstimateLoading] = useState(false)
   const [estimateText, setEstimateText] = useState('')
   const [estimateError, setEstimateError] = useState<string | null>(null)
@@ -314,6 +390,30 @@ export default function Dashboard() {
   const [photoCategory, setPhotoCategory] = useState<PhotoCategory>('overall_roof')
   const [jobViewMode, setJobViewMode] = useState<'list' | 'board'>('list')
   const photoInputRef = useRef<HTMLInputElement>(null)
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+  const [showInvoiceEditor, setShowInvoiceEditor] = useState(false)
+  const [showInvoiceList, setShowInvoiceList] = useState(false)
+  const [contracts, setContracts] = useState<Contract[]>([])
+  const [selectedContract, setSelectedContract] = useState<Contract | null>(null)
+  const [showContractEditor, setShowContractEditor] = useState(false)
+  const [showContractList, setShowContractList] = useState(false)
+
+  const [showJobsMenu, setShowJobsMenu] = useState(false)
+  const jobsMenuRef = useRef<HTMLDivElement>(null)
+
+  const [currentSession, setCurrentSession] = useState<WorkSession | null>(null)
+  const [sessions, setSessions] = useState<WorkSession[]>([])
+  const [showSessionDropdown, setShowSessionDropdown] = useState(false)
+  const [sessionRenaming, setSessionRenaming] = useState(false)
+  const [sessionRenameValue, setSessionRenameValue] = useState('')
+  const [sessionNaming, setSessionNaming] = useState(false)
+  const [sessionNameValue, setSessionNameValue] = useState('')
+  const [sessionSavingAs, setSessionSavingAs] = useState(false)
+  const [sessionSaveAsValue, setSessionSaveAsValue] = useState('')
+  const [sessionCopying, setSessionCopying] = useState(false)
+  const [sessionCopyValue, setSessionCopyValue] = useState('')
+  const sessionDropdownRef = useRef<HTMLDivElement>(null)
 
   // Team chat state
   const [teamMessages, setTeamMessages] = useState<ChatMessage[]>([])
@@ -434,6 +534,335 @@ export default function Dashboard() {
     return result
   }
 
+  const clearSessionMode = () => {
+    setSessionNaming(false)
+    setSessionRenaming(false)
+    setSessionSavingAs(false)
+    setSessionCopying(false)
+    setSessionNameValue('')
+    setSessionRenameValue('')
+    setSessionSaveAsValue('')
+    setSessionCopyValue('')
+  }
+
+  const refreshSessionState = useCallback(async () => {
+    const [loadedSessions, active] = await Promise.all([getSessions(), getActiveSession()])
+    setSessions(loadedSessions)
+    setCurrentSession(active)
+  }, [])
+
+  const ensureActiveSession = useCallback(async () => {
+    if (currentSession) return currentSession
+    const created = await createSession(`Field Session ${new Date().toLocaleDateString()}`)
+    if (!created) return null
+    setCurrentSession(created)
+    setSessions((prev) => [created, ...prev.filter((session) => session.id !== created.id)])
+    return created
+  }, [currentSession])
+
+  const upsertProposalState = (proposal: Proposal) => {
+    setProposals((prev) => {
+      const exists = prev.some((entry) => entry.id === proposal.id)
+      return exists ? prev.map((entry) => (entry.id === proposal.id ? proposal : entry)) : [proposal, ...prev]
+    })
+  }
+
+  const upsertEstimateState = (estimate: Estimate) => {
+    setEstimates((prev) => {
+      const exists = prev.some((entry) => entry.id === estimate.id)
+      return exists ? prev.map((entry) => (entry.id === estimate.id ? estimate : entry)) : [estimate, ...prev]
+    })
+  }
+
+  const upsertInvoiceState = (invoice: Invoice) => {
+    setInvoices((prev) => {
+      const exists = prev.some((entry) => entry.id === invoice.id)
+      return exists ? prev.map((entry) => (entry.id === invoice.id ? invoice : entry)) : [invoice, ...prev]
+    })
+  }
+
+  const upsertContractState = (contract: Contract) => {
+    setContracts((prev) => {
+      const exists = prev.some((entry) => entry.id === contract.id)
+      return exists ? prev.map((entry) => (entry.id === contract.id ? contract : entry)) : [contract, ...prev]
+    })
+  }
+
+  const handleNewProposalFromMenu = () => {
+    const property = selectedProperty ?? properties[0] ?? null
+    if (!property) {
+      addNotification('Sweep or save a property first to start a proposal', 'info')
+      return
+    }
+    const client = clients.find((entry) => entry.property_id === property.id)
+    const proposal: Proposal = {
+      id: generateId(),
+      client_id: client?.id || '',
+      property_id: property.id,
+      status: 'draft',
+      line_items: [],
+      total: 0,
+      notes: '',
+      created_at: new Date().toISOString(),
+      sent_at: null,
+    }
+    setSelectedProposal(proposal)
+    setShowProposalEditor(true)
+    setShowJobsMenu(false)
+  }
+
+  const handleOpenProposalEditor = (proposal: Proposal) => {
+    setSelectedProposal(proposal)
+    setShowProposalEditor(true)
+    setShowJobsMenu(false)
+  }
+
+  const handleSaveProposalEditor = async () => {
+    if (!selectedProposal) return
+    upsertProposalState(selectedProposal)
+    const result = await persist(saveProposal, selectedProposal, 'proposal')
+    if (isDurableStorageSuccess(result)) addNotification('Proposal saved', 'success')
+    setShowProposalEditor(false)
+  }
+
+  const handleDeleteProposalEditor = async () => {
+    if (!selectedProposal) return
+    setProposals((prev) => prev.filter((proposal) => proposal.id !== selectedProposal.id))
+    await deleteProposal(selectedProposal.id)
+    addNotification('Proposal deleted', 'info')
+    setSelectedProposal(null)
+    setShowProposalEditor(false)
+  }
+
+  const handleNewEstimate = () => {
+    const proposal = selectedProposal ?? proposals.find((entry) => entry.status !== 'draft') ?? null
+    const property = proposal ? properties.find((entry) => entry.id === proposal.property_id) : properties[0]
+    if (!property) {
+      addNotification('Create a property first to start an estimate', 'info')
+      return
+    }
+    const client = clients.find((entry) => entry.property_id === property.id)
+    const estimate: Estimate = {
+      id: generateId(),
+      property_id: property.id,
+      client_id: client?.id ?? null,
+      estimate_number: generateEstimateNumber(),
+      status: 'draft',
+      title: `Estimate for ${property.address}`,
+      scope: '',
+      subtotal: 0,
+      tax_rate: parseFloat(companySettings.tax_rate || '0') / 100,
+      tax_amount: 0,
+      total: 0,
+      notes: '',
+      created_at: new Date().toISOString(),
+      sent_at: null,
+    }
+    setSelectedEstimate(estimate)
+    setShowEstimateEditor(true)
+    setShowJobsMenu(false)
+  }
+
+  const handleOpenEstimate = (estimate: Estimate) => {
+    setSelectedEstimate(estimate)
+    setShowEstimateEditor(true)
+    setShowJobsMenu(false)
+  }
+
+  const handleSaveEstimate = async () => {
+    if (!selectedEstimate) return
+    upsertEstimateState(selectedEstimate)
+    const result = await persist(saveEstimate, selectedEstimate, 'estimate')
+    if (isDurableStorageSuccess(result)) addNotification('Estimate saved', 'success')
+    setShowEstimateEditor(false)
+  }
+
+  const handleDeleteEstimate = async () => {
+    if (!selectedEstimate) return
+    setEstimates((prev) => prev.filter((estimate) => estimate.id !== selectedEstimate.id))
+    await deleteEstimate(selectedEstimate.id)
+    addNotification('Estimate deleted', 'info')
+    setSelectedEstimate(null)
+    setShowEstimateEditor(false)
+  }
+
+  const handleNewInvoice = () => {
+    const job = selectedJob ?? jobs[0] ?? null
+    const property = job ? properties.find((entry) => entry.id === job.property_id) : properties[0]
+    const client = property ? clients.find((entry) => entry.property_id === property.id) : null
+    const invoice: Invoice = {
+      id: generateId(),
+      property_id: property?.id ?? null,
+      job_id: job?.id ?? null,
+      client_id: client?.id ?? null,
+      invoice_number: generateInvoiceNumber(),
+      status: 'draft',
+      issue_date: new Date().toISOString().slice(0, 10),
+      due_date: null,
+      bill_to_name: property?.owner_name ?? null,
+      bill_to_address: property?.address ?? null,
+      line_items: [],
+      subtotal: 0,
+      tax_rate: parseFloat(companySettings.tax_rate || '0') / 100,
+      tax_amount: 0,
+      total: 0,
+      notes: '',
+      created_at: new Date().toISOString(),
+      sent_at: null,
+      paid_at: null,
+    }
+    setSelectedInvoice(invoice)
+    setShowInvoiceEditor(true)
+    setShowInvoiceList(false)
+    setShowJobsMenu(false)
+  }
+
+  const handleEditInvoice = (invoice: Invoice) => {
+    setSelectedInvoice(invoice)
+    setShowInvoiceEditor(true)
+    setShowInvoiceList(false)
+    setShowJobsMenu(false)
+  }
+
+  const handleSaveInvoice = async () => {
+    if (!selectedInvoice) return
+    upsertInvoiceState(selectedInvoice)
+    const result = await persist(saveInvoice, selectedInvoice, 'invoice')
+    if (isDurableStorageSuccess(result)) addNotification('Invoice saved', 'success')
+    setShowInvoiceEditor(false)
+  }
+
+  const handleDeleteInvoice = async () => {
+    if (!selectedInvoice) return
+    setInvoices((prev) => prev.filter((invoice) => invoice.id !== selectedInvoice.id))
+    await deleteInvoice(selectedInvoice.id)
+    addNotification('Invoice deleted', 'info')
+    setSelectedInvoice(null)
+    setShowInvoiceEditor(false)
+  }
+
+  const handlePrintInvoice = () => {
+    if (!selectedInvoice) return
+    window.print()
+  }
+
+  const handleNewContract = () => {
+    const property = selectedProperty ?? properties[0] ?? null
+    const client = property ? clients.find((entry) => entry.property_id === property.id) : null
+    if (!property) {
+      addNotification('Create a property first to start a contract', 'info')
+      return
+    }
+    const contract: Contract = {
+      id: generateId(),
+      property_id: property.id,
+      client_id: client?.id ?? null,
+      contract_number: generateContractNumber(),
+      status: 'draft',
+      homeowner_name: property.owner_name,
+      property_address: property.address,
+      contract_amount: 0,
+      signed_at: null,
+      notes: '',
+      terms: '',
+      created_at: new Date().toISOString(),
+    }
+    setSelectedContract(contract)
+    setShowContractEditor(true)
+    setShowContractList(false)
+    setShowJobsMenu(false)
+  }
+
+  const handleOpenContract = (contract: Contract) => {
+    setSelectedContract(contract)
+    setShowContractEditor(true)
+    setShowContractList(false)
+    setShowJobsMenu(false)
+  }
+
+  const handleSaveContract = async () => {
+    if (!selectedContract) return
+    upsertContractState(selectedContract)
+    const result = await persist(saveContract, selectedContract, 'contract')
+    if (isDurableStorageSuccess(result)) addNotification('Contract saved', 'success')
+    setShowContractEditor(false)
+  }
+
+  const handleDeleteContract = async () => {
+    if (!selectedContract) return
+    setContracts((prev) => prev.filter((contract) => contract.id !== selectedContract.id))
+    await deleteContract(selectedContract.id)
+    addNotification('Contract deleted', 'info')
+    setSelectedContract(null)
+    setShowContractEditor(false)
+  }
+
+  const handleStartNewSession = () => {
+    clearSessionMode()
+    setSessionNaming(true)
+    setShowSessionDropdown(true)
+  }
+
+  const handleCommitSessionMode = async () => {
+    if (sessionNaming) {
+      const name = sessionNameValue.trim()
+      if (!name) return
+      const created = await createSession(name)
+      if (created) {
+        addNotification(`Session created: ${created.name}`, 'success')
+        await refreshSessionState()
+      }
+    } else if (sessionRenaming && currentSession) {
+      const name = sessionRenameValue.trim()
+      if (!name) return
+      const result = await renameSession(currentSession.id, name)
+      if (result.ok) {
+        addNotification('Session renamed', 'success')
+        await refreshSessionState()
+      }
+    } else if (sessionSavingAs && currentSession) {
+      const name = sessionSaveAsValue.trim()
+      if (!name) return
+      const created = await createSession(name, {
+        zip: currentSession.zip,
+        city: currentSession.city,
+        state: currentSession.state,
+      })
+      if (created) {
+        addNotification(`Saved as new session: ${created.name}`, 'success')
+        await refreshSessionState()
+      }
+    } else if (sessionCopying && currentSession) {
+      const name = sessionCopyValue.trim() || `${currentSession.name} Copy`
+      const copied = await copySession(currentSession.id, name)
+      if (copied) {
+        addNotification(`Session copied: ${copied.name}`, 'success')
+        await refreshSessionState()
+      }
+    }
+
+    clearSessionMode()
+    setShowSessionDropdown(false)
+  }
+
+  const handleActivateStoredSession = async (session: WorkSession) => {
+    const result = await activateSession(session.id)
+    if (!result.ok) return
+    await refreshSessionState()
+    setShowSessionDropdown(false)
+    addNotification(`Resumed session: ${session.name}`, 'success')
+  }
+
+  const handleCloseCurrentSession = async () => {
+    if (!currentSession) return
+    const result = await closeSession(currentSession.id)
+    if (!result.ok) return
+    await refreshSessionState()
+    clearSessionMode()
+    setShowSessionDropdown(false)
+    addNotification('Session closed', 'info')
+  }
+
   // Fetch profile via server API (bypasses RLS) — 6s timeout so auth never hangs
   const fetchProfileServer = async (userId: string) => {
     try {
@@ -520,7 +949,7 @@ export default function Dashboard() {
     // Safety net: never let the spinner show forever — force-clear after 10s
     const authTimeout = setTimeout(() => setAuthLoading(false), 10_000)
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: Session | null } }) => {
       clearTimeout(authTimeout)
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email })
@@ -534,7 +963,7 @@ export default function Dashboard() {
       }
       setAuthLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email })
         await fetchProfileServer(session.user.id)
@@ -656,20 +1085,67 @@ export default function Dashboard() {
       setDataLoading(true)
       setDashboardLoadError(false)
       try {
-        const [propsData, clientsData, proposalsData, materialsData, messagesData, jobsData] = await Promise.all([
+        const [
+          propsResult,
+          clientsResult,
+          proposalsResult,
+          materialsResult,
+          messagesResult,
+          jobsResult,
+          invoicesResult,
+          estimatesResult,
+          contractsResult,
+          sessionsResult,
+          activeSessionResult,
+        ] = await Promise.allSettled([
           getProperties(),
           getClients(),
           getProposals(),
           getMaterials(),
           getChatMessages('general'),
           getJobs(),
+          getInvoices(),
+          getEstimates(),
+          getContracts(),
+          getSessions(),
+          getActiveSession(),
         ])
-        setProperties(propsData)
-        setClients(clientsData)
-        setProposals(proposalsData)
-        setMaterials(materialsData)
-        setTeamMessages(messagesData)
-        setJobs(jobsData)
+        const propertiesSection = resolveSettledSection(propsResult, [] as Property[])
+        const clientsSection = resolveSettledSection(clientsResult, [] as Client[])
+        const proposalsSection = resolveSettledSection(proposalsResult, [] as Proposal[])
+        const materialsSection = resolveSettledSection(materialsResult, [] as Material[])
+        const messagesSection = resolveSettledSection(messagesResult, [] as ChatMessage[])
+        const jobsSection = resolveSettledSection(jobsResult, [] as Job[])
+        const invoicesSection = resolveSettledSection(invoicesResult, [] as Invoice[])
+        const estimatesSection = resolveSettledSection(estimatesResult, [] as Estimate[])
+        const contractsSection = resolveSettledSection(contractsResult, [] as Contract[])
+        const sessionsSection = resolveSettledSection(sessionsResult, [] as WorkSession[])
+        const activeSessionSection = resolveSettledSection(activeSessionResult, null as WorkSession | null)
+
+        setProperties(propertiesSection.value)
+        setClients(clientsSection.value)
+        setProposals(proposalsSection.value)
+        setMaterials(materialsSection.value)
+        setTeamMessages(messagesSection.value)
+        setJobs(jobsSection.value)
+        setInvoices(invoicesSection.value)
+        setEstimates(estimatesSection.value)
+        setContracts(contractsSection.value)
+        setSessions(sessionsSection.value)
+        setCurrentSession(activeSessionSection.value)
+        setDashboardLoadError(
+          propertiesSection.failed ||
+          clientsSection.failed ||
+          proposalsSection.failed ||
+          materialsSection.failed ||
+          messagesSection.failed ||
+          jobsSection.failed ||
+          invoicesSection.failed ||
+          estimatesSection.failed ||
+          contractsSection.failed ||
+          sessionsSection.failed ||
+          activeSessionSection.failed,
+        )
       } catch {
         setDashboardLoadError(true)
       } finally {
@@ -678,6 +1154,37 @@ export default function Dashboard() {
     }
     loadData()
   }, [])
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (jobsMenuRef.current && !jobsMenuRef.current.contains(target)) {
+        setShowJobsMenu(false)
+      }
+      if (sessionDropdownRef.current && !sessionDropdownRef.current.contains(target)) {
+        setShowSessionDropdown(false)
+        clearSessionMode()
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [])
+
+  useEffect(() => {
+    if (!user?.id) return
+    void refreshSessionState()
+  }, [refreshSessionState, user?.id])
+
+  useEffect(() => {
+    if (!currentSession) return
+    const propertyCount = properties.filter((property) => property.session_id === currentSession.id).length
+    const sessionPropertyIds = new Set(
+      properties.filter((property) => property.session_id === currentSession.id).map((property) => property.id)
+    )
+    const clientCount = clients.filter((client) => sessionPropertyIds.has(client.property_id)).length
+    void updateSessionCounts(currentSession.id, propertyCount, clientCount)
+  }, [clients, currentSession, properties])
 
   // Fetch weather data on mount (session-cached — no re-fetch on screen switches)
   useEffect(() => {
@@ -875,12 +1382,14 @@ export default function Dashboard() {
   // Add commercial place as lead
   const handleAddCommercialLead = async (place: { id: string; name: string | null; address: string | null; lat: number | null; lng: number | null; phone: string | null }) => {
     if (!place.lat || !place.lng) return
+    const session = await ensureActiveSession()
 
     const newProperty: Property = {
       id: `prop_${generateId()}`,
       address: place.address || '',
       lat: place.lat,
       lng: place.lng,
+      session_id: session?.id ?? null,
       owner_name: null,
       owner_phone: place.phone || null,
       owner_email: null,
@@ -892,7 +1401,7 @@ export default function Dashboard() {
       last_sale_price: null,
       county: null,
       parcel_id: null,
-      permit_count: 0,
+      permit_count: null,
       permit_last_date: null,
       flags: ['commercial'],
       sources: { 'Google Places': place.name || 'Commercial Property' },
@@ -913,8 +1422,23 @@ export default function Dashboard() {
 
     const updated = [...properties, newProperty]
     setProperties(updated)
-    await persist(saveProperty, newProperty, 'property')
-    addNotification(`Property saved: ${newProperty.address}`, 'success')
+    const result = await persist(saveProperty, newProperty, 'property')
+    if (isDurableStorageSuccess(result)) {
+      addNotification(`Property saved: ${newProperty.address}`, 'success')
+    }
+    if (!clients.some((client) => client.property_id === newProperty.id)) {
+      const newClient: Client = {
+        id: generateId(),
+        property_id: newProperty.id,
+        status: 'new_lead',
+        notes: '',
+        last_contact: null,
+        assigned_to: null,
+        created_at: new Date().toISOString(),
+      }
+      setClients((prev) => [newClient, ...prev])
+      await persist(saveClient, newClient, 'client')
+    }
     setCommercialResults(commercialResults.filter(p => p.id !== place.id))
   }
 
@@ -954,12 +1478,14 @@ export default function Dashboard() {
   // Add residential place as lead
   const handleAddResidentialLead = async (place: { id: string; name: string | null; address: string | null; lat: number | null; lng: number | null; phone: string | null }) => {
     if (!place.lat || !place.lng) return
+    const session = await ensureActiveSession()
 
     const newProperty: Property = {
       id: `prop_${generateId()}`,
       address: place.address || '',
       lat: place.lat,
       lng: place.lng,
+      session_id: session?.id ?? null,
       owner_name: null,
       owner_phone: place.phone || null,
       owner_email: null,
@@ -971,7 +1497,7 @@ export default function Dashboard() {
       last_sale_price: null,
       county: null,
       parcel_id: null,
-      permit_count: 0,
+      permit_count: null,
       permit_last_date: null,
       flags: ['residential'],
       sources: { 'Google Places': place.name || 'Residential Property' },
@@ -992,8 +1518,23 @@ export default function Dashboard() {
 
     const updated = [...properties, newProperty]
     setProperties(updated)
-    await persist(saveProperty, newProperty, 'property')
-    addNotification(`Property saved: ${newProperty.address}`, 'success')
+    const result = await persist(saveProperty, newProperty, 'property')
+    if (isDurableStorageSuccess(result)) {
+      addNotification(`Property saved: ${newProperty.address}`, 'success')
+    }
+    if (!clients.some((client) => client.property_id === newProperty.id)) {
+      const newClient: Client = {
+        id: generateId(),
+        property_id: newProperty.id,
+        status: 'new_lead',
+        notes: '',
+        last_contact: null,
+        assigned_to: null,
+        created_at: new Date().toISOString(),
+      }
+      setClients((prev) => [newClient, ...prev])
+      await persist(saveClient, newClient, 'client')
+    }
     setResidentialResults(residentialResults.filter(p => p.id !== place.id))
   }
 
@@ -1109,6 +1650,7 @@ export default function Dashboard() {
         address: display_name || addrToUse,
         lat,
         lng,
+        session_id: null,
         owner_name: (data.ownerName as string) || null,
         owner_phone: (data.ownerPhone as string) || null,
         owner_email: (data.ownerEmail as string) || null,
@@ -1269,12 +1811,12 @@ export default function Dashboard() {
       }
 
       // ── Comprehensive risk from ALL event types ──────────────────────────
-      const hailCount = hailData.length
-      const severeHail = hailData.filter((e: any) => e.size && e.size >= 2.0).length
+      const hailCount = hwelResult?.summary?.hailEvents ?? hailData.length
+      const severeHail = hwelResult?.summary?.severeHailEvents ?? countSevereHailEvents(hailData, (event: any) => event.size)
       const tornadoCount = hwelResult?.summary?.tornadoEvents ?? 0
       const windCount   = hwelResult?.summary?.windEvents   ?? 0
       const mesoCount   = hwelResult?.summary?.mesocycloneEvents ?? 0
-      const totalEvents = hailCount + tornadoCount + windCount + mesoCount
+      const totalEvents = hwelResult?.summary?.totalEvents ?? (hailCount + tornadoCount + windCount + mesoCount)
 
       let level: 'High' | 'Moderate' | 'Low'
       if (tornadoCount >= 2 || severeHail >= 3 || totalEvents >= 20 || hailCount >= 15) level = 'High'
@@ -1309,14 +1851,15 @@ export default function Dashboard() {
 
     // HAIL zone
     if (hailData.length >= 3) {
-      const severeCount = hailData.filter((e: any) => e.size && e.size >= 2.0).length
+      const hailCount = summary.hailEvents ?? hailData.length
+      const severeCount = summary.severeHailEvents ?? countSevereHailEvents(hailData, (event: any) => event.size)
       newZones.push({
         zip: `${baseZip}-HAIL`, city: baseCity,
         zoneType: 'hail', autoGenerated: true,
-        riskLevel: hailData.length >= 15 || severeCount >= 3 ? 'Critical' : hailData.length >= 8 ? 'High' : 'Moderate',
-        hailCount: hailData.length, tornadoCount: 0, windCount: 0, totalEvents: hailData.length,
+        riskLevel: hailCount >= 15 || severeCount >= 3 ? 'Critical' : hailCount >= 8 ? 'High' : 'Moderate',
+        hailCount, tornadoCount: 0, windCount: 0, totalEvents: hailCount,
         lat, lng, addedAt: new Date().toISOString(),
-        description: `${hailData.length} hail events · ${severeCount} severe (2"+) · Max ${summary.maxHailSize?.toFixed(1) ?? '?'}"`,
+        description: `${hailCount} hail events · ${severeCount} severe (${SEVERE_HAIL_THRESHOLD_INCHES}"+) · Max ${summary.maxHailSize?.toFixed(1) ?? '?'}"`,
       })
     }
 
@@ -1425,10 +1968,30 @@ export default function Dashboard() {
       setSweepAddress('')
       return
     }
-    const updated = [...properties, sweepResult]
+    const session = await ensureActiveSession()
+    const savedSweep: Property = {
+      ...sweepResult,
+      session_id: session?.id ?? sweepResult.session_id,
+    }
+    const updated = [...properties, savedSweep]
     setProperties(updated)
-    await persist(saveProperty, sweepResult, 'property')
-    addNotification(`Property saved: ${sweepResult.address}`, 'success')
+    const result = await persist(saveProperty, savedSweep, 'property')
+    if (isDurableStorageSuccess(result)) {
+      addNotification(`Property saved: ${savedSweep.address}`, 'success')
+    }
+    if (!clients.some((client) => client.property_id === savedSweep.id)) {
+      const newClient: Client = {
+        id: generateId(),
+        property_id: savedSweep.id,
+        status: 'new_lead',
+        notes: '',
+        last_contact: null,
+        assigned_to: null,
+        created_at: new Date().toISOString(),
+      }
+      setClients((prev) => [newClient, ...prev])
+      await persist(saveClient, newClient, 'client')
+    }
     setSweepResult(null)
     setSweepAddress('')
   }
@@ -1798,8 +2361,14 @@ export default function Dashboard() {
   }
 
   if (!user) {
-    router.push('/login')
-    return null
+    return (
+      <div className="relative w-screen h-screen overflow-hidden bg-dark flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 text-cyan animate-spin mx-auto mb-4" />
+          <p className="text-gray-400 text-sm">Loading...</p>
+        </div>
+      </div>
+    )
   }
 
   // Mobile layout
@@ -2024,11 +2593,307 @@ export default function Dashboard() {
               <div className="w-2.5 h-2.5 bg-green rounded-full animate-pulse" />
               <span className="text-xs font-semibold text-green uppercase tracking-wide">Live</span>
             </div>
+
+            {/* Jobs Menu */}
+            <div className="relative" ref={jobsMenuRef}>
+              <button
+                onClick={() => setShowJobsMenu((value) => !value)}
+                className={`flex items-center gap-1.5 bg-dark-700/50 rounded-full px-3 py-1.5 text-xs font-medium transition-all ${showJobsMenu ? 'bg-dark-700 text-white' : 'text-gray-300 hover:text-white hover:bg-dark-700'}`}
+              >
+                <Briefcase className="w-3 h-3 text-cyan flex-shrink-0" />
+                Jobs
+                <ChevronDown className={`w-3 h-3 text-gray-500 flex-shrink-0 transition-transform ${showJobsMenu ? 'rotate-180' : ''}`} />
+              </button>
+              {showJobsMenu && (
+                <div className="absolute right-0 top-10 w-72 glass rounded-lg border border-white/10 z-50 shadow-xl overflow-hidden">
+                  <div className="px-3 py-2 border-b border-white/10">
+                    <p className="text-xs font-bold text-white uppercase tracking-wide">Jobs & Documents</p>
+                    <p className="text-[10px] text-gray-600 mt-0.5">{jobs.length} jobs · {proposals.length} proposals · {invoices.length} invoices</p>
+                  </div>
+
+                  <div className="py-1">
+                    <p className="px-3 pt-1.5 pb-0.5 text-[10px] font-bold text-gray-600 uppercase tracking-wide">Proposals</p>
+                    <button
+                      onClick={handleNewProposalFromMenu}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-cyan" /> New Proposal
+                    </button>
+                    <button
+                      onClick={() => { setActiveScreen('proposals'); setShowJobsMenu(false) }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <div className="flex items-center gap-2.5"><FileText className="w-3.5 h-3.5 text-gray-500" /> All Proposals</div>
+                      <span className="text-gray-600 text-[10px]">{proposals.length}</span>
+                    </button>
+                    {proposals.slice(0, 3).map((proposal) => {
+                      const property = properties.find((entry) => entry.id === proposal.property_id)
+                      return (
+                        <button
+                          key={proposal.id}
+                          onClick={() => handleOpenProposalEditor(proposal)}
+                          className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] text-gray-400 hover:text-white hover:bg-white/5 transition-all text-left pl-8"
+                        >
+                          <span className="truncate">{property?.address || 'Unknown'}</span>
+                          <span className={`flex-shrink-0 ml-2 text-[9px] font-bold uppercase ${proposal.status === 'accepted' ? 'text-green' : proposal.status === 'rejected' ? 'text-red' : proposal.status === 'sent' ? 'text-cyan' : 'text-gray-600'}`}>{proposal.status}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="py-1 border-t border-white/5">
+                    <p className="px-3 pt-1.5 pb-0.5 text-[10px] font-bold text-gray-600 uppercase tracking-wide">Smart Estimates</p>
+                    <button
+                      onClick={handleNewEstimate}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-cyan" /> New Estimate
+                    </button>
+                    <button
+                      onClick={() => { setActiveScreen('estimates'); setShowJobsMenu(false) }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <div className="flex items-center gap-2.5"><Calculator className="w-3.5 h-3.5 text-gray-500" /> All Estimates</div>
+                      <span className="text-gray-600 text-[10px]">{estimates.length}</span>
+                    </button>
+                    {estimates.slice(0, 2).map((estimate) => {
+                      const property = properties.find((entry) => entry.id === estimate.property_id)
+                      return (
+                        <button
+                          key={estimate.id}
+                          onClick={() => handleOpenEstimate(estimate)}
+                          className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] text-gray-400 hover:text-white hover:bg-white/5 transition-all text-left pl-8"
+                        >
+                          <span className="truncate">{estimate.estimate_number} — {property?.address || 'Unknown'}</span>
+                          <span className={`flex-shrink-0 ml-2 text-[9px] font-bold uppercase ${estimate.status === 'approved' ? 'text-green' : estimate.status === 'rejected' ? 'text-red' : estimate.status === 'sent' ? 'text-cyan' : 'text-gray-600'}`}>{estimate.status}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="py-1 border-t border-white/5">
+                    <p className="px-3 pt-1.5 pb-0.5 text-[10px] font-bold text-gray-600 uppercase tracking-wide">Invoices</p>
+                    <button
+                      onClick={handleNewInvoice}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-cyan" /> New Invoice
+                    </button>
+                    <button
+                      onClick={() => { setShowInvoiceList(true); setShowJobsMenu(false) }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <div className="flex items-center gap-2.5"><Inbox className="w-3.5 h-3.5 text-gray-500" /> All Invoices</div>
+                      <span className="text-gray-600 text-[10px]">{invoices.length}</span>
+                    </button>
+                    {invoices.slice(0, 3).map((invoice) => (
+                      <button
+                        key={invoice.id}
+                        onClick={() => handleEditInvoice(invoice)}
+                        className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] text-gray-400 hover:text-white hover:bg-white/5 transition-all text-left pl-8"
+                      >
+                        <span className="truncate">{invoice.invoice_number} — {invoice.bill_to_name || 'Unnamed'}</span>
+                        <span className={`flex-shrink-0 ml-2 text-[9px] font-bold uppercase ${invoice.status === 'paid' ? 'text-green' : invoice.status === 'overdue' ? 'text-red' : invoice.status === 'sent' ? 'text-cyan' : 'text-gray-600'}`}>{invoice.status}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="py-1 border-t border-white/5">
+                    <p className="px-3 pt-1.5 pb-0.5 text-[10px] font-bold text-gray-600 uppercase tracking-wide">Contracts</p>
+                    <button
+                      onClick={handleNewContract}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-cyan" /> New Contract
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowContractList(true)
+                        setShowJobsMenu(false)
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <div className="flex items-center gap-2.5"><FileText className="w-3.5 h-3.5 text-gray-500" /> All Contracts</div>
+                      <span className="text-gray-600 text-[10px]">{contracts.length}</span>
+                    </button>
+                    {contracts.slice(0, 3).map((contract) => {
+                      const property = properties.find((entry) => entry.id === contract.property_id)
+                      return (
+                        <button
+                          key={contract.id}
+                          onClick={() => handleOpenContract(contract)}
+                          className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] text-gray-400 hover:text-white hover:bg-white/5 transition-all text-left pl-8"
+                        >
+                          <span className="truncate">{contract.contract_number} — {property?.address || contract.homeowner_name || 'Unnamed'}</span>
+                          <span className={`flex-shrink-0 ml-2 text-[9px] font-bold uppercase ${contract.status === 'signed' ? 'text-green-400' : contract.status === 'voided' ? 'text-red-400' : contract.status === 'sent' ? 'text-cyan-400' : 'text-gray-600'}`}>{contract.status}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="py-1 border-t border-white/5">
+                    <p className="px-3 pt-1.5 pb-0.5 text-[10px] font-bold text-gray-600 uppercase tracking-wide">Orders & Jobs</p>
+                    <button
+                      onClick={() => { setActiveScreen('jobs'); setShowJobsMenu(false) }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <div className="flex items-center gap-2.5"><Briefcase className="w-3.5 h-3.5 text-gray-500" /> Open Orders / Jobs</div>
+                      <span className="text-gray-600 text-[10px]">{jobs.length}</span>
+                    </button>
+                    <button
+                      onClick={() => { setActiveScreen('jobs'); setShowJobsMenu(false) }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <CalendarDays className="w-3.5 h-3.5 text-gray-500" /> Schedules
+                    </button>
+                  </div>
+
+                  <div className="py-1 border-t border-white/5">
+                    <p className="px-3 pt-1.5 pb-0.5 text-[10px] font-bold text-gray-600 uppercase tracking-wide">Blueprints & Plans</p>
+                    <button
+                      onClick={() => { setActiveScreen('dimensions'); setShowJobsMenu(false) }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <Globe className="w-3.5 h-3.5 text-gray-500" /> Open Blueprint
+                    </button>
+                    <button
+                      onClick={() => { setActiveScreen('dimensions'); setShowJobsMenu(false) }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                    >
+                      <Ruler className="w-3.5 h-3.5 text-gray-500" /> Dimensions
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Session Picker */}
+            <div className="relative" ref={sessionDropdownRef}>
+              <button
+                onClick={() => setShowSessionDropdown((value) => !value)}
+                className="flex items-center gap-1.5 bg-dark-700/50 rounded-full px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-dark-700 transition-all max-w-[180px]"
+                title={currentSession?.name ?? 'No active session'}
+              >
+                <Clock className="w-3 h-3 text-cyan flex-shrink-0" />
+                <span className="truncate">{currentSession?.name ?? 'Sessions'}</span>
+                <ChevronDown className={`w-3 h-3 text-gray-500 flex-shrink-0 transition-transform ${showSessionDropdown ? 'rotate-180' : ''}`} />
+              </button>
+              {showSessionDropdown && (
+                <div className="absolute right-0 top-10 w-72 glass rounded-lg border border-white/10 z-50 shadow-xl overflow-hidden">
+                  <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-white uppercase tracking-wide">Sessions</p>
+                      {currentSession ? (
+                        <p className="text-[10px] text-cyan mt-0.5 truncate">● {currentSession.name} — {properties.filter((property) => property.session_id === currentSession.id).length} properties</p>
+                      ) : (
+                        <p className="text-[10px] text-gray-600 mt-0.5">No active session</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {(sessionNaming || sessionSavingAs || sessionCopying || sessionRenaming) && (
+                    <div className="px-3 py-2.5 bg-dark-800/50 border-b border-white/10">
+                      <p className="text-[10px] text-gray-500 mb-1.5 uppercase tracking-wide font-semibold">
+                        {sessionNaming ? 'New session name' : sessionSavingAs ? 'Save as new session' : sessionCopying ? 'Copy session as' : 'Rename session'}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          className="flex-1 rounded-lg border border-white/10 bg-dark-900/70 px-3 py-2 text-xs text-white outline-none"
+                          value={sessionNaming ? sessionNameValue : sessionSavingAs ? sessionSaveAsValue : sessionCopying ? sessionCopyValue : sessionRenameValue}
+                          onChange={(event) => {
+                            if (sessionNaming) setSessionNameValue(event.target.value)
+                            else if (sessionSavingAs) setSessionSaveAsValue(event.target.value)
+                            else if (sessionCopying) setSessionCopyValue(event.target.value)
+                            else setSessionRenameValue(event.target.value)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') void handleCommitSessionMode()
+                            if (event.key === 'Escape') clearSessionMode()
+                          }}
+                          autoFocus
+                        />
+                        <button onClick={() => void handleCommitSessionMode()} className="rounded-lg bg-cyan px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-dark">Save</button>
+                        <button onClick={clearSessionMode} className="rounded-lg border border-white/10 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-gray-400">Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="py-2 border-b border-white/10">
+                    <button onClick={handleStartNewSession} className="w-full px-3 py-2 text-left text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all">New Session</button>
+                    <button
+                      onClick={() => {
+                        if (!currentSession) return
+                        clearSessionMode()
+                        setSessionRenaming(true)
+                        setSessionRenameValue(currentSession.name)
+                      }}
+                      disabled={!currentSession}
+                      className="w-full px-3 py-2 text-left text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all disabled:opacity-40"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!currentSession) return
+                        clearSessionMode()
+                        setSessionSavingAs(true)
+                        setSessionSaveAsValue(`${currentSession.name} Copy`)
+                      }}
+                      disabled={!currentSession}
+                      className="w-full px-3 py-2 text-left text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all disabled:opacity-40"
+                    >
+                      Save As
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!currentSession) return
+                        clearSessionMode()
+                        setSessionCopying(true)
+                        setSessionCopyValue(`${currentSession.name} Copy`)
+                      }}
+                      disabled={!currentSession}
+                      className="w-full px-3 py-2 text-left text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all disabled:opacity-40"
+                    >
+                      Copy
+                    </button>
+                    <button
+                      onClick={() => void handleCloseCurrentSession()}
+                      disabled={!currentSession}
+                      className="w-full px-3 py-2 text-left text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all disabled:opacity-40"
+                    >
+                      Close Session
+                    </button>
+                  </div>
+
+                  <div className="py-1">
+                    <p className="px-3 pt-1.5 pb-0.5 text-[10px] font-bold text-gray-600 uppercase tracking-wide">Recent Sessions</p>
+                    {sessions.length === 0 ? (
+                      <p className="px-3 py-3 text-xs text-gray-500">No saved sessions yet.</p>
+                    ) : (
+                      sessions.map((session) => (
+                        <button
+                          key={session.id}
+                          onClick={() => void handleActivateStoredSession(session)}
+                          className="w-full flex items-center justify-between px-3 py-2 text-left text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-all"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate">{session.name}</p>
+                            <p className="text-[10px] text-gray-600 truncate">{session.property_count} properties · {new Date(session.last_accessed_at).toLocaleDateString()}</p>
+                          </div>
+                          {currentSession?.id === session.id && <span className="text-[10px] font-bold uppercase text-cyan">Active</span>}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center gap-2 bg-dark-700/50 rounded-full px-3 py-1.5">
               <MapPin className="w-3 h-3 text-gray-400" />
               <span className="text-xs text-gray-300">{HQ_CITY}</span>
             </div>
-            {/* Tier Badge */}
+
             <button
               onClick={() => setActiveScreen('settings')}
               className="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wide border transition-all hover:opacity-80"
@@ -2041,16 +2906,16 @@ export default function Dashboard() {
             >
               Plan: {getTierConfig(userRole).name}
             </button>
-            {/* Notifications Bell */}
+
             <div className="relative">
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
                 className="relative px-3 py-1.5 text-gray-400 hover:text-white transition-all"
               >
                 <Bell className="w-4 h-4" />
-                {notifications.filter(n => !n.read).length > 0 && (
+                {notifications.filter((notification) => !notification.read).length > 0 && (
                   <span className="absolute top-1 right-1 w-4 h-4 bg-red rounded-full text-white text-[9px] font-bold flex items-center justify-center">
-                    {Math.min(notifications.filter(n => !n.read).length, 9)}
+                    {Math.min(notifications.filter((notification) => !notification.read).length, 9)}
                   </span>
                 )}
               </button>
@@ -2060,7 +2925,7 @@ export default function Dashboard() {
                     <h3 className="text-sm font-bold text-white">Notifications</h3>
                     {notifications.length > 0 && (
                       <button
-                        onClick={() => setNotifications(prev => prev.map(n => ({...n, read: true})))}
+                        onClick={() => setNotifications((prev) => prev.map((notification) => ({ ...notification, read: true })))}
                         className="text-xs text-cyan hover:text-cyan/80 transition-all"
                       >
                         Mark all read
@@ -2070,16 +2935,17 @@ export default function Dashboard() {
                   {notifications.length === 0 ? (
                     <p className="text-xs text-gray-500 text-center py-4">No notifications</p>
                   ) : (
-                    notifications.map(n => (
-                      <div key={n.id} className={`p-2 rounded mb-1 ${n.read ? 'opacity-50' : 'bg-white/5'} hover:bg-white/10 transition-all`}>
-                        <p className="text-xs text-white">{n.message}</p>
-                        <p className="text-[10px] text-gray-500 mt-1">{new Date(n.timestamp).toLocaleString()}</p>
+                    notifications.map((notification) => (
+                      <div key={notification.id} className={`p-2 rounded mb-1 ${notification.read ? 'opacity-50' : 'bg-white/5'} hover:bg-white/10 transition-all`}>
+                        <p className="text-xs text-white">{notification.message}</p>
+                        <p className="text-[10px] text-gray-500 mt-1">{new Date(notification.timestamp).toLocaleString()}</p>
                       </div>
                     ))
                   )}
                 </div>
               )}
             </div>
+
             <button
               onClick={() => signOut()}
               className="px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-dark-700/50 rounded transition-all"
@@ -2649,7 +3515,7 @@ export default function Dashboard() {
               </div>
 
               <p className="text-sm text-gray-400 mb-4">
-                Michael analyzes storm damage zones, roof age, property values, recent weather events, and market conditions to identify the highest-probability leads each day.
+                Michael analyzes storm damage zones, property values, recent weather events, and market conditions to identify the highest-probability leads each day.
               </p>
 
               {michaelLeads.length === 0 ? (
@@ -2699,11 +3565,11 @@ export default function Dashboard() {
               {hailEvents.length === 0 ? (
                 <div className="text-center py-12 space-y-2">
                   {loading ? (
-                    <><Loader2 className="w-8 h-8 text-cyan mx-auto animate-spin" /><p className="text-gray-400 text-sm">Loading NOAA hail history…</p></>
+                    <><Loader2 className="w-8 h-8 text-cyan mx-auto animate-spin" /><p className="text-gray-400 text-sm">Loading historical hail reports…</p></>
                   ) : !canAccess(userRole, 'stormscope') ? (
                     <><AlertTriangle className="w-8 h-8 text-amber mx-auto" /><p className="text-amber text-sm font-semibold">StormScope required</p><p className="text-gray-500 text-xs">Upgrade to Plus or higher to access historical weather data.</p><button onClick={() => setShowUpgradeModal(true)} className="mt-2 text-xs bg-cyan/20 text-cyan px-4 py-2 rounded-lg">View Plans</button></>
                   ) : (
-                    <><AlertTriangle className="w-8 h-8 text-gray-500 mx-auto" /><p className="text-gray-400 text-sm">No hail events recorded for this area.</p><p className="text-gray-500 text-xs">Data sourced from NOAA SWDI — coverage may vary by region.</p></>
+                    <><AlertTriangle className="w-8 h-8 text-gray-500 mx-auto" /><p className="text-gray-400 text-sm">No hail events recorded for this area.</p><p className="text-gray-500 text-xs">Data sourced from historical storm reports — coverage may vary by region.</p></>
                   )}
                 </div>
               ) : (
@@ -2716,13 +3582,13 @@ export default function Dashboard() {
                     <div className="bg-dark-700/50 rounded-lg p-3">
                       <p className="text-xs text-gray-400">Max Hail Size</p>
                       <p className="text-2xl font-bold text-amber">
-                        {Math.max(...hailEvents.map(e => parseFloat(e.hail_size) || 0)).toFixed(1)}"
+                        {Math.max(...hailEvents.map(e => Number.parseFloat(String(e.size ?? e.hail_size ?? 0)) || 0)).toFixed(1)}"
                       </p>
                     </div>
                     <div className="bg-dark-700/50 rounded-lg p-3">
                       <p className="text-xs text-gray-400">Avg Hail Size</p>
                       <p className="text-2xl font-bold text-green">
-                        {(hailEvents.reduce((sum, e) => sum + (parseFloat(e.hail_size) || 0), 0) / hailEvents.length).toFixed(2)}"
+                        {(hailEvents.reduce((sum, e) => sum + (Number.parseFloat(String(e.size ?? e.hail_size ?? 0)) || 0), 0) / hailEvents.length).toFixed(2)}"
                       </p>
                     </div>
                   </div>
@@ -2733,10 +3599,10 @@ export default function Dashboard() {
                         <div className="flex justify-between items-start mb-1">
                           <p className="font-semibold text-white">{event.event_date || event.date || 'Unknown Date'}</p>
                           <span className="text-xs bg-red/20 text-red px-2 py-1 rounded font-semibold">
-                            {event.hail_size || '?'}"
+                            {event.size || event.hail_size || '?'}"
                           </span>
                         </div>
-                        <p className="text-xs text-gray-400">{event.location || 'Location unknown'}</p>
+                        <p className="text-xs text-gray-400">{event.location || [event.city, event.state].filter(Boolean).join(', ') || 'Location unknown'}</p>
                       </div>
                     ))}
                   </div>
@@ -4584,7 +5450,7 @@ export default function Dashboard() {
                   <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
                     <Brain className="w-12 h-12 text-cyan/20" />
                     <p className="text-sm text-gray-400">Enter a ZIP code to generate storm-based leads</p>
-                    <p className="text-xs text-gray-500">Michael scores leads using 10 years of hail, tornado, and wind data combined with estimated roof ages</p>
+                    <p className="text-xs text-gray-500">Michael scores leads using 10 years of hail, tornado, and wind data plus nearby storm concentration.</p>
                   </div>
                 )}
 
@@ -5387,7 +6253,11 @@ export default function Dashboard() {
 
                         // Auto-convert accepted proposal to job
                         if (newStatus === 'accepted') {
-                          const jobAlreadyExists = jobs.some(j => j.address === selectedProposal.property_id)
+                          const jobAlreadyExists = jobs.some(
+                            (job) =>
+                              job.proposal_id === selectedProposal.id ||
+                              job.property_id === selectedProposal.property_id,
+                          )
                           if (!jobAlreadyExists) {
                             const subtotal = selectedProposal.line_items.reduce((sum, item) => sum + item.total, 0)
                             const taxRate = parseFloat(companySettings.tax_rate || '0') / 100
@@ -5425,8 +6295,10 @@ export default function Dashboard() {
 
                             const updatedJobs = [...jobs, newJob]
                             setJobs(updatedJobs)
-                            await persist(saveJob, newJob, 'job')
-                            addNotification(`Proposal accepted for ${prop?.address || 'property'} — Job created!`, 'success')
+                            const jobSaveResult = await persist(saveJob, newJob, 'job')
+                            if (isDurableStorageSuccess(jobSaveResult)) {
+                              addNotification(`Proposal accepted for ${prop?.address || 'property'} — Job created!`, 'success')
+                            }
                           }
                         }
                       }}
@@ -5566,8 +6438,10 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                                 setSelectedProposal(updated)
                                 const idx = proposals.findIndex(p => p.id === selectedProposal.id)
                                 const newProposals = [...proposals]; newProposals[idx] = updated; setProposals(newProposals)
-                                await persist(saveProposal, updated, 'proposal')
-                                addNotification('Proposal line items generated by Michael', 'success')
+                                const saveResult = await persist(saveProposal, updated, 'proposal')
+                                if (isDurableStorageSuccess(saveResult)) {
+                                  addNotification('Proposal line items generated by Michael', 'success')
+                                }
                               } catch (err) {
                                 setProposalAiError('Could not generate proposal. Please try again.')
                                 addNotification('Error generating proposal', 'warning')
@@ -5727,8 +6601,10 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                       const newProposals = [...proposals]
                       newProposals[idx] = selectedProposal
                       setProposals(newProposals)
-                      await persist(saveProposal, selectedProposal, 'proposal')
-                      addNotification('Proposal saved', 'success')
+                      const result = await persist(saveProposal, selectedProposal, 'proposal')
+                      if (isDurableStorageSuccess(result)) {
+                        addNotification('Proposal saved', 'success')
+                      }
                     }}
                     className="flex-1 bg-cyan text-dark py-2 rounded-lg font-medium hover:bg-cyan/90 min-w-24"
                   >
@@ -5763,15 +6639,18 @@ Be specific with quantities based on the roof size. Use realistic 2025 pricing. 
                         if (data.method === 'mailto' && data.mailto_uri) {
                           window.open(data.mailto_uri, '_blank')
                           addNotification('Opening email client — no email service configured', 'info')
+                          return
                         } else if (data.ok) {
                           addNotification(`Proposal emailed to ${ownerEmail}`, 'success')
                         } else {
                           addNotification('Email delivery failed — check settings', 'warning')
+                          return
                         }
                       } catch {
                         addNotification('Error sending proposal email', 'warning')
+                        return
                       }
-                      // Mark as sent regardless of delivery method
+                      // Mark as sent only after confirmed delivery
                       const idx = proposals.findIndex(p => p.id === selectedProposal.id)
                       const newProposals = [...proposals]
                       const updated = { ...selectedProposal, status: 'sent' as const, sent_at: new Date().toISOString() }
@@ -7468,6 +8347,182 @@ Be specific with quantities and realistic pricing for the roofing industry.`
             </section>
           </div>
         </div>
+      )}
+
+      {showInvoiceList && (
+        <div className="fixed inset-0 z-[85] flex items-start justify-center bg-black/70 px-4 py-10">
+          <div className="glass w-full max-w-3xl rounded-2xl border border-white/10">
+            <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-wide text-white">Invoices</p>
+                <p className="mt-1 text-xs text-gray-500">{invoices.length} total invoices</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleNewInvoice}
+                  className="rounded-lg bg-cyan px-4 py-2 text-xs font-bold uppercase tracking-wide text-dark transition-all hover:opacity-90"
+                >
+                  New Invoice
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowInvoiceList(false)}
+                  className="rounded-lg p-2 text-gray-400 transition-all hover:bg-white/5 hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+              {invoices.length === 0 ? (
+                <p className="rounded-xl border border-white/10 bg-dark-900/40 px-4 py-6 text-center text-sm text-gray-500">
+                  No invoices yet. Create the first invoice from this menu.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {invoices.map((invoice) => (
+                    <button
+                      key={invoice.id}
+                      type="button"
+                      onClick={() => handleEditInvoice(invoice)}
+                      className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-dark-900/40 px-4 py-3 text-left transition-all hover:bg-white/5"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">{invoice.invoice_number}</p>
+                        <p className="mt-1 truncate text-xs text-gray-500">
+                          {invoice.bill_to_name || invoice.bill_to_address || 'Unassigned invoice'}
+                        </p>
+                      </div>
+                      <div className="ml-4 text-right">
+                        <p className="text-sm font-bold text-cyan">${invoice.total.toFixed(2)}</p>
+                        <p className="mt-1 text-[10px] uppercase tracking-wide text-gray-500">{invoice.status}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showContractList && (
+        <div className="fixed inset-0 z-[85] flex items-start justify-center bg-black/70 px-4 py-10">
+          <div className="glass w-full max-w-3xl rounded-2xl border border-white/10">
+            <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-wide text-white">Contracts</p>
+                <p className="mt-1 text-xs text-gray-500">{contracts.length} total contracts</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleNewContract}
+                  className="rounded-lg bg-cyan px-4 py-2 text-xs font-bold uppercase tracking-wide text-dark transition-all hover:opacity-90"
+                >
+                  New Contract
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowContractList(false)}
+                  className="rounded-lg p-2 text-gray-400 transition-all hover:bg-white/5 hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+              {contracts.length === 0 ? (
+                <p className="rounded-xl border border-white/10 bg-dark-900/40 px-4 py-6 text-center text-sm text-gray-500">
+                  No contracts yet. Create the first contract from this menu.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {contracts.map((contract) => {
+                    const property = properties.find((entry) => entry.id === contract.property_id)
+                    return (
+                      <button
+                        key={contract.id}
+                        type="button"
+                        onClick={() => handleOpenContract(contract)}
+                        className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-dark-900/40 px-4 py-3 text-left transition-all hover:bg-white/5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-white">{contract.contract_number}</p>
+                          <p className="mt-1 truncate text-xs text-gray-500">
+                            {property?.address || contract.property_address || contract.homeowner_name || 'Unassigned contract'}
+                          </p>
+                        </div>
+                        <div className="ml-4 text-right">
+                          <p className="text-sm font-bold text-cyan">${contract.contract_amount.toFixed(2)}</p>
+                          <p className="mt-1 text-[10px] uppercase tracking-wide text-gray-500">{contract.status}</p>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProposalEditor && selectedProposal && (
+        <ProposalEditor
+          proposal={selectedProposal}
+          property={properties.find((entry) => entry.id === selectedProposal.property_id) ?? null}
+          onChange={(proposal) => setSelectedProposal(proposal)}
+          onSave={() => void handleSaveProposalEditor()}
+          onDelete={proposals.some((proposal) => proposal.id === selectedProposal.id) ? () => void handleDeleteProposalEditor() : undefined}
+          onClose={() => {
+            setSelectedProposal(null)
+            setShowProposalEditor(false)
+          }}
+        />
+      )}
+
+      {showEstimateEditor && selectedEstimate && (
+        <SmartEstimateEditor
+          estimate={selectedEstimate}
+          property={properties.find((entry) => entry.id === selectedEstimate.property_id) ?? null}
+          onChange={(estimate) => setSelectedEstimate(estimate)}
+          onSave={() => void handleSaveEstimate()}
+          onDelete={estimates.some((estimate) => estimate.id === selectedEstimate.id) ? () => void handleDeleteEstimate() : undefined}
+          onClose={() => {
+            setSelectedEstimate(null)
+            setShowEstimateEditor(false)
+          }}
+        />
+      )}
+
+      {showInvoiceEditor && selectedInvoice && (
+        <InvoiceEditor
+          invoice={selectedInvoice}
+          onChange={(invoice) => setSelectedInvoice(invoice)}
+          onSave={() => void handleSaveInvoice()}
+          onDelete={invoices.some((invoice) => invoice.id === selectedInvoice.id) ? () => void handleDeleteInvoice() : undefined}
+          onClose={() => {
+            setSelectedInvoice(null)
+            setShowInvoiceEditor(false)
+          }}
+        />
+      )}
+
+      {showContractEditor && selectedContract && (
+        <ContractEditor
+          contract={selectedContract}
+          property={properties.find((entry) => entry.id === selectedContract.property_id) ?? null}
+          onChange={(contract) => setSelectedContract(contract)}
+          onSave={() => void handleSaveContract()}
+          onDelete={contracts.some((contract) => contract.id === selectedContract.id) ? () => void handleDeleteContract() : undefined}
+          onClose={() => {
+            setSelectedContract(null)
+            setShowContractEditor(false)
+          }}
+        />
       )}
 
       {/* Animation Keyframes */}

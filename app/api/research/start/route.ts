@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { requireUser, requireTier } from '@/lib/apiAuth'
+import { classifyHailSeverity, countSevereHailEvents } from '@/lib/hailEvents'
+import {
+  buildIemLsrGeoJsonUrl,
+  type IemLsrFeature,
+  normalizeIemHistoricalEvents,
+} from '@/lib/stormHistory'
 import { generateId } from '@/lib/uuid'
+import { normalizeResearchData } from '@/lib/researchNormalization'
 
 export const maxDuration = 60
 
@@ -26,6 +33,10 @@ interface GeoResult {
   city: string | null
   zip: string | null
   neighborhood: string | null
+}
+
+interface IemLsrGeoJsonResponse {
+  features?: IemLsrFeature[]
 }
 
 async function googleGeocode(address: string, apiKey: string): Promise<GeoResult | null> {
@@ -65,56 +76,51 @@ async function fetchStormHistory(lat: number, lng: number): Promise<any> {
     windEvents: [], totalWindEvents: 0, maxWindSpeed: null, lastWindDate: null,
     stormRiskLevel: 'unknown',
   }
-  const fmtDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '')
   const endDate = new Date()
   const startDate = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000)
-  const end = fmtDate(endDate)
-  const start = fmtDate(startDate)
-  const h = { 'User-Agent': 'DirectiveCRM/1.0 (support@hughes-technologies.com)' }
+  const url = buildIemLsrGeoJsonUrl({ lat, lng, radiusMiles: 25, start: startDate, end: endDate })
 
-  // Fetch PLSR events (spotter-reported)
-  const allR = await Promise.allSettled([
-    fetch(`https://www.ncei.noaa.gov/swdiws/json/plsr/${start}:${end}?lat=${lat}&lon=${lng}&r=25`, { headers: h, signal: AbortSignal.timeout(7000) }).then(r => r.ok ? r.json() : null),
-  ])
+  let events = normalizeIemHistoricalEvents([])
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'DirectiveCRM/1.0 (support@hughes-technologies.com)' },
+      signal: AbortSignal.timeout(12000),
+    })
+    if (response.ok) {
+      const payload = await response.json() as IemLsrGeoJsonResponse
+      events = normalizeIemHistoricalEvents(payload.features || [])
+    }
+  } catch (error) {
+    console.warn('[research] historical storm fetch error:', error)
+  }
 
-  const allData = allR[0].status === 'fulfilled' ? allR[0].value : null
-  const events = allData?.result || []
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hailEvents = events.filter((e: any) => e.TYPECODE === 'H')
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tornadoEvents = events.filter((e: any) => e.TYPECODE === 'T')
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const windEvents = events.filter((e: any) => e.TYPECODE === 'G' || e.TYPECODE === 'D')
+  const hailEvents = events.filter((event) => event.type === 'hail')
+  const tornadoEvents = events.filter((event) => event.type === 'tornado')
+  const windEvents = events.filter((event) => event.type === 'wind')
 
   if (hailEvents.length) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.hailEvents = hailEvents.slice(0, 20).map((x: any) => ({ date: x.ZTIME || null, size: x.MAGNITUDE ? parseFloat(x.MAGNITUDE) : null, severity: (x.MAGNITUDE && parseFloat(x.MAGNITUDE) >= 2) ? 'severe' : 'moderate' }))
+    out.hailEvents = hailEvents.slice(0, 20).map((event) => ({
+      date: event.date || null,
+      size: event.size,
+      severity: classifyHailSeverity(event.size),
+    }))
     out.totalHailEvents = hailEvents.length
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.maxHailSize = Math.max(...hailEvents.map((x: any) => x.MAGNITUDE ? parseFloat(x.MAGNITUDE) : 0))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.lastHailDate = [...hailEvents].sort((a: any, b: any) => (b.ZTIME || '').localeCompare(a.ZTIME || ''))[0]?.ZTIME || null
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.severeHailCount = hailEvents.filter((x: any) => x.MAGNITUDE && parseFloat(x.MAGNITUDE) >= 1).length
+    out.maxHailSize = Math.max(...hailEvents.map((event) => event.size || 0))
+    out.lastHailDate = [...hailEvents].sort((left, right) => (right.date || '').localeCompare(left.date || ''))[0]?.date || null
+    out.severeHailCount = countSevereHailEvents(hailEvents, (event) => event.size)
   }
 
   if (tornadoEvents.length) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.tornadoEvents = tornadoEvents.slice(0, 10).map((x: any) => ({ date: x.ZTIME || null, magnitude: x.MAGNITUDE || null }))
+    out.tornadoEvents = tornadoEvents.slice(0, 10).map((event) => ({ date: event.date || null, magnitude: event.magnitude || null }))
     out.totalTornadoEvents = tornadoEvents.length
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.lastTornadoDate = [...tornadoEvents].sort((a: any, b: any) => (b.ZTIME || '').localeCompare(a.ZTIME || ''))[0]?.ZTIME || null
+    out.lastTornadoDate = [...tornadoEvents].sort((left, right) => (right.date || '').localeCompare(left.date || ''))[0]?.date || null
   }
 
   if (windEvents.length) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.windEvents = windEvents.slice(0, 20).map((x: any) => ({ date: x.ZTIME || null, speed: x.MAGNITUDE ? parseFloat(x.MAGNITUDE) : null }))
+    out.windEvents = windEvents.slice(0, 20).map((event) => ({ date: event.date || null, speed: event.magnitude }))
     out.totalWindEvents = windEvents.length
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.maxWindSpeed = Math.max(...windEvents.map((x: any) => x.MAGNITUDE ? parseFloat(x.MAGNITUDE) : 0))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    out.lastWindDate = [...windEvents].sort((a: any, b: any) => (b.ZTIME || '').localeCompare(a.ZTIME || ''))[0]?.ZTIME || null
+    out.maxWindSpeed = Math.max(...windEvents.map((event) => event.magnitude || 0))
+    out.lastWindDate = [...windEvents].sort((left, right) => (right.date || '').localeCompare(left.date || ''))[0]?.date || null
   }
 
   const total = out.totalHailEvents + out.totalTornadoEvents + out.totalWindEvents
@@ -273,7 +279,6 @@ function parseEnformion(addressPlus: any, propertyV2: any): Record<string, any> 
     const match = matches[0]
     if (match) {
       // Phone
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const phoneList = match?.phones || match?.Phones || match?.phoneNumbers || []
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       phoneList.slice(0, 1).forEach((p: any) => {
@@ -284,7 +289,6 @@ function parseEnformion(addressPlus: any, propertyV2: any): Record<string, any> 
       })
 
       // Email
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const emailList = match?.emails || match?.Emails || []
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       emailList.slice(0, 1).forEach((e: any) => {
@@ -390,8 +394,9 @@ After both searches, return ONLY this JSON in <json> tags:
   "sources": {}
 }
 </json>
-Compute roofAgeYears = 2026 - yearBuilt if yearBuilt found. Set roofAgeEstimated = true.
-flags: include "old-roof" if roofAge>=20, "estimated-roof-age" if estimated, "high-value" if market>250000, "owner-occupied" or "rental" per occupancy.
+Do not infer roofAgeYears from yearBuilt. Leave roofAgeYears null unless you explicitly found a roofing permit date.
+roofAgeEstimated must remain false.
+flags: include "old-roof" only if you found a permit-backed roof age >=20, "high-value" if market>250000, "owner-occupied" or "rental" per occupancy.
 sources: {"ownerName": "FastPeopleSearch"} etc.`
 
   // Helper: Execute Claude with tool loop for web search
@@ -416,17 +421,15 @@ sources: {"ownerName": "FastPeopleSearch"} etc.`
 
       // Collect any text from this response
       for (const block of response.content) {
-        if (block.type === 'text') fullText += (block as any).text
+        if (block.type === 'text') fullText += block.text
       }
 
       // Build tool results for each tool_use block
       const toolResults = response.content
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((b: any) => b.type === 'tool_use')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((b: any) => ({
+        .filter((block: { type: string; id?: string }): block is { type: 'tool_use'; id: string } => block.type === 'tool_use' && typeof block.id === 'string')
+        .map((block: { type: 'tool_use'; id: string }) => ({
           type: 'tool_result' as const,
-          tool_use_id: b.id,
+          tool_use_id: block.id,
           content: '', // Anthropic handles the actual search
         }))
 
@@ -451,7 +454,7 @@ sources: {"ownerName": "FastPeopleSearch"} etc.`
 
     // Get final text blocks
     for (const block of response.content) {
-      if (block.type === 'text') fullText += (block as any).text
+      if (block.type === 'text') fullText += block.text
     }
 
     return fullText
@@ -507,91 +510,45 @@ sources: {"ownerName": "FastPeopleSearch"} etc.`
     if (val !== null && val !== undefined) extracted[key] = val
   }
 
-  // ─── Step 4b: Sanitize extracted data ────────────────────────────────────
-  if (extracted.ownerPhone) {
-    const d = String(extracted.ownerPhone).replace(/\D/g, '')
-    if (d.length === 10) extracted.ownerPhone = `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`
-    else if (d.length === 11 && d[0] === '1') extracted.ownerPhone = `${d.slice(1,4)}-${d.slice(4,7)}-${d.slice(7)}`
-    else extracted.ownerPhone = null
-  }
-  const toMoney = (v: unknown): number | null => {
-    if (!v) return null
-    const n = typeof v === 'string' ? parseFloat(String(v).replace(/[$,]/g, '')) : Number(v)
-    return (!isNaN(n) && n > 0) ? Math.round(n) : null
-  }
-  const toInt = (v: unknown, min: number, max: number): number | null => {
-    const n = parseInt(String(v ?? ''))
-    return (!isNaN(n) && n >= min && n <= max) ? n : null
-  }
-
-  extracted.yearBuilt = toInt(extracted.yearBuilt, 1800, 2025)
-  extracted.sqft = toInt(extracted.sqft, 100, 100000)
-  extracted.lotSqft = toInt(extracted.lotSqft, 100, 5000000)
-  extracted.bedrooms = toInt(extracted.bedrooms, 0, 30)
-  extracted.bathrooms = toInt(extracted.bathrooms, 0, 30)
-  extracted.ownerAge = toInt(extracted.ownerAge, 18, 120)
-  extracted.permitCount = toInt(extracted.permitCount, 0, 100)
-  extracted.marketValue = toMoney(extracted.marketValue)
-  extracted.assessedValue = toMoney(extracted.assessedValue)
-  extracted.appraisedValue = toMoney(extracted.appraisedValue)
-  extracted.lastSalePrice = toMoney(extracted.lastSalePrice)
-  extracted.listingPrice = toMoney(extracted.listingPrice)
-  extracted.taxAnnual = toMoney(extracted.taxAnnual)
-  extracted.hoaMonthly = toMoney(extracted.hoaMonthly)
-
-  // Roof age from yearBuilt
-  if (extracted.yearBuilt && !extracted.roofAgeYears) {
-    extracted.roofAgeYears = 2026 - extracted.yearBuilt
-    extracted.roofAgeEstimated = true
-  }
-  if (extracted.roofAgeYears) {
-    const r = Math.round(parseFloat(String(extracted.roofAgeYears)))
-    extracted.roofAgeYears = (!isNaN(r) && r >= 0 && r <= 150) ? r : null
-  }
-
-  // Flags
-  const flags: string[] = Array.isArray(extracted.flags) ? [...extracted.flags] : []
-  if (extracted.roofAgeEstimated && !flags.includes('estimated-roof-age')) flags.push('estimated-roof-age')
-  if (typeof extracted.roofAgeYears === 'number' && extracted.roofAgeYears >= 20 && !flags.includes('old-roof')) flags.push('old-roof')
-  if (typeof extracted.marketValue === 'number' && extracted.marketValue > 250000 && !flags.includes('high-value')) flags.push('high-value')
+  const normalized = normalizeResearchData(extracted)
 
   // ─── Step 5: Merge all data — geocoded fields always win ────────────────
   const data: Record<string, unknown> = {
-    ownerName: extracted.ownerName ?? null,
-    ownerPhone: extracted.ownerPhone ?? null,
-    ownerEmail: extracted.ownerEmail ?? null,
-    ownerAge: extracted.ownerAge ?? null,
-    yearBuilt: extracted.yearBuilt ?? null,
-    sqft: extracted.sqft ?? null,
-    lotSqft: extracted.lotSqft ?? null,
-    bedrooms: extracted.bedrooms ?? null,
-    bathrooms: extracted.bathrooms ?? null,
-    marketValue: extracted.marketValue ?? null,
-    assessedValue: extracted.assessedValue ?? null,
-    appraisedValue: extracted.appraisedValue ?? null,
-    lastSaleDate: extracted.lastSaleDate ?? null,
-    lastSalePrice: extracted.lastSalePrice ?? null,
-    listingStatus: extracted.listingStatus ?? null,
-    listingPrice: extracted.listingPrice ?? null,
-    hoaMonthly: extracted.hoaMonthly ?? null,
-    subdivision: extracted.subdivision ?? null,
-    occupancyType: extracted.occupancyType ?? null,
-    propertyClass: extracted.propertyClass ?? null,
-    landUse: extracted.landUse ?? null,
-    deedDate: extracted.deedDate ?? null,
-    deedType: extracted.deedType ?? null,
-    deedBook: extracted.deedBook ?? null,
-    permitCount: extracted.permitCount ?? null,
-    permitLastDate: extracted.permitLastDate ?? null,
-    roofAgeYears: extracted.roofAgeYears ?? null,
-    roofAgeEstimated: extracted.roofAgeEstimated ?? false,
+    ownerName: normalized.ownerName ?? null,
+    ownerPhone: normalized.ownerPhone ?? null,
+    ownerEmail: normalized.ownerEmail ?? null,
+    ownerAge: normalized.ownerAge ?? null,
+    yearBuilt: normalized.yearBuilt ?? null,
+    sqft: normalized.sqft ?? null,
+    lotSqft: normalized.lotSqft ?? null,
+    bedrooms: normalized.bedrooms ?? null,
+    bathrooms: normalized.bathrooms ?? null,
+    marketValue: normalized.marketValue ?? null,
+    assessedValue: normalized.assessedValue ?? null,
+    appraisedValue: normalized.appraisedValue ?? null,
+    lastSaleDate: normalized.lastSaleDate ?? null,
+    lastSalePrice: normalized.lastSalePrice ?? null,
+    listingStatus: normalized.listingStatus ?? null,
+    listingPrice: normalized.listingPrice ?? null,
+    hoaMonthly: normalized.hoaMonthly ?? null,
+    subdivision: normalized.subdivision ?? null,
+    occupancyType: normalized.occupancyType ?? null,
+    propertyClass: normalized.propertyClass ?? null,
+    landUse: normalized.landUse ?? null,
+    deedDate: normalized.deedDate ?? null,
+    deedType: normalized.deedType ?? null,
+    deedBook: normalized.deedBook ?? null,
+    permitCount: normalized.permitCount ?? null,
+    permitLastDate: normalized.permitLastDate ?? null,
+    roofAgeYears: normalized.roofAgeYears ?? null,
+    roofAgeEstimated: normalized.roofAgeEstimated ?? false,
     // Geocoded fields always override extracted (more accurate)
-    county: geo?.county ?? extracted.county ?? null,
-    neighborhood: geo?.neighborhood ?? extracted.neighborhood ?? null,
-    parcelId: extracted.parcelId ?? null,
-    taxAnnual: extracted.taxAnnual ?? null,
-    flags,
-    sources: extracted.sources ?? {},
+    county: geo?.county ?? normalized.county ?? null,
+    neighborhood: geo?.neighborhood ?? normalized.neighborhood ?? null,
+    parcelId: normalized.parcelId ?? null,
+    taxAnnual: normalized.taxAnnual ?? null,
+    flags: normalized.flags ?? [],
+    sources: normalized.sources ?? {},
     // Attach storm history + coordinates
     stormHistory: stormHistory ?? null,
     geocoded_lat: lat,

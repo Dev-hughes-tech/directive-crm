@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { ImapFlow } from 'imapflow'
 import { requireUser } from '@/lib/apiAuth'
+import { decryptEmailCredential } from '@/lib/emailCredentials'
 
 export const maxDuration = 60
 
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
       host: account.imap_host,
       port: account.imap_port,
       secure: account.imap_ssl,
-      auth: { user: account.username, pass: account.password_enc },
+      auth: { user: account.username, pass: decryptEmailCredential(account.password_enc) },
       logger: false,
     })
 

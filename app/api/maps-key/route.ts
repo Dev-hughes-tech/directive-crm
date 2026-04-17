@@ -8,8 +8,9 @@ export async function GET(req: NextRequest) {
   const tierDenied = requireTier(auth, 'maps')
   if (tierDenied) return tierDenied
 
-  // Do not return raw API key. Return empty response with no-store headers.
-  return NextResponse.json({ token: null }, {
+  const key = process.env.NEXT_PUBLIC_MAPS_API_KEY || process.env.MAPS_API_KEY || null
+
+  return NextResponse.json({ key }, {
     headers: { 'Cache-Control': 'no-store, private' }
   })
 }

@@ -31,6 +31,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'file, job_id, and photo_id are required' }, { status: 400 })
   }
 
+  const { data: job } = await auth.supabase
+    .from('jobs')
+    .select('id')
+    .eq('id', jobId)
+    .eq('owner_id', auth.user.id)
+    .maybeSingle()
+
+  if (!job) {
+    return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+  }
+
   const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
   const path = `${auth.user.id}/${jobId}/${photoId}.${ext}`
 
@@ -38,7 +49,7 @@ export async function POST(req: NextRequest) {
 
   // Ensure the bucket exists (idempotent)
   await svc.storage.createBucket(BUCKET, {
-    public: true,
+    public: false,
     allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
     fileSizeLimit: 10 * 1024 * 1024, // 10 MB
   }).catch(() => { /* already exists */ })
@@ -54,9 +65,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  const { data: urlData } = svc.storage.from(BUCKET).getPublicUrl(path)
+  const { data: signedData, error: signedError } = await svc.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 60 * 60 * 24 * 7)
 
-  return NextResponse.json({ url: urlData.publicUrl, path })
+  if (signedError || !signedData?.signedUrl) {
+    console.error('[jobs/photos] signed URL error:', signedError)
+    return NextResponse.json({ error: 'Uploaded photo but failed to create signed URL' }, { status: 500 })
+  }
+
+  return NextResponse.json({ url: signedData.signedUrl, path })
 }
 
 // DELETE /api/jobs/photos — remove a photo from storage

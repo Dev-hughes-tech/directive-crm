@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, requireTier } from '@/lib/apiAuth'
+import {
+  buildIemLsrGeoJsonUrl,
+  type IemLsrFeature,
+  normalizeIemHistoricalEvents,
+} from '@/lib/stormHistory'
 import { validateCoords } from '@/lib/validate'
 
-export const maxDuration = 60
+export const maxDuration = 45
 
-const SWDI = 'https://www.ncdc.noaa.gov/swdiws/json'
-const MESONET = 'https://mesonet.agron.iastate.edu/geojson/hail.php'
+interface IemLsrGeoJsonResponse {
+  features?: IemLsrFeature[]
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
@@ -17,131 +23,55 @@ export async function GET(request: NextRequest) {
   const coords = validateCoords(searchParams.get('lat'), searchParams.get('lng'))
   if (!coords.ok) return coords.response
   const { lat, lng } = coords
-  const radiusMiles = parseFloat(searchParams.get('radius') || '25')
-  const daysBack = parseInt(searchParams.get('days') || '3650')
+  const radiusMiles = Number.parseFloat(searchParams.get('radius') || '25')
+  const daysBack = Number.parseInt(searchParams.get('days') || '3650', 10)
 
   try {
-    const fmtDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '')
     const now = new Date()
     const start = new Date(now)
     start.setDate(start.getDate() - daysBack)
 
-    const startStr = fmtDate(start)
-    const endStr = fmtDate(now)
+    const url = buildIemLsrGeoJsonUrl({ lat, lng, radiusMiles, start, end: now })
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'DirectiveCRM/1.0 (support@hughes-technologies.com)' },
+      signal: AbortSignal.timeout(20000),
+    })
 
-    const headers = { 'User-Agent': 'DirectiveCRM/1.0 (support@hughes-technologies.com)' }
-
-    // Try Iowa State Mesonet first for radar hail (primary source)
-    let radarHail: any[] = []
-    try {
-      const sts = start.toISOString().replace(/\.\d{3}Z$/, 'Z')
-      const ets = now.toISOString().replace(/\.\d{3}Z$/, 'Z')
-      const mesoUrl = `${MESONET}?lon=${lng}&lat=${lat}&radius=${radiusMiles}&sts=${sts}&ets=${ets}`
-      const mesoRes = await fetch(mesoUrl, {
-        headers,
-        signal: AbortSignal.timeout(20000),
-      }).then(r => {
-        if (!r.ok) {
-          console.warn(`[noaa/hail] Mesonet HTTP ${r.status}`)
-          return null
-        }
-        return r.json()
-      })
-
-      if (mesoRes?.features && Array.isArray(mesoRes.features) && mesoRes.features.length > 0) {
-        radarHail = mesoRes.features.map((feature: any) => ({
-          lat: feature.geometry.coordinates[1],
-          lng: feature.geometry.coordinates[0],
-          size: feature.properties.magsize ? parseFloat(feature.properties.magsize) : null,
-          date: feature.properties.valid || null,
-          severity: (feature.properties.magsize && parseFloat(feature.properties.magsize) >= 2) ? 'severe' : (feature.properties.magsize && parseFloat(feature.properties.magsize) >= 1) ? 'moderate' : 'minor',
-          source: 'radar',
-          severeProb: feature.properties.sevprob ? parseInt(feature.properties.sevprob) : null,
-        }))
-      }
-    } catch (err) {
-      console.warn('[noaa/hail] Mesonet error:', String(err).slice(0, 200))
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      console.warn(`[noaa/hail] IEM LSR HTTP ${response.status} body=${body.slice(0, 200)}`)
+      return NextResponse.json([])
     }
 
-    // Fetch from SWDI sources in parallel (spotter reports + fallback radar hail if Mesonet had no data)
-    const [plsrRes, fallbackHailRes] = await Promise.allSettled([
-      // Storm reports (spotter-confirmed hail, tornado, wind)
-      fetch(`${SWDI}/plsr/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(20000) })
-        .then(async r => {
-          if (!r.ok) {
-            const body = await r.text().catch(() => '')
-            console.warn(`[noaa/hail] plsr HTTP ${r.status} body=${body.slice(0, 200)}`)
-            return { result: [] }
-          }
-          return r.json()
-        }),
-      // Radar-detected hail (fallback if Mesonet empty)
-      radarHail.length === 0
-        ? fetch(`${SWDI}/nx3hail/${startStr}:${endStr}?lat=${lat}&lon=${lng}&r=${radiusMiles}`, { headers, signal: AbortSignal.timeout(20000) })
-          .then(async r => {
-            if (!r.ok) {
-              const body = await r.text().catch(() => '')
-              console.warn(`[noaa/hail] nx3hail HTTP ${r.status} body=${body.slice(0, 200)}`)
-              return { result: [] }
-            }
-            return r.json()
-          })
-        : Promise.resolve({ result: [] }),
-    ])
+    const payload = await response.json() as IemLsrGeoJsonResponse
+    const hailEvents = normalizeIemHistoricalEvents(payload.features || [])
+      .filter((event) => event.type === 'hail')
+      .map((event) => ({
+        lat: event.lat,
+        lng: event.lng,
+        size: event.size,
+        date: event.date,
+        severity: event.severity || 'unknown',
+        source: 'spotter' as const,
+        provider: event.provider,
+        city: event.city,
+        state: event.state,
+      }))
 
-    const plsrData = plsrRes.status === 'fulfilled' ? (plsrRes.value.result || []) : []
-    const fallbackData = fallbackHailRes.status === 'fulfilled' ? (fallbackHailRes.value.result || []) : []
-
-    // Logging — visible in Vercel logs to diagnose historical-data gaps
     console.log('[noaa/hail]', JSON.stringify({
-      lat, lng, radiusMiles, daysBack, startStr, endStr,
-      mesonet: radarHail.length,
-      plsr: plsrData.length,
-      plsrStatus: plsrRes.status,
-      plsrError: plsrRes.status === 'rejected' ? String(plsrRes.reason).slice(0, 200) : null,
-      fallbackHail: fallbackData.length,
-      fallbackStatus: fallbackHailRes.status,
+      lat,
+      lng,
+      radiusMiles,
+      daysBack,
+      provider: 'iem-lsr',
+      total: hailEvents.length,
     }))
 
-    // Use fallback NOAA hail data only if Mesonet had no results
-    if (radarHail.length === 0) {
-      radarHail = fallbackData.map((e: any) => ({
-        lat: e.LAT,
-        lng: e.LON,
-        size: e.MAXSIZE ? parseFloat(e.MAXSIZE) : null,
-        date: e.ZTIME || null,
-        severity: (e.MAXSIZE && parseFloat(e.MAXSIZE) >= 2) ? 'severe' : (e.MAXSIZE && parseFloat(e.MAXSIZE) >= 1) ? 'moderate' : 'minor',
-        source: 'radar',
-        severeProb: e.SEVPROB ? parseInt(e.SEVPROB) : null,
-      }))
-    }
-
-    const hailData = radarHail
-
-    // Filter plsr for hail reports (TYPECODE 'H')
-    const plsrHail = plsrData
-      .filter((e: any) => e.TYPECODE === 'H')
-      .map((e: any) => ({
-        lat: e.LAT,
-        lng: e.LON,
-        size: e.MAGNITUDE ? parseFloat(e.MAGNITUDE) : null,
-        date: e.ZTIME || null,
-        severity: (e.MAGNITUDE && parseFloat(e.MAGNITUDE) >= 2) ? 'severe' : (e.MAGNITUDE && parseFloat(e.MAGNITUDE) >= 1) ? 'moderate' : 'minor',
-        source: 'spotter',
-        city: e.CITY || null,
-        state: e.STATE || null,
-      }))
-
-    // Combine and sort by date descending (radarHail already processed above)
-    const allEvents = [...plsrHail, ...hailData].sort((a, b) =>
-      (b.date || '').localeCompare(a.date || '')
-    )
-
-    return NextResponse.json(allEvents, {
-      headers: { 'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400' }, // 1 hr fresh, 24 hr stale-ok (historical data)
+    return NextResponse.json(hailEvents, {
+      headers: { 'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400' },
     })
-  } catch (e) {
-    console.error('[noaa/hail] fatal error:', e)
+  } catch (error) {
+    console.error('[noaa/hail] fatal error:', error)
     return NextResponse.json([])
   }
 }

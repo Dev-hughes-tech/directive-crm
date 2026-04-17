@@ -5,6 +5,7 @@
 // navigate home instead of seeing a white screen.
 
 import { useEffect } from 'react'
+import Link from 'next/link'
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react'
 
 export default function Error({
@@ -15,8 +16,19 @@ export default function Error({
   reset: () => void
 }) {
   useEffect(() => {
-    // Surface the error to the console so it shows up in Vercel logs.
     console.error('[app error boundary]', error)
+    fetch('/api/observability/error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: 'app/error',
+        route: typeof window !== 'undefined' ? window.location.pathname : null,
+        message: error.message,
+        digest: error.digest,
+        metadata: { stack: error.stack },
+      }),
+      keepalive: true,
+    }).catch(() => {})
   }, [error])
 
   return (
@@ -39,12 +51,12 @@ export default function Error({
           >
             <RefreshCw className="w-4 h-4" /> Try again
           </button>
-          <a
+          <Link
             href="/"
             className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-lg py-2 text-sm transition"
           >
             <Home className="w-4 h-4" /> Go home
-          </a>
+          </Link>
         </div>
       </div>
     </div>

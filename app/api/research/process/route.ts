@@ -1,22 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { requireUser, requireTier } from '@/lib/apiAuth'
+import { normalizeResearchData } from '@/lib/researchNormalization'
+import { authorizeResearchJob } from '@/lib/researchJobs'
 
 // This is the long-running research worker.
 // It is called fire-and-forget from /api/research/start.
 export const maxDuration = 60
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
-async function markError(jobId: string, msg: string) {
+async function markError(
+  supabase: SupabaseClient,
+  jobId: string,
+  ownerId: string,
+  msg: string,
+) {
   await supabase
     .from('research_jobs')
     .update({ status: 'error', error_message: msg, updated_at: new Date().toISOString() })
     .eq('id', jobId)
+    .eq('owner_id', ownerId)
 }
 
 async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
@@ -41,20 +44,39 @@ export async function POST(request: NextRequest) {
   const tierDenied = requireTier(auth, 'sweep')
   if (tierDenied) return tierDenied
 
-  const { jobId, address } = await request.json()
-  if (!jobId || !address) {
-    return NextResponse.json({ error: 'Missing jobId or address' }, { status: 400 })
+  const { jobId } = await request.json()
+  if (!jobId) {
+    return NextResponse.json({ error: 'Missing jobId' }, { status: 400 })
   }
 
+  const { data: job, error: jobLookupError } = await auth.supabase
+    .from('research_jobs')
+    .select('id, owner_id, address')
+    .eq('id', jobId)
+    .eq('owner_id', auth.user.id)
+    .maybeSingle()
+
+  const resolvedJob = await authorizeResearchJob(
+    job,
+    async (ownerId) => ownerId === auth.user.id,
+  )
+
+  if (jobLookupError || !job || !resolvedJob) {
+    return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+  }
+
+  const { jobId: resolvedJobId, ownerId, address } = resolvedJob
+
   // Mark as running
-  await supabase
+  await auth.supabase
     .from('research_jobs')
     .update({ status: 'running', updated_at: new Date().toISOString() })
-    .eq('id', jobId)
+    .eq('id', resolvedJobId)
+    .eq('owner_id', ownerId)
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (!anthropicKey) {
-    await markError(jobId, 'ANTHROPIC_API_KEY not configured')
+    await markError(auth.supabase, resolvedJobId, ownerId, 'ANTHROPIC_API_KEY not configured')
     return NextResponse.json({ error: 'No API key' }, { status: 500 })
   }
 
@@ -123,7 +145,7 @@ Return ONLY this JSON inside <json> tags, nothing else after the closing tag:
   } catch (apiError: unknown) {
     const msg = apiError instanceof Error ? apiError.message : String(apiError)
     console.error('Anthropic API error:', msg)
-    await markError(jobId, `Claude API failed: ${msg}`)
+    await markError(auth.supabase, resolvedJobId, ownerId, `Claude API failed: ${msg}`)
     return NextResponse.json({ error: msg }, { status: 502 })
   }
 
@@ -136,7 +158,7 @@ Return ONLY this JSON inside <json> tags, nothing else after the closing tag:
   if (!fullText.trim()) {
     const msg = `No text output. Stop: ${response.stop_reason}. Types: ${response.content.map(b => b.type).join(',')}`
     console.error(msg)
-    await markError(jobId, msg)
+    await markError(auth.supabase, resolvedJobId, ownerId, msg)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 
@@ -153,7 +175,7 @@ Return ONLY this JSON inside <json> tags, nothing else after the closing tag:
   if (!jsonStr) {
     const msg = 'No JSON block found in response'
     console.error(msg, fullText.slice(0, 500))
-    await markError(jobId, msg)
+    await markError(auth.supabase, resolvedJobId, ownerId, msg)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 
@@ -166,44 +188,27 @@ Return ONLY this JSON inside <json> tags, nothing else after the closing tag:
     } catch (e) {
       const msg = `JSON parse failed: ${e}`
       console.error(msg, jsonStr.slice(0, 400))
-      await markError(jobId, msg)
+      await markError(auth.supabase, resolvedJobId, ownerId, msg)
       return NextResponse.json({ error: msg }, { status: 500 })
     }
   }
 
-  // Sanitize fields
-  if (data.ownerPhone) {
-    const d = String(data.ownerPhone).replace(/\D/g, '')
-    if (d.length === 10) data.ownerPhone = `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`
-    else if (d.length === 11 && d[0] === '1') data.ownerPhone = `${d.slice(1,4)}-${d.slice(4,7)}-${d.slice(7)}`
-    else data.ownerPhone = null
-  }
-  const yr = parseInt(data.yearBuilt); data.yearBuilt = (yr >= 1800 && yr <= 2026) ? yr : null
-  const toNum = (v: unknown, min: number) => { const n = typeof v === 'string' ? parseFloat((v as string).replace(/[$,]/g, '')) : Number(v); return (!isNaN(n) && n >= min) ? Math.round(n) : null }
-  data.marketValue   = toNum(data.marketValue, 5000)
-  data.assessedValue = toNum(data.assessedValue, 1000)
-  data.lastSalePrice = toNum(data.lastSalePrice, 100)
-  if (data.roofAgeYears !== null) {
-    const r = Math.round(parseFloat(data.roofAgeYears))
-    data.roofAgeYears = (!isNaN(r) && r >= 1 && r <= 60 && r !== (2026 - (data.yearBuilt || 0))) ? r : null
-  }
-  if (data.permitCount !== null) {
-    const p = parseInt(data.permitCount); data.permitCount = (!isNaN(p) && p >= 0) ? p : null
-  }
+  data = normalizeResearchData(data)
 
   // Geocode for lat/lng
   const geocoded = await geocodeAddress(address)
   if (geocoded) { data.geocoded_lat = geocoded.lat; data.geocoded_lng = geocoded.lng }
 
   // Write result to Supabase
-  await supabase
+  await auth.supabase
     .from('research_jobs')
     .update({
       status: 'done',
       result: data,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', jobId)
+    .eq('id', resolvedJobId)
+    .eq('owner_id', ownerId)
 
   return NextResponse.json({ ok: true })
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { requireUser, requireTier } from '@/lib/apiAuth'
 import { log } from '@/lib/logger'
+import { normalizeResearchData } from '@/lib/researchNormalization'
 
 export const maxDuration = 60
 
@@ -171,55 +172,7 @@ After completing all searches, output your findings inside <json> tags:
       }
     }
 
-    // ── Validate and sanitize all fields ──
-
-    // Phone: normalize to XXX-XXX-XXXX
-    if (data.ownerPhone) {
-      const digits = String(data.ownerPhone).replace(/\D/g, '')
-      if (digits.length === 10) {
-        data.ownerPhone = `${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6)}`
-      } else if (digits.length === 11 && digits[0] === '1') {
-        data.ownerPhone = `${digits.slice(1,4)}-${digits.slice(4,7)}-${digits.slice(7)}`
-      } else {
-        data.ownerPhone = null
-      }
-    }
-
-    // Year built: must be plausible integer
-    if (data.yearBuilt) {
-      const y = parseInt(data.yearBuilt)
-      data.yearBuilt = (y >= 1800 && y <= 2026) ? y : null
-    }
-
-    // Dollar values: must be positive numbers above minimums
-    const toNum = (v: unknown, min: number) => {
-      const n = typeof v === 'string' ? parseFloat(v.replace(/[$,]/g, '')) : Number(v)
-      return (!isNaN(n) && n >= min) ? Math.round(n) : null
-    }
-    data.marketValue  = toNum(data.marketValue, 5000)
-    data.assessedValue = toNum(data.assessedValue, 1000)
-    data.lastSalePrice = toNum(data.lastSalePrice, 100)
-
-    // Roof age: only from permits, not year built
-    if (data.roofAgeYears !== null) {
-      const r = parseFloat(data.roofAgeYears)
-      if (isNaN(r) || r < 1 || r > 60) {
-        data.roofAgeYears = null
-      } else {
-        // Reject if it matches year-built calculation (means Claude cheated)
-        if (data.yearBuilt && Math.round(r) === 2026 - data.yearBuilt) {
-          data.roofAgeYears = null
-        } else {
-          data.roofAgeYears = Math.round(r)
-        }
-      }
-    }
-
-    // Permit count: must be a non-negative integer
-    if (data.permitCount !== null) {
-      const p = parseInt(data.permitCount)
-      data.permitCount = (!isNaN(p) && p >= 0) ? p : null
-    }
+    data = normalizeResearchData(data)
 
     // Geocode for coordinates
     const geocoded = await geocodeAddress(address)

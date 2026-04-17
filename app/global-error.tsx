@@ -14,6 +14,18 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error('[global error boundary]', error)
+    fetch('/api/observability/error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: 'app/global-error',
+        route: typeof window !== 'undefined' ? window.location.pathname : null,
+        message: error.message,
+        digest: error.digest,
+        metadata: { stack: error.stack },
+      }),
+      keepalive: true,
+    }).catch(() => {})
   }, [error])
 
   return (

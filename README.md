@@ -1,36 +1,78 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Directive CRM
 
-## Getting Started
+Directive CRM is a Next.js 16 roofing-sales CRM focused on property research, storm intelligence, proposals, jobs, team communication, and Michael AI workflows.
 
-First, run the development server:
+## Stack
+
+- Next.js App Router with React 19 and TypeScript
+- Supabase for auth, Postgres, and object storage
+- Anthropic for research and Michael AI responses
+- NOAA, Google Maps, and other external data providers for weather, geocoding, and storm workflows
+
+## Local Setup
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Required Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Core:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
-## Learn More
+AI and research:
+- `ANTHROPIC_API_KEY`
 
-To learn more about Next.js, take a look at the following resources:
+Maps and weather:
+- `NEXT_PUBLIC_MAPS_API_KEY` or `MAPS_API_KEY`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Messaging and email:
+- `EMAIL_ACCOUNT_ENCRYPTION_KEY`
+- `RESEND_API_KEY`
+- `RESEND_FROM_DOMAIN`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Optional hardening flags:
+- `EMAIL_ALLOW_PLAINTEXT_FALLBACK=false`
+- `TWILIO_ALLOW_UNSIGNED_WEBHOOKS=false`
+- `OBSERVABILITY_WEBHOOK_URL`
 
-## Deploy on Vercel
+## Key Workflows
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Property research starts at `/api/research/start` and is normalized so roof age is only permit-backed.
+- StormScope uses `/api/noaa/hail` and `/api/noaa/hwel` with one shared severe-hail threshold.
+- Michael AI uses `/api/michael` and `/api/michael/leads`; server-verified CRM counts are separated from client-reported session context.
+- Job and property photo uploads use private Supabase storage plus signed delivery.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.  
+## Truth Model
+
+- Roof age is verified only when derived from an actual roofing permit date.
+- Permit counts may be unknown; absence of evidence should not be rendered as zero.
+- Michael operational counts are server-verified where possible and explicitly labeled unverified when they come from browser session state.
+- Private photos are stored in private buckets and returned through signed URLs.
+
+## Verification
+
+Useful local checks:
+
+```bash
+npx tsc --noEmit
+node --experimental-strip-types --test tests/*.mts
+```
+
+Health probe:
+
+```bash
+curl http://localhost:3000/api/health
+```
+
+## Repo Notes
+
+- Supabase migrations in `supabase/migrations` are part of the audited source of truth and now include the canonical `profiles` schema plus live RLS backfills.
+- The UI shell is intentionally design-heavy; backend, state, and data-truth changes should avoid altering layout or styling without a strong reason.

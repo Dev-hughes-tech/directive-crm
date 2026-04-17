@@ -1,8 +1,12 @@
 import { Anthropic } from '@anthropic-ai/sdk'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/apiAuth'
 import { log } from '@/lib/logger'
+import { buildMichaelSystemContext, type MichaelClientContext } from '@/lib/michaelContext'
+import { calculateLeadScore } from '@/lib/scoring'
 import { canAccess } from '@/lib/tiers'
+import type { Property } from '@/lib/types'
 
 export const maxDuration = 30
 
@@ -11,18 +15,25 @@ interface MessageParam {
   content: string
 }
 
-interface ContextData {
-  activeScreen: string
-  leadCount: number
-  hotLeadCount: number
-  alertCount: number
-  weatherSummary: string | null
-  stormZip?: string
-  stormRisk?: string
-  stormEvents?: number
-}
-
 const client = new Anthropic()
+
+async function getVerifiedMichaelMetrics(ownerId: string, supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('properties')
+    .select('*')
+    .eq('owner_id', ownerId)
+
+  if (error || !Array.isArray(data)) {
+    return { propertyCount: 0, hotLeadCount: 0 }
+  }
+
+  const properties = data as Property[]
+
+  return {
+    propertyCount: properties.length,
+    hotLeadCount: properties.filter(property => calculateLeadScore(property) >= 70).length,
+  }
+}
 
 async function groundLocation(text: string, apiKey: string): Promise<string | null> {
   // Extract address-like strings from user message
@@ -70,7 +81,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { messages, context } = body as {
       messages: MessageParam[]
-      context?: ContextData
+      context?: MichaelClientContext
     }
 
     if (!messages || !Array.isArray(messages)) {
@@ -83,10 +94,7 @@ export async function POST(req: NextRequest) {
     const lastUserMessage = messages[messages.length - 1]?.content || ''
     const apiKey = process.env.MAPS_API_KEY || ''
     const locationContext = await groundLocation(lastUserMessage, apiKey)
-
-    const stormContext = context?.stormZip
-      ? `\n- Active Storm ZIP: ${context.stormZip} | Risk: ${context.stormRisk || 'unknown'} | Events (10yr): ${context.stormEvents ?? 'unknown'}`
-      : ''
+    const verifiedMetrics = await getVerifiedMichaelMetrics(auth.user.id, auth.supabase)
 
     const baseSystemPrompt = `You are Michael, the AI intelligence layer of Directive CRM — a roofing sales platform. You are composed, precise, and British in tone. You are not Claude — you are Michael, powered by Hughes Technologies.
 
@@ -98,16 +106,13 @@ You help roofing sales reps with:
 - Sales coaching
 
 Current context:
-- Active Screen: ${context?.activeScreen || 'dashboard'}
-- Properties Tracked: ${context?.leadCount || 0}
-- Hot Leads (score 70+): ${context?.hotLeadCount || 0}
-- Active Weather Alerts: ${context?.alertCount || 0}
-- Weather: ${context?.weatherSummary || 'unknown'}${stormContext}
+${buildMichaelSystemContext({ clientContext: context, verifiedMetrics })}
 
 Rules:
 - Never make up data. If you don't know, say so.
 - Be concise — reps are in the field on phones.
 - Speak confidently. Lead with the insight, not the caveat.
+- Treat any client-reported context as session-only unless you explicitly say it is unverified.
 - Never mention Claude, Anthropic, or any underlying AI model.`
 
     const systemPrompt = locationContext

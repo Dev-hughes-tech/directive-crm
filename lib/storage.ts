@@ -1,5 +1,18 @@
 import { supabase } from './supabase'
-import type { Property, Client, Proposal, ProposalLineItem, Material, ChatMessage, Job } from './types'
+import type {
+  Property,
+  Client,
+  Proposal,
+  ProposalLineItem,
+  Material,
+  ChatMessage,
+  Job,
+  WorkSession,
+  Invoice,
+  Estimate,
+  Contract,
+  DocumentFile,
+} from './types'
 import type { UserRole } from './tiers'
 
 // ── STORAGE RESULT TYPE ─────────────────────────────────────────────────────
@@ -451,5 +464,470 @@ export async function deleteJob(id: string): Promise<StorageResult> {
     return { ok: true, source: 'supabase' }
   } catch (e) {
     return { ok: false, source: 'local', error: String(e) }
+  }
+}
+
+// ── WORK SESSIONS ────────────────────────────────────────────────────────────
+
+export async function getSessions(): Promise<WorkSession[]> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
+    const { data, error } = await supabase
+      .from('work_sessions')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .order('last_accessed_at', { ascending: false })
+      .limit(50)
+    if (error) return []
+    return (data || []) as WorkSession[]
+  } catch {
+    return []
+  }
+}
+
+export async function createSession(
+  name: string,
+  opts?: { zip?: string | null; city?: string | null; state?: string | null }
+): Promise<WorkSession | null> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return null
+
+    await supabase
+      .from('work_sessions')
+      .update({ is_active: false })
+      .eq('owner_id', ownerId)
+      .eq('is_active', true)
+
+    const now = new Date().toISOString()
+    const payload = await withOwner({
+      id: `ses_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      zip: opts?.zip ?? null,
+      city: opts?.city ?? null,
+      state: opts?.state ?? null,
+      property_count: 0,
+      client_count: 0,
+      is_active: true,
+      last_accessed_at: now,
+      created_at: now,
+    })
+
+    const { data, error } = await supabase
+      .from('work_sessions')
+      .insert(payload)
+      .select('*')
+      .single()
+
+    if (error) return null
+    return data as WorkSession
+  } catch {
+    return null
+  }
+}
+
+export async function activateSession(sessionId: string): Promise<StorageResult> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'Not signed in' }
+
+    await supabase
+      .from('work_sessions')
+      .update({ is_active: false })
+      .eq('owner_id', ownerId)
+      .eq('is_active', true)
+
+    const { error } = await supabase
+      .from('work_sessions')
+      .update({
+        is_active: true,
+        last_accessed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId)
+      .eq('owner_id', ownerId)
+
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+export async function renameSession(sessionId: string, name: string): Promise<StorageResult> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'Not signed in' }
+    const { error } = await supabase
+      .from('work_sessions')
+      .update({
+        name,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId)
+      .eq('owner_id', ownerId)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+export async function copySession(sessionId: string, name?: string): Promise<WorkSession | null> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return null
+    const { data, error } = await supabase
+      .from('work_sessions')
+      .select('*')
+      .eq('id', sessionId)
+      .eq('owner_id', ownerId)
+      .single()
+    if (error || !data) return null
+    return createSession(name ?? `${data.name} Copy`, {
+      zip: data.zip,
+      city: data.city,
+      state: data.state,
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function closeSession(sessionId?: string): Promise<StorageResult> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'Not signed in' }
+    const query = supabase
+      .from('work_sessions')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq('owner_id', ownerId)
+    const { error } = sessionId ? await query.eq('id', sessionId) : await query.eq('is_active', true)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+export async function getActiveSession(): Promise<WorkSession | null> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return null
+    const { data, error } = await supabase
+      .from('work_sessions')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (error) return null
+    return (data as WorkSession | null) ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function getSessionProperties(sessionId: string): Promise<Property[]> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
+    const { data, error } = await supabase
+      .from('properties')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false })
+    if (error) return []
+    return (data || []) as Property[]
+  } catch {
+    return []
+  }
+}
+
+export async function updateSessionCounts(
+  sessionId: string,
+  propertyCount: number,
+  clientCount: number
+): Promise<void> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return
+    await supabase
+      .from('work_sessions')
+      .update({
+        property_count: propertyCount,
+        client_count: clientCount,
+        last_accessed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId)
+      .eq('owner_id', ownerId)
+  } catch {
+    // non-critical sync
+  }
+}
+
+// ── ACCOUNTING DOCUMENTS ────────────────────────────────────────────────────
+
+export function generateInvoiceNumber(): string {
+  const year = new Date().getFullYear().toString().slice(-2)
+  return `INV-${year}-${Date.now().toString(36).slice(-6).toUpperCase()}`
+}
+
+export async function getInvoices(): Promise<Invoice[]> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
+    const { data, error } = await supabase
+      .from('invoices')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .order('created_at', { ascending: false })
+    if (error) return []
+    return (data || []) as Invoice[]
+  } catch {
+    return []
+  }
+}
+
+export async function saveInvoice(invoice: Invoice): Promise<StorageResult> {
+  try {
+    const payload = await withOwner(invoice as unknown as Record<string, unknown>)
+    const { error } = await supabase.from('invoices').upsert(payload)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+export async function deleteInvoice(id: string): Promise<StorageResult> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+    const { error } = await supabase
+      .from('invoices')
+      .delete()
+      .eq('id', id)
+      .eq('owner_id', ownerId)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+export function generateEstimateNumber(): string {
+  const year = new Date().getFullYear().toString().slice(-2)
+  return `EST-${year}-${Date.now().toString(36).slice(-6).toUpperCase()}`
+}
+
+export async function getEstimates(): Promise<Estimate[]> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
+    const { data, error } = await supabase
+      .from('estimates')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .order('created_at', { ascending: false })
+    if (error) return []
+    return (data || []) as Estimate[]
+  } catch {
+    return []
+  }
+}
+
+export async function saveEstimate(estimate: Estimate): Promise<StorageResult> {
+  try {
+    const payload = await withOwner(estimate as unknown as Record<string, unknown>)
+    const { error } = await supabase.from('estimates').upsert(payload)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+export async function deleteEstimate(id: string): Promise<StorageResult> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+    const { error } = await supabase
+      .from('estimates')
+      .delete()
+      .eq('id', id)
+      .eq('owner_id', ownerId)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+export function generateContractNumber(): string {
+  const year = new Date().getFullYear().toString().slice(-2)
+  return `CON-${year}-${Date.now().toString(36).slice(-6).toUpperCase()}`
+}
+
+export async function getContracts(): Promise<Contract[]> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
+    const { data, error } = await supabase
+      .from('contracts')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .order('created_at', { ascending: false })
+    if (error) return []
+    return (data || []) as Contract[]
+  } catch {
+    return []
+  }
+}
+
+export async function saveContract(contract: Contract): Promise<StorageResult> {
+  try {
+    const payload = await withOwner(contract as unknown as Record<string, unknown>)
+    const { error } = await supabase.from('contracts').upsert(payload)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+export async function deleteContract(id: string): Promise<StorageResult> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+    const { error } = await supabase
+      .from('contracts')
+      .delete()
+      .eq('id', id)
+      .eq('owner_id', ownerId)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+// ── DOCUMENT STORAGE ────────────────────────────────────────────────────────
+
+const STORAGE_BUCKET = 'directive-documents'
+
+function sanitizeFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, '_')
+}
+
+async function saveDocumentFileRecord(file: DocumentFile): Promise<StorageResult> {
+  try {
+    const payload = await withOwner(file as unknown as Record<string, unknown>)
+    const { error } = await supabase.from('document_files').upsert(payload)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+export async function uploadDocumentFile(params: {
+  documentType: DocumentFile['document_type']
+  documentId: string
+  file: File
+}): Promise<StorageResult & { file?: DocumentFile }> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+
+    const filePath = `${ownerId}/${params.documentType}/${params.documentId}/${Date.now()}-${sanitizeFileName(params.file.name)}`
+    const { error: uploadError } = await supabase
+      .storage
+      .from(STORAGE_BUCKET)
+      .upload(filePath, params.file, {
+        upsert: false,
+        contentType: params.file.type || undefined,
+      })
+
+    if (uploadError) {
+      return { ok: false, source: 'supabase', error: uploadError.message }
+    }
+
+    const record: DocumentFile = {
+      id: `doc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      document_type: params.documentType,
+      document_id: params.documentId,
+      file_name: params.file.name,
+      file_path: filePath,
+      file_size: params.file.size,
+      mime_type: params.file.type || null,
+      created_at: new Date().toISOString(),
+    }
+
+    const saveResult = await saveDocumentFileRecord(record)
+    if (!saveResult.ok) return { ...saveResult }
+    return { ok: true, source: 'supabase', file: record }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
+  }
+}
+
+export async function getDocumentFiles(
+  documentType: DocumentFile['document_type'],
+  documentId: string
+): Promise<DocumentFile[]> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return []
+    const { data, error } = await supabase
+      .from('document_files')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .eq('document_type', documentType)
+      .eq('document_id', documentId)
+      .order('created_at', { ascending: false })
+    if (error) return []
+    return (data || []) as DocumentFile[]
+  } catch {
+    return []
+  }
+}
+
+export async function getDocumentFileUrl(filePath: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .storage
+      .from(STORAGE_BUCKET)
+      .createSignedUrl(filePath, 60 * 60)
+    if (error) return null
+    return data?.signedUrl ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function deleteDocumentFile(file: DocumentFile): Promise<StorageResult> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, source: null, error: 'No user ID' }
+
+    const { error: storageError } = await supabase
+      .storage
+      .from(STORAGE_BUCKET)
+      .remove([file.file_path])
+    if (storageError) return { ok: false, source: 'supabase', error: storageError.message }
+
+    const { error } = await supabase
+      .from('document_files')
+      .delete()
+      .eq('id', file.id)
+      .eq('owner_id', ownerId)
+    if (error) return { ok: false, source: 'supabase', error: error.message }
+
+    return { ok: true, source: 'supabase' }
+  } catch (e) {
+    return { ok: false, source: null, error: String(e) }
   }
 }

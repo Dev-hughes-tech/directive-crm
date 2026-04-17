@@ -253,7 +253,9 @@ export function PropertyCard({ property }: PropertyCardProps) {
           </div>
           <div className="flex justify-between">
             <span className="text-gray-400">Permits:</span>
-            <span className="text-white">{property.permit_count || 0} on record</span>
+            <span className="text-white">
+              {property.permit_count !== null ? `${property.permit_count} on record` : 'Not verified'}
+            </span>
           </div>
           {property.permit_count && property.permit_count > 0 && (
             <div className="flex justify-between">

@@ -42,6 +42,8 @@ $$ language sql stable security definer;
 -- 1. PROPERTIES — add owner_id + missing columns + dedupe
 -- ──────────────────────────────────────────────────────────────
 alter table properties add column if not exists owner_id uuid references auth.users(id) on delete cascade;
+alter table properties add column if not exists lat double precision;
+alter table properties add column if not exists lng double precision;
 alter table properties add column if not exists updated_at timestamptz default now();
 alter table properties add column if not exists permit_last_date text;
 alter table properties add column if not exists sqft integer;

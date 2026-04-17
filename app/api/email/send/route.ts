@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 import { requireUser } from '@/lib/apiAuth'
+import { decryptEmailCredential } from '@/lib/emailCredentials'
 
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
       secure: account.smtp_ssl, // true for 465, false for other ports (starttls)
       auth: {
         user: account.username,
-        pass: account.password_enc,
+        pass: decryptEmailCredential(account.password_enc),
       },
     })
 

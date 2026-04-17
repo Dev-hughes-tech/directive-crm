@@ -1,36 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
-
-// Validate that the request actually came from Twilio's servers
-function validateTwilioSignature(req: NextRequest, rawBody: string): boolean {
-  const authToken = process.env.TWILIO_AUTH_TOKEN
-  if (!authToken) {
-    console.warn('[twilio/sms] TWILIO_AUTH_TOKEN not set — skipping signature validation')
-    return true
-  }
-
-  const signature = req.headers.get('x-twilio-signature') || ''
-  if (!signature) {
-    console.warn('[twilio/sms] Missing X-Twilio-Signature header')
-    return false
-  }
-
-  const url = process.env.TWILIO_WEBHOOK_BASE_URL
-    ? `${process.env.TWILIO_WEBHOOK_BASE_URL}/api/twilio/webhook/sms`
-    : `${req.nextUrl.protocol}//${req.nextUrl.host}/api/twilio/webhook/sms`
-
-  const params: Record<string, string> = {}
-  const searchParams = new URLSearchParams(rawBody)
-  searchParams.forEach((value, key) => { params[key] = value })
-
-  return twilio.validateRequest(authToken, signature, url, params)
-}
+import { validateTwilioRequest } from '@/lib/twilioValidation'
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
 
-  if (!validateTwilioSignature(req, rawBody)) {
+  if (!validateTwilioRequest(req, rawBody, '/api/twilio/webhook/sms', 'twilio/sms')) {
     return new NextResponse('Forbidden', { status: 403 })
   }
 
