@@ -126,6 +126,7 @@ import {
 } from '@/lib/storage'
 import { resolveSettledSection } from '@/lib/dashboardHydration'
 import { countSevereHailEvents, SEVERE_HAIL_THRESHOLD_INCHES } from '@/lib/hailEvents'
+import { interpretMichaelLeadResponse } from '@/lib/michaelLeadSearch'
 import { sessionCache } from '@/lib/sessionCache'
 import { isDurableStorageSuccess } from '@/lib/storageResults'
 import type { UserProfile } from '@/lib/storage'
@@ -2224,7 +2225,17 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ zip: zip.trim() }),
       })
-      const data = await res.json()
+      const body = await res.json().catch(() => ({}))
+      const parsed = interpretMichaelLeadResponse<any>(
+        res,
+        body,
+        'Lead search failed. Check your connection and try again.',
+      )
+      if (!parsed.ok) {
+        addNotification(parsed.error, 'warning')
+        return
+      }
+      const data = parsed.data
       setMichaelLeads(data.leads || [])
       setMichaelStormData(data)
       if (data.lat && data.lng) {
@@ -2267,12 +2278,17 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ zip: derivedZip }),
       })
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        addNotification(err.error || 'Michael lead engine failed — try again.', 'warning')
+      const body = await response.json().catch(() => ({}))
+      const parsed = interpretMichaelLeadResponse<any>(
+        response,
+        body,
+        'Michael lead engine failed — try again.',
+      )
+      if (!parsed.ok) {
+        addNotification(parsed.error, 'warning')
         return
       }
-      const data = await response.json()
+      const data = parsed.data
       setMichaelLeads(data.leads || [])
       setMichaelStormData(data)
       if (data.leads?.length) {
@@ -2413,23 +2429,7 @@ export default function Dashboard() {
         michaelLeadsLoading={michaelLeadsLoading}
         michaelLeads={michaelLeads}
         michaelStormData={michaelStormData}
-        onMichaelSearch={(zip) => {
-          setMichaelLeadsLoading(true)
-          setMichaelLeads([])
-          setMichaelStormData(null)
-          authFetch('/api/michael/leads', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ zip }),
-          })
-            .then(r => r.json())
-            .then((data: any) => {
-              setMichaelLeads(data.leads || [])
-              setMichaelStormData(data)
-            })
-            .catch(() => {})
-            .finally(() => setMichaelLeadsLoading(false))
-        }}
+        onMichaelSearch={(zip) => { void handleMichaelZipSearch(zip) }}
         chatMessages={chatMessages}
         chatInput={chatInput}
         setChatInput={setChatInput}
